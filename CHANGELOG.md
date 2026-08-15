@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-15
+
+### Fixed
+
+- **Event log tools returned empty results.** `get_recent_events`,
+  `get_application_errors`, and `get_system_errors` sized the `EvtRender`
+  output buffer from the wrong `EvtRender` output parameter (the property
+  count) instead of the reported buffer size, so the render call always
+  failed and every query came back empty. The buffer is now allocated from
+  `BufferUsed` bytes as the API documents.
+- **`list_windows` ignored `include_hidden` at the source.** The tool
+  enumerated the full window table and post-filtered, so hidden windows
+  consumed the result limit and the default query could return zero
+  visible windows. Enumeration now skips hidden windows up front when
+  `include_hidden` is `false` (the default), so the limit counts visible
+  windows only.
+- **`list_listening_ports` dropped process names and rows.** The TCP and
+  UDP loops returned early once the result cap was reached, skipping the
+  name-resolution pass entirely (and losing UDP rows on short TCP tables).
+  Loops now `break` instead of returning, so the process-name pass always
+  runs and the limit still holds.
+- **`get_service` always reported an empty `display_name`.** The SCM query
+  APIs exposed by `windows-sys` 0.59 do not return the display name, so it
+  is now read from the service's registry key
+  (`HKLM\SYSTEM\CurrentControlSet\Services\<name>\DisplayName`).
+
 ### Changed
 
 - **Headed and headless are two separate product modes.** A managed

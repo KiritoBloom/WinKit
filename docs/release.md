@@ -27,7 +27,7 @@ tests exercise.
 
 Releases are cut from `main` with a version bump, a changelog entry, and a
 tagged build, per [CONTRIBUTING](../CONTRIBUTING.md). The current version is
-`0.1.0` (`Cargo.toml` and both `npm/*/package.json` files); the examples
+`0.1.1` (`Cargo.toml` and both `npm/*/package.json` files); the examples
 below use `vX.Y.Z` and `YYYY-MM-DD` placeholders wherever the actual value is
 decided at release time.
 
@@ -164,7 +164,7 @@ carries the name.
 
 Publishing is a **separate, explicit, credentialed step** — pull-request CI
 never publishes, and nothing is published automatically. The package version
-must match the crate version (`0.1.0` today). Requirements:
+must match the crate version (`0.1.1` today). Requirements:
 
 1. Both packages have been staged and validated locally (the checklist above
    covers pack dry-runs, package-content validation, and the packed-package
@@ -190,7 +190,7 @@ final `npm pack --dry-run` and the packed-package smoke test right before
 publishing. After publishing, verify from a clean directory:
 
 ```bash
-npx --yes @winkit/mcp@0.1.0 doctor
+npx --yes @winkit/mcp@0.1.1 doctor
 ```
 
 ## GitHub release notes
