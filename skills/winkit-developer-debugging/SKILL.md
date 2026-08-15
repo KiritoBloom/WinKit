@@ -146,7 +146,7 @@ Ask yourself: *what is the user actually asking?* Then use the map.
 | "Tests are hanging" | `wait_for_port` / `wait_for_http` on the expected endpoint, `list_processes` for orphaned runners, `system_health` for saturation |
 | "Is this dev server related to my workspace?" | `list_dev_servers` → `diagnose_workspace` → `workspace_snapshot` |
 | "Where is the project / what runs it?" | `workspace_snapshot`, `dev_environment` |
-| "Disk is full / files too big" | `list_drives` → `disk_usage` → `find_large_files` |
+| "Disk is full / files too big" | `list_drives` → `disk_scan` (fast NTFS MFT summary) → `disk_scan_largest_folders` → `disk_scan_largest_files` → `disk_scan_find`; `disk_scan_start`/`disk_scan_status` for very large drives |
 | "Something crashed / error events" | `get_recent_events`, `get_application_errors`, `get_system_errors`, `correlate_recent_failures` |
 | "What is this process / tree?" | `get_process`, `get_process_tree`, `find_process` |
 | "What's listening and on what?" | `list_listening_ports`, `list_connections`, `list_network_interfaces` |

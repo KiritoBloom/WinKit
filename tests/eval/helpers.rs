@@ -131,6 +131,29 @@ impl WindowsBackend for ScenarioBackend {
         self.inner.find_large_files(request)
     }
 
+    fn disk_scan(&self, request: &DiskScanRequest) -> Result<DiskScanInfo, WinkitError> {
+        self.inner.disk_scan(request)
+    }
+
+    fn disk_scan_start(
+        &self,
+        request: &DiskScanRequest,
+    ) -> Result<DiskScanStatusInfo, WinkitError> {
+        self.inner.disk_scan_start(request)
+    }
+
+    fn disk_scan_status(&self, scan_id: &str) -> Result<Option<DiskScanStatusInfo>, WinkitError> {
+        self.inner.disk_scan_status(scan_id)
+    }
+
+    fn disk_scan_cancel(&self, scan_id: &str) -> Result<bool, WinkitError> {
+        self.inner.disk_scan_cancel(scan_id)
+    }
+
+    fn disk_scan_query(&self, request: &DiskQueryRequest) -> Result<DiskQueryResult, WinkitError> {
+        self.inner.disk_scan_query(request)
+    }
+
     fn list_services(&self, limit: usize) -> Result<Vec<ServiceInfo>, WinkitError> {
         self.inner.list_services(limit)
     }

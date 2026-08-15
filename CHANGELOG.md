@@ -109,6 +109,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Fast disk-space analysis (`disk_scan_*` tools)** — whole-volume space
+  analysis with an NTFS metadata fast path: the MFT is streamed via the
+  documented `FSCTL_ENUM_USN_DATA` control code (WizTree-style, instead of
+  recursively opening every directory), the directory tree is reconstructed
+  from file reference numbers, and folder sizes are aggregated entirely in
+  memory — then cached per volume, so repeated queries answer in
+  milliseconds. Eight tools: `disk_scan` (one-call summary + top lists),
+  `disk_scan_start`/`disk_scan_status`/`disk_scan_cancel` (background
+  scanning with cancellation), and snapshot queries `disk_scan_largest_files`,
+  `disk_scan_largest_folders`, `disk_scan_folder_size`, `disk_scan_find`.
+  Reparse points are never followed (no cycles, no volume escapes); hard
+  links are counted per directory entry (Explorer semantics) and reported
+  with their link count; sizes are logical (`EndOfFile`), with allocated
+  size measured only for materialized top-K results. The MCP always reports
+  which scanner produced the result (`scanner`, `fast_path_unavailable`,
+  `cached`, `snapshot_age_ms`) and falls back to a recursive scanner when
+  the fast path is unavailable (e.g. non-NTFS volumes or an unprivileged
+  token). Honest degradation: an access-denied `GENERIC_READ` volume open
+  (Win32 error 5, which needs an elevated token on modern Windows) is
+  detected and reported verbatim in `fast_path_unavailable`, the fallback
+  walks the requested directory rather than silently the whole drive, and
+  the MCP never claims the fast path ran when it did not. Background scans
+  release their active-scan slot when done, failed, or cancelled, so a new
+  scan for the same volume always starts; terminal statuses stay pollable
+  from a bounded 32-entry history; status reports `records_so_far`,
+  `files_so_far`, `directories_so_far`, `phase`, and `elapsed_ms` (the
+  directory counter is real — enumeration and the recursive walk both
+  publish it).
 - **npm distribution** — WinKit now ships as two npm packages:
   `@winkit/mcp` (a thin Node launcher, `npx --yes @winkit/mcp@latest`) and
   `@winkit/win32-x64-msvc` (the Windows x64 native runtime, an optional

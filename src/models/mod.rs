@@ -7,6 +7,7 @@
 
 pub mod browser;
 pub mod diagnostics;
+pub mod diskscan;
 pub mod event;
 pub mod evidence;
 pub mod health;
@@ -26,6 +27,11 @@ pub use diagnostics::{
     DiagnosticCorrelation, DiagnosticReport, DiagnosticSignal, EvidencePoint, Measurement,
     PossibleCause, RankedFinding, SystemAppEvidence, SystemDiagnosis, SystemDiagnosticData,
     SystemDriveEvidence, TabDiagnosticData,
+};
+pub use diskscan::{
+    DiskQueryKind, DiskQueryRequest, DiskQueryResult, DiskScanInfo, DiskScanRequest,
+    DiskScanStatusInfo, ScanCapacity, ScanFileEntry, ScanFindFile, ScanFolderEntry, ScanFolderSize,
+    ScannerKind,
 };
 pub use event::{EventInfo, EventLevel, EventQuery};
 pub use evidence::{

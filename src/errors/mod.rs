@@ -59,6 +59,8 @@ pub enum ErrorKind {
     CleanupFailure,
     /// An unexpected internal failure.
     InternalError,
+    /// The operation was cancelled by the caller (e.g. a background scan).
+    Cancelled,
 }
 
 impl ErrorKind {
@@ -88,6 +90,7 @@ impl ErrorKind {
             Self::ConcurrencyLimit => 20,
             Self::PartialEvidence => 21,
             Self::CleanupFailure => 22,
+            Self::Cancelled => 23,
         }
     }
 }
@@ -117,6 +120,7 @@ impl std::fmt::Display for ErrorKind {
             Self::ConcurrencyLimit => "concurrency_limit",
             Self::PartialEvidence => "partial_evidence",
             Self::CleanupFailure => "cleanup_failure",
+            Self::Cancelled => "cancelled",
         })
     }
 }
@@ -222,6 +226,10 @@ impl WinkitError {
 
     pub fn cleanup_failure(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::CleanupFailure, message)
+    }
+
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Cancelled, message)
     }
 
     pub fn provider_unavailable(message: impl Into<String>) -> Self {

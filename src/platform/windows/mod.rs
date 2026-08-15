@@ -5,6 +5,7 @@
 //! machine — the build task only writes and statically reviews it.
 
 pub mod dev;
+pub mod diskscan;
 pub mod events;
 pub mod ffi;
 pub mod health;

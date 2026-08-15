@@ -3120,6 +3120,33 @@ mod tests {
         ) -> Result<Vec<crate::models::FileEntry>, WinkitError> {
             self.inner.find_large_files(request)
         }
+        fn disk_scan(
+            &self,
+            request: &crate::models::DiskScanRequest,
+        ) -> Result<crate::models::DiskScanInfo, WinkitError> {
+            self.inner.disk_scan(request)
+        }
+        fn disk_scan_start(
+            &self,
+            request: &crate::models::DiskScanRequest,
+        ) -> Result<crate::models::DiskScanStatusInfo, WinkitError> {
+            self.inner.disk_scan_start(request)
+        }
+        fn disk_scan_status(
+            &self,
+            scan_id: &str,
+        ) -> Result<Option<crate::models::DiskScanStatusInfo>, WinkitError> {
+            self.inner.disk_scan_status(scan_id)
+        }
+        fn disk_scan_cancel(&self, scan_id: &str) -> Result<bool, WinkitError> {
+            self.inner.disk_scan_cancel(scan_id)
+        }
+        fn disk_scan_query(
+            &self,
+            request: &crate::models::DiskQueryRequest,
+        ) -> Result<crate::models::DiskQueryResult, WinkitError> {
+            self.inner.disk_scan_query(request)
+        }
         fn list_services(
             &self,
             limit: usize,

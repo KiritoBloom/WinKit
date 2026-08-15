@@ -32,6 +32,20 @@ pub trait WindowsBackend: Send + Sync {
         &self,
         request: FindLargeFilesRequest,
     ) -> Result<Vec<FileEntry>, WinkitError>;
+    /// Synchronous scan-or-cached-call for the volume containing
+    /// `request.path`. Returns the one-call overview (summary + top lists).
+    fn disk_scan(&self, request: &DiskScanRequest) -> Result<DiskScanInfo, WinkitError>;
+    /// Start a background scan; returns the initial status (see
+    /// [`WindowsBackend::disk_scan_status`]).
+    fn disk_scan_start(&self, request: &DiskScanRequest)
+        -> Result<DiskScanStatusInfo, WinkitError>;
+    /// Poll a background scan by ID.
+    fn disk_scan_status(&self, scan_id: &str) -> Result<Option<DiskScanStatusInfo>, WinkitError>;
+    /// Cancel a background scan by ID; false when no such scan exists.
+    fn disk_scan_cancel(&self, scan_id: &str) -> Result<bool, WinkitError>;
+    /// Run a query (top files / top folders / folder size / find) against
+    /// the cached snapshot of the volume containing `request.path`.
+    fn disk_scan_query(&self, request: &DiskQueryRequest) -> Result<DiskQueryResult, WinkitError>;
     fn list_services(&self, limit: usize) -> Result<Vec<ServiceInfo>, WinkitError>;
     fn get_service(&self, name: &str) -> Result<Option<ServiceInfo>, WinkitError>;
     fn get_recent_events(&self, query: &EventQuery) -> Result<Vec<EventInfo>, WinkitError>;
@@ -61,13 +75,19 @@ pub struct ChromeProcessSummary {
     pub sample_interval_ms: u64,
 }
 
-/// The real Windows backend, wrapping [`crate::platform::windows`].
-#[derive(Debug, Default, Clone)]
-pub struct RealWindowsBackend;
+/// The real Windows backend, wrapping [`crate::platform::windows`]. Holds
+/// the per-volume disk-scan cache and background-scan registry so every MCP
+/// call reuses one snapshot per volume.
+#[derive(Debug, Clone, Default)]
+pub struct RealWindowsBackend {
+    scans: Arc<crate::platform::windows::diskscan::DiskScanService>,
+}
 
 impl RealWindowsBackend {
     pub fn new() -> Self {
-        Self
+        Self {
+            scans: Arc::new(crate::platform::windows::diskscan::DiskScanService::default()),
+        }
     }
 }
 
@@ -139,6 +159,29 @@ impl WindowsBackend for RealWindowsBackend {
     ) -> Result<Vec<FileEntry>, WinkitError> {
         let cancel = std::sync::atomic::AtomicBool::new(false);
         crate::platform::windows::storage::find_large_files(&request, &cancel)
+    }
+
+    fn disk_scan(&self, request: &DiskScanRequest) -> Result<DiskScanInfo, WinkitError> {
+        self.scans.sync_scan(request)
+    }
+
+    fn disk_scan_start(
+        &self,
+        request: &DiskScanRequest,
+    ) -> Result<DiskScanStatusInfo, WinkitError> {
+        self.scans.clone().start(request)
+    }
+
+    fn disk_scan_status(&self, scan_id: &str) -> Result<Option<DiskScanStatusInfo>, WinkitError> {
+        Ok(self.scans.status(scan_id))
+    }
+
+    fn disk_scan_cancel(&self, scan_id: &str) -> Result<bool, WinkitError> {
+        Ok(self.scans.cancel(scan_id))
+    }
+
+    fn disk_scan_query(&self, request: &DiskQueryRequest) -> Result<DiskQueryResult, WinkitError> {
+        self.scans.query(request)
     }
 
     fn list_services(&self, limit: usize) -> Result<Vec<ServiceInfo>, WinkitError> {

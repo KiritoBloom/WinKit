@@ -23,7 +23,7 @@ fn drive_type_name(t: u32) -> &'static str {
     }
 }
 
-fn volume_usage(root: &str) -> Option<(u64, u64, u64)> {
+pub(crate) fn volume_usage(root: &str) -> Option<(u64, u64, u64)> {
     let root_wide = to_wide(root);
     let mut free_for_caller: u64 = 0;
     let mut total: u64 = 0;
