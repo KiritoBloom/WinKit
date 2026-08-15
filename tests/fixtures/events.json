@@ -1,0 +1,35 @@
+[
+  {
+    "record_id": 42,
+    "event_id": 1000,
+    "level": "error",
+    "provider": "Application Error",
+    "channel": "Application",
+    "time_created": "2026-08-13T07:59:00.000Z",
+    "computer": "DESKTOP-X",
+    "process_id": 521,
+    "message": "Faulting application name: chrome.exe"
+  },
+  {
+    "record_id": 41,
+    "event_id": 7036,
+    "level": "information",
+    "provider": "Service Control Manager",
+    "channel": "System",
+    "time_created": "2026-08-13T07:58:00.000Z",
+    "computer": "DESKTOP-X",
+    "process_id": 4,
+    "message": "The Print Spooler service entered the running state."
+  },
+  {
+    "record_id": 40,
+    "event_id": 1001,
+    "level": "warning",
+    "provider": "Microsoft-Windows-Kernel-Power",
+    "channel": "System",
+    "time_created": "2026-08-13T07:50:00.000Z",
+    "computer": "DESKTOP-X",
+    "process_id": 4,
+    "message": "The system has rebooted without cleanly shutting down first."
+  }
+]

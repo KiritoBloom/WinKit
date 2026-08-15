@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "winkit": {
+      "command": "npx",
+      "args": ["--yes", "@winkit/mcp@latest"]
+    }
+  }
+}

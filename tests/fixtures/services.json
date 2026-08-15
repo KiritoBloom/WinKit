@@ -1,0 +1,35 @@
+[
+  {
+    "name": "Spooler",
+    "display_name": "Print Spooler",
+    "state": "running",
+    "service_type": "win32_share_process",
+    "process_id": 771,
+    "win32_exit_code": null,
+    "start_type": "auto",
+    "binary_path": "C:\\Windows\\System32\\spoolsv.exe",
+    "service_start_name": "LocalSystem"
+  },
+  {
+    "name": "WSearch",
+    "display_name": "Windows Search",
+    "state": "running",
+    "service_type": "win32_share_process",
+    "process_id": 1008,
+    "win32_exit_code": null,
+    "start_type": "manual",
+    "binary_path": "C:\\Windows\\System32\\SearchIndexer.exe",
+    "service_start_name": "LocalSystem"
+  },
+  {
+    "name": "XblAuthManager",
+    "display_name": "Xbox Live Auth Manager",
+    "state": "stopped",
+    "service_type": "win32_share_process",
+    "process_id": null,
+    "win32_exit_code": null,
+    "start_type": "manual",
+    "binary_path": "C:\\Windows\\System32\\XblAuthManager.exe",
+    "service_start_name": "LocalSystem"
+  }
+]

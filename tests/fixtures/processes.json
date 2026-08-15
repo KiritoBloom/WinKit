@@ -1,0 +1,93 @@
+[
+  {
+    "pid": 4,
+    "name": "System",
+    "parent_pid": null,
+    "executable_path": null,
+    "command_line": null,
+    "working_set_bytes": null,
+    "private_bytes": null,
+    "threads": null,
+    "start_time": "2026-08-13T08:00:00.000Z",
+    "cpu_time_ms": 0,
+    "cpu_percent": null
+  },
+  {
+    "pid": 420,
+    "name": "chrome.exe",
+    "parent_pid": 4,
+    "executable_path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "command_line": null,
+    "working_set_bytes": 1900000000,
+    "private_bytes": 950000000,
+    "threads": 42,
+    "start_time": "2026-08-13T08:00:00.000Z",
+    "cpu_time_ms": 123456,
+    "cpu_percent": null
+  },
+  {
+    "pid": 521,
+    "name": "chrome.exe",
+    "parent_pid": 420,
+    "executable_path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "command_line": "chrome.exe --remote-debugging-port=9222",
+    "working_set_bytes": 1100000000,
+    "private_bytes": 550000000,
+    "threads": 24,
+    "start_time": "2026-08-13T08:01:00.000Z",
+    "cpu_time_ms": 80234,
+    "cpu_percent": null
+  },
+  {
+    "pid": 618,
+    "name": "chrome.exe",
+    "parent_pid": 420,
+    "executable_path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "command_line": null,
+    "working_set_bytes": 700000000,
+    "private_bytes": 350000000,
+    "threads": 18,
+    "start_time": "2026-08-13T08:02:00.000Z",
+    "cpu_time_ms": 51000,
+    "cpu_percent": null
+  },
+  {
+    "pid": 771,
+    "name": "svchost.exe",
+    "parent_pid": 4,
+    "executable_path": "C:\\Windows\\System32\\svchost.exe",
+    "command_line": null,
+    "working_set_bytes": 80000000,
+    "private_bytes": 40000000,
+    "threads": 12,
+    "start_time": "2026-08-13T08:00:00.000Z",
+    "cpu_time_ms": 9000,
+    "cpu_percent": null
+  },
+  {
+    "pid": 900,
+    "name": "node.exe",
+    "parent_pid": 4,
+    "executable_path": "C:\\Program Files\\nodejs\\node.exe",
+    "command_line": "C:\\work\\app\\node.exe --watch src/index.js",
+    "working_set_bytes": 320000000,
+    "private_bytes": 160000000,
+    "threads": 9,
+    "start_time": "2026-08-13T08:05:00.000Z",
+    "cpu_time_ms": 4000,
+    "cpu_percent": null
+  },
+  {
+    "pid": 1010,
+    "name": "explorer.exe",
+    "parent_pid": null,
+    "executable_path": "C:\\Windows\\explorer.exe",
+    "command_line": null,
+    "working_set_bytes": 250000000,
+    "private_bytes": 120000000,
+    "threads": 31,
+    "start_time": "2026-08-13T08:00:00.000Z",
+    "cpu_time_ms": 12000,
+    "cpu_percent": null
+  }
+]

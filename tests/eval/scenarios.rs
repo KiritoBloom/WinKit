@@ -1,0 +1,1180 @@
+//! The 16-scenario failure evaluation suite (see `tests/eval/README.md`).
+//!
+//! Every scenario is deterministic and fixture-backed: the Windows layer is
+//! a mock backend, HTTP scenarios use loopback-only test servers, workspace
+//! scenarios use temporary directories, and the managed-browser scenario
+//! exercises the tool surface (feature gate, permission gate, owned-session
+//! semantics) without a browser. Real-browser lifecycle coverage lives in
+//! the opt-in live test (`WINKIT_LIVE_CHROME=1 cargo test --features
+//! live-chrome`).
+//!
+//! Each scenario asserts the report status, important evidence and finding
+//! ids, supporting/contradicting evidence where applicable, redaction,
+//! bounded output, permission behavior, and the absence of root-cause
+//! claims. Run with `cargo test --features mocks --test eval`.
+
+use crate::helpers::{
+    assert_bounded_envelope, assert_evidence_ids_resolve, assert_evidence_subject,
+    assert_no_root_cause_claims, call, default_config, eval_state, finding, http_response,
+    Behavior, ScenarioBackend, TestServer, WorkspaceFixture, PORT_GUARD,
+};
+use serde_json::json;
+use std::sync::Arc;
+use winkit::config::Config;
+use winkit::diagnostics::DiagnosticsEngine;
+use winkit::errors::ErrorKind;
+use winkit::models::{DriveInfo, ProcessInfo, TabDiagnosticData};
+use winkit::providers::mock::MockWindowsBackend;
+use winkit::server::AppState;
+
+// ---------------------------------------------------------------------------
+// Fixture builders
+// ---------------------------------------------------------------------------
+
+/// A light process table (no heavy chrome group) with no listeners.
+fn quiet_processes() -> Vec<ProcessInfo> {
+    let p = |pid: u32, name: &str, ws: u64| ProcessInfo {
+        pid,
+        name: name.to_string(),
+        parent_pid: Some(4),
+        executable_path: Some(format!("C:\\Program Files\\{name}")),
+        command_line: None,
+        working_set_bytes: Some(ws),
+        private_bytes: Some(ws / 2),
+        threads: Some(8),
+        start_time: Some("2026-08-13T08:00:00.000Z".to_string()),
+        cpu_time_ms: Some(10_000),
+        cpu_percent: None,
+    };
+    vec![
+        p(4, "System", 0),
+        p(771, "svchost.exe", 80_000_000),
+        p(900, "node.exe", 120_000_000),
+        p(1010, "explorer.exe", 250_000_000),
+    ]
+}
+
+fn quiet_backend() -> ScenarioBackend {
+    let backend = MockWindowsBackend {
+        processes: quiet_processes(),
+        ports: Vec::new(),
+        events: Vec::new(),
+        drives: vec![DriveInfo {
+            root: "C:\\".into(),
+            kind: "fixed".into(),
+            total_bytes: Some(1_000_000_000_000),
+            free_bytes: Some(400_000_000_000),
+            used_bytes: Some(600_000_000_000),
+            percent_used: Some(60.0),
+        }],
+        ..Default::default()
+    };
+    ScenarioBackend {
+        inner: backend,
+        snapshot: Some(winkit::models::ResourceSnapshot {
+            cpu_busy_percent: Some(8.0),
+            cpu_busy_percent_basis: "system_capacity_all_cores".into(),
+            memory_load_percent: Some(40.0),
+            total_memory_bytes: Some(16_000_000_000),
+            available_memory_bytes: Some(9_600_000_000),
+        }),
+    }
+}
+
+/// The default fixture mock with a custom system snapshot.
+fn pressure_backend(cpu: f64, mem_load: f64, available: u64) -> ScenarioBackend {
+    ScenarioBackend::with_snapshot(cpu, mem_load, 16_000_000_000, available)
+}
+
+/// The default fixture mock with a low-disk drive list covering `root`'s
+/// drive (so the scenario is deterministic on any machine).
+fn low_disk_backend(root: &str) -> ScenarioBackend {
+    // `root` is a canonicalized path that may carry the `\\?\` extended-
+    // length prefix; strip it before splitting off the drive letter.
+    let drive = root
+        .trim_start_matches("\\\\?\\")
+        .split('\\')
+        .next()
+        .map(|d| format!("{d}\\"))
+        .unwrap_or_else(|| "C:\\".to_string());
+    let backend = MockWindowsBackend {
+        drives: vec![DriveInfo {
+            root: drive.clone(),
+            kind: "fixed".into(),
+            total_bytes: Some(1_000_000_000_000),
+            free_bytes: Some(4_000_000_000),
+            used_bytes: Some(996_000_000_000),
+            percent_used: Some(99.6),
+        }],
+        ..Default::default()
+    };
+    ScenarioBackend {
+        inner: backend,
+        snapshot: Some(winkit::models::ResourceSnapshot {
+            cpu_busy_percent: Some(20.0),
+            cpu_busy_percent_basis: "system_capacity_all_cores".into(),
+            memory_load_percent: Some(50.0),
+            total_memory_bytes: Some(16_000_000_000),
+            available_memory_bytes: Some(8_000_000_000),
+        }),
+    }
+}
+
+/// A chrome-heavy process table: 3.5 GB working set, 42.5% CPU (the mock
+/// reports the aggregate CPU for chrome.exe groups).
+fn heavy_chrome_backend() -> ScenarioBackend {
+    let processes = vec![
+        ProcessInfo {
+            pid: 420,
+            name: "chrome.exe".to_string(),
+            parent_pid: Some(4),
+            executable_path: Some(
+                "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe".to_string(),
+            ),
+            command_line: None,
+            working_set_bytes: Some(1_900_000_000),
+            private_bytes: Some(900_000_000),
+            threads: Some(40),
+            start_time: Some("2026-08-13T08:00:00.000Z".to_string()),
+            cpu_time_ms: Some(200_000),
+            cpu_percent: None,
+        },
+        ProcessInfo {
+            pid: 521,
+            name: "chrome.exe".to_string(),
+            parent_pid: Some(420),
+            executable_path: Some(
+                "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe".to_string(),
+            ),
+            command_line: None,
+            working_set_bytes: Some(1_100_000_000),
+            private_bytes: Some(500_000_000),
+            threads: Some(16),
+            start_time: Some("2026-08-13T08:00:00.000Z".to_string()),
+            cpu_time_ms: Some(150_000),
+            cpu_percent: None,
+        },
+        ProcessInfo {
+            pid: 618,
+            name: "chrome.exe".to_string(),
+            parent_pid: Some(420),
+            executable_path: Some(
+                "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe".to_string(),
+            ),
+            command_line: None,
+            working_set_bytes: Some(500_000_000),
+            private_bytes: Some(250_000_000),
+            threads: Some(10),
+            start_time: Some("2026-08-13T08:00:00.000Z".to_string()),
+            cpu_time_ms: Some(80_000),
+            cpu_percent: None,
+        },
+        ProcessInfo {
+            pid: 1010,
+            name: "explorer.exe".to_string(),
+            parent_pid: None,
+            executable_path: Some("C:\\Windows\\explorer.exe".to_string()),
+            command_line: None,
+            working_set_bytes: Some(250_000_000),
+            private_bytes: Some(100_000_000),
+            threads: Some(30),
+            start_time: Some("2026-08-13T08:00:00.000Z".to_string()),
+            cpu_time_ms: Some(30_000),
+            cpu_percent: None,
+        },
+    ];
+    let backend = MockWindowsBackend {
+        processes,
+        ..Default::default()
+    };
+    ScenarioBackend {
+        inner: backend,
+        snapshot: Some(winkit::models::ResourceSnapshot {
+            cpu_busy_percent: Some(50.0),
+            cpu_busy_percent_basis: "system_capacity_all_cores".into(),
+            memory_load_percent: Some(45.0),
+            total_memory_bytes: Some(16_000_000_000),
+            available_memory_bytes: Some(8_800_000_000),
+        }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 1 — healthy / quiet machine
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_01_healthy_quiet_machine() {
+    let state = eval_state(default_config(), quiet_backend());
+
+    let health = call(&state, "system_health", json!({})).await.unwrap();
+    assert_eq!(health["system"]["memory_pressure"], false);
+    assert_eq!(health["system"]["drives"][0]["low_disk_space"], false);
+    assert_eq!(health["issues"].as_array().unwrap().len(), 0);
+    for app in health["applications"].as_array().unwrap() {
+        assert_eq!(app["status"], "normal", "quiet apps stay normal");
+    }
+    let serialized = serde_json::to_string(&health).unwrap();
+    assert!(serialized.len() <= 256 * 1024);
+    assert_no_root_cause_claims(&health);
+
+    // system_diagnose agrees with system_health (shared classification).
+    let diagnose = call(&state, "system_diagnose", json!({})).await.unwrap();
+    assert_eq!(
+        diagnose["diagnosis"]["report"]["status"],
+        "no_supported_signal_detected"
+    );
+    assert_eq!(
+        diagnose["diagnosis"]["findings"].as_array().unwrap().len(),
+        0
+    );
+    let clean = diagnose["diagnosis"]["checked_clean"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect::<Vec<_>>();
+    assert!(clean.contains(&"system memory pressure"));
+    assert!(clean.contains(&"storage pressure"));
+    assert_no_root_cause_claims(&diagnose);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 2 — high memory pressure
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_02_high_memory_pressure() {
+    let state = eval_state(default_config(), pressure_backend(30.0, 94.0, 900_000_000));
+
+    let health = call(&state, "system_health", json!({})).await.unwrap();
+    assert_eq!(health["system"]["memory_pressure"], true);
+    assert_eq!(health["system"]["memory_load_percent"], 94.0);
+    let pressure_issue = health["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["kind"] == "memory_pressure")
+        .expect("memory_pressure issue present");
+    assert_eq!(pressure_issue["category"], "memory_pressure");
+    assert!(pressure_issue["score"].as_u64().unwrap() > 0);
+    assert_no_root_cause_claims(&health);
+
+    let diagnose = call(&state, "system_diagnose", json!({})).await.unwrap();
+    let findings = diagnose["diagnosis"]["findings"].as_array().unwrap();
+    assert!(
+        findings.iter().any(|f| f["category"] == "memory_pressure"),
+        "system_diagnose ranks a memory-pressure finding"
+    );
+    assert_eq!(
+        diagnose["diagnosis"]["report"]["status"],
+        "signals_detected"
+    );
+    assert_no_root_cause_claims(&diagnose);
+
+    // diagnose_workspace correlates the pressure into its envelope.
+    let ws = WorkspaceFixture::node_workspace();
+    let out = call(
+        &state,
+        "diagnose_workspace",
+        json!({ "workspace_path": ws.canonical(), "dev_server_ports": [3000] }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["status"], "issues_detected");
+    let mem = finding(&out, "memory-pressure");
+    assert_eq!(mem["confidence"], "observed");
+    assert_eq!(mem["category"], "system");
+    assert!(!mem["supporting_evidence"].as_array().unwrap().is_empty());
+    assert_evidence_ids_resolve(&out);
+    assert_bounded_envelope(&out);
+    assert_no_root_cause_claims(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 3 — low disk space
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_03_low_disk_space() {
+    let ws = WorkspaceFixture::node_workspace();
+    let state = eval_state(default_config(), low_disk_backend(&ws.canonical()));
+
+    let health = call(&state, "system_health", json!({})).await.unwrap();
+    let disk_issue = health["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["kind"] == "low_disk_space")
+        .expect("low_disk_space issue present");
+    assert_eq!(disk_issue["category"], "storage");
+    assert!(disk_issue["value"].as_str().unwrap().contains("GB free"));
+    assert_no_root_cause_claims(&health);
+
+    let diagnose = call(&state, "system_diagnose", json!({})).await.unwrap();
+    let findings = diagnose["diagnosis"]["findings"].as_array().unwrap();
+    assert_eq!(
+        findings[0]["category"], "storage",
+        "storage pressure (1% free) ranks first"
+    );
+    assert!(findings[0]["score"].as_u64().unwrap() >= 90);
+    assert!(
+        !diagnose["diagnosis"]["checked_clean"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "storage pressure"),
+        "a measured, failing dimension is never listed as checked clean"
+    );
+
+    // diagnose_workspace on the low-disk drive surfaces the finding.
+    let out = call(
+        &state,
+        "diagnose_workspace",
+        json!({ "workspace_path": ws.canonical(), "dev_server_ports": [3000] }),
+    )
+    .await
+    .unwrap();
+    let low = finding(&out, "low-disk-space");
+    assert_eq!(low["category"], "system");
+    assert_evidence_ids_resolve(&out);
+    assert_bounded_envelope(&out);
+    assert_no_root_cause_claims(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 4 — heavy application process
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_04_heavy_application_process() {
+    let state = eval_state(default_config(), heavy_chrome_backend());
+
+    let health = call(&state, "system_health", json!({})).await.unwrap();
+    let chrome = health["applications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["name"] == "chrome")
+        .expect("chrome application group present");
+    assert_eq!(chrome["status"], "high_cpu_and_memory");
+    assert_eq!(chrome["cpu_percent_basis"], "system_capacity_all_cores");
+    assert!(chrome["total_working_set_bytes"].as_u64().unwrap() > 2_000_000_000);
+    let kinds: Vec<&str> = health["issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|i| i["kind"].as_str())
+        .collect();
+    assert!(
+        kinds.contains(&"high_cpu"),
+        "high_cpu issue present: {kinds:?}"
+    );
+    assert!(
+        kinds.contains(&"high_memory"),
+        "high_memory issue present: {kinds:?}"
+    );
+    assert_no_root_cause_claims(&health);
+
+    // The documented limitation: per-process CPU percent is null; the
+    // aggregate basis is explicit instead.
+    let procs = call(&state, "list_processes", json!({ "limit": 5 }))
+        .await
+        .unwrap();
+    for p in procs["processes"].as_array().unwrap() {
+        if p["name"] == "chrome.exe" {
+            assert!(
+                p["cpu_percent"].is_null(),
+                "per-process cpu_percent stays null"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 5 — workspace metadata discovery
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_05_workspace_metadata_discovery() {
+    let ws = WorkspaceFixture::node_workspace();
+    let state = eval_state(default_config(), quiet_backend());
+
+    let out = call(
+        &state,
+        "workspace_snapshot",
+        json!({ "workspace_path": ws.canonical(), "detail": "detailed" }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["root_is_valid"], true);
+    assert_eq!(out["truncated"], false);
+    let languages: Vec<&str> = out["languages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert!(languages.contains(&"javascript"));
+    assert!(languages.contains(&"typescript"));
+    assert!(out["package_managers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "npm"));
+    assert!(out["scripts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "dev"));
+    assert_eq!(out["projects"], 1);
+
+    // .env is never opened; the fixture's secret value must not appear.
+    let excluded: Vec<&str> = out["excluded_secret_files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert!(
+        excluded.iter().any(|e| e.contains(".env")),
+        "excluded: {excluded:?}"
+    );
+    let serialized = serde_json::to_string(&out).unwrap();
+    assert!(!serialized.contains("EVAL_SUPER_SECRET_TOKEN_9f2c"));
+    assert!(!serialized.contains("do-not-leak-this-value"));
+
+    // include_environment is a documented no-op that never reads env blocks.
+    let env = call(
+        &state,
+        "workspace_snapshot",
+        json!({ "workspace_path": ws.canonical(), "include_environment": true }),
+    )
+    .await
+    .unwrap();
+    assert!(env["data_excluded"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "raw_environment_blocks_are_never_read"));
+    assert_no_root_cause_claims(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 6 — nested project detection
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_06_nested_project_detection() {
+    let ws = WorkspaceFixture::monorepo_workspace();
+    let state = eval_state(default_config(), quiet_backend());
+
+    let out = call(
+        &state,
+        "workspace_snapshot",
+        json!({ "workspace_path": ws.canonical(), "detail": "detailed" }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["root_is_valid"], true);
+    assert!(
+        out["projects"].as_u64().unwrap() >= 2,
+        "nested project detected"
+    );
+    let manifests: Vec<String> = out["manifests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["path"].as_str().unwrap_or("").to_string())
+        .collect();
+    assert!(manifests.iter().any(|m| m == "package.json"));
+    assert!(
+        manifests.iter().any(|m| m == "packages/lib/package.json"),
+        "nested manifest discovered: {manifests:?}"
+    );
+    let languages: Vec<&str> = out["languages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert!(languages.contains(&"typescript"));
+    assert_no_root_cause_claims(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 7 — dev server discovery (related to the workspace)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_07_dev_server_discovery() {
+    let ws = WorkspaceFixture::node_workspace();
+    // Default fixtures: node.exe listens on port 3000; a node workspace
+    // matches the stack, so the listener is related.
+    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
+
+    let servers = call(
+        &state,
+        "list_dev_servers",
+        json!({ "workspace_path": ws.canonical(), "ports": [3000], "detail": "normal" }),
+    )
+    .await
+    .unwrap();
+    let entry = &servers["listeners"][0];
+    assert_eq!(entry["port"], 3000);
+    assert_eq!(entry["pid"], 900);
+    assert_eq!(entry["process_name"], "node.exe");
+    assert_eq!(entry["related_to_workspace"], true);
+
+    let out = call(
+        &state,
+        "diagnose_workspace",
+        json!({ "workspace_path": ws.canonical(), "dev_server_ports": [3000] }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["status"], "ok");
+    assert_eq!(out["findings"].as_array().unwrap().len(), 0);
+    assert!(out["checked"].as_array().unwrap().iter().any(|c| c
+        .as_str()
+        .unwrap_or("")
+        .contains("port 3000 owned by a workspace-related process")));
+    assert_bounded_envelope(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 8 — port owned by an unrelated process
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_08_port_owned_by_unrelated_process() {
+    // A Rust workspace: node.exe on port 3000 does not match the stack.
+    let ws = WorkspaceFixture::rust_workspace();
+    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
+
+    let out = call(
+        &state,
+        "diagnose_workspace",
+        json!({ "workspace_path": ws.canonical(), "dev_server_ports": [3000], "include_events": true }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["status"], "issues_detected");
+
+    let unrelated = finding(&out, "port-unrelated-process");
+    assert_eq!(unrelated["severity"], "high");
+    assert_eq!(unrelated["confidence"], "confirmed");
+    assert_eq!(unrelated["category"], "port");
+    assert!(!unrelated["supporting_evidence"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        unrelated["contradicting_evidence"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0,
+        "no evidence contradicts the missing relationship"
+    );
+    // Projected findings carry evidence ids; the aggregated next-tools list
+    // lives on the envelope itself.
+    assert!(out["recommended_next_tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|t| t == "list_dev_servers"));
+    assert_evidence_ids_resolve(&out);
+
+    // The mock event log carries one error → a low-severity correlation
+    // finding that explicitly does not claim causality.
+    let events = finding(&out, "recent-error-events");
+    assert_eq!(events["severity"], "low");
+    assert_eq!(events["confidence"], "observed");
+    assert_evidence_subject(&out, "Recent error events");
+    assert_bounded_envelope(&out);
+    assert_no_root_cause_claims(&out);
+
+    // correlate_recent_failures agrees and stays hypothesis-only.
+    let corr = call(
+        &state,
+        "correlate_recent_failures",
+        json!({ "port": 3000, "workspace_path": ws.canonical() }),
+    )
+    .await
+    .unwrap();
+    let cluster = finding(&corr, "failure-cluster");
+    assert_eq!(cluster["confidence"], "likely");
+    assert!(!cluster["supporting_evidence"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    // The heuristic-co-occurrence disclaimer travels with the correlation
+    // evidence, so agents see it next to what it qualifies.
+    assert!(corr["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["subject"].as_str().unwrap_or("") == "Signal correlation")
+        .any(|e| e["limitation"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not proven causality")));
+    assert_no_root_cause_claims(&corr);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 9 — connection refused
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_09_connection_refused() {
+    let _guard = PORT_GUARD.lock().await;
+    let port = TestServer::free_port();
+    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
+
+    let out = call(
+        &state,
+        "diagnose_local_webapp",
+        json!({ "url": format!("http://127.0.0.1:{port}/") }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["status"], "issues_detected");
+    let refused = finding(&out, "connection-refused");
+    assert_eq!(refused["severity"], "high");
+    assert_eq!(refused["category"], "server");
+    assert_eq!(refused["confidence"], "confirmed");
+    assert!(!refused["supporting_evidence"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let outcome = out["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["source"] == "http_probe")
+        .and_then(|e| e["value"]["outcome"].as_str())
+        .unwrap_or("");
+    assert!(
+        outcome == "connection_refused" || outcome == "connection_timeout",
+        "unexpected probe outcome: {outcome}"
+    );
+    assert!(out["port_owner_related_to_workspace"].is_null());
+    assert_evidence_ids_resolve(&out);
+    assert_bounded_envelope(&out);
+    assert_no_root_cause_claims(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 10 — HTTP 4xx
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_10_http_4xx() {
+    let server = TestServer::new(Behavior::Respond {
+        responses: vec![http_response(404, "not found")],
+        delay_ms: 0,
+    });
+    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
+
+    let out = call(
+        &state,
+        "diagnose_local_webapp",
+        json!({ "url": server.url() }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["status"], "issues_detected");
+    let four = finding(&out, "http-4xx");
+    assert_eq!(four["severity"], "medium");
+    assert_eq!(four["category"], "server");
+    assert!(four["explanation"].as_str().unwrap().contains("HTTP 404"));
+    let evidence = out["evidence"].as_array().unwrap();
+    let probe = evidence
+        .iter()
+        .find(|e| e["source"] == "http_probe")
+        .expect("http_probe evidence present");
+    assert_eq!(probe["value"]["status"], 404);
+    assert_eq!(probe["value"]["outcome"], "http_error");
+    assert_eq!(probe["value"]["body_bytes"], 0, "bodies are never returned");
+    assert_evidence_ids_resolve(&out);
+    assert_bounded_envelope(&out);
+    assert_no_root_cause_claims(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 11 — HTTP 5xx
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_11_http_5xx() {
+    let server = TestServer::new(Behavior::Respond {
+        responses: vec![http_response(500, "boom")],
+        delay_ms: 0,
+    });
+    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
+
+    let out = call(
+        &state,
+        "diagnose_local_webapp",
+        json!({ "url": server.url() }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["status"], "issues_detected");
+    let five = finding(&out, "http-5xx");
+    assert_eq!(five["severity"], "high");
+    assert_eq!(five["category"], "server");
+    let probe = out["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["source"] == "http_probe")
+        .expect("http_probe evidence present");
+    assert_eq!(probe["value"]["status"], 500);
+    assert_eq!(probe["value"]["outcome"], "http_error");
+    assert_evidence_ids_resolve(&out);
+    assert_bounded_envelope(&out);
+    assert_no_root_cause_claims(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 12 — slow / timing-out HTTP server
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_12_slow_or_timing_out_server() {
+    // 12a: a slow-but-reachable server triggers the slow-response finding.
+    let server = TestServer::new(Behavior::Respond {
+        responses: vec![http_response(200, "finally")],
+        delay_ms: 2_100,
+    });
+    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
+    let out = call(
+        &state,
+        "diagnose_local_webapp",
+        json!({ "url": server.url() }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["status"], "issues_detected");
+    let slow = finding(&out, "slow-response");
+    assert_eq!(slow["severity"], "low");
+    assert_eq!(slow["confidence"], "observed");
+    let probe = out["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["source"] == "http_probe")
+        .expect("http_probe evidence present");
+    assert!(probe["value"]["elapsed_ms"].as_u64().unwrap() >= 2_000);
+    assert_eq!(probe["value"]["status"], 200);
+    assert_evidence_ids_resolve(&out);
+    assert_no_root_cause_claims(&out);
+
+    // 12b: a server that never answers is bounded by the probe deadline and
+    // reported as a connection failure, never a hang.
+    let hanging = TestServer::new(Behavior::Hold);
+    let mut config = default_config();
+    config.web.max_http_ms = 800;
+    let state = eval_state(config, ScenarioBackend::with_fixtures());
+    let out = call(
+        &state,
+        "diagnose_local_webapp",
+        json!({ "url": hanging.url() }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["status"], "issues_detected");
+    assert_evidence_ids_resolve(&out);
+    let probe = out["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["source"] == "http_probe")
+        .expect("http_probe evidence present");
+    assert_eq!(probe["value"]["outcome"], "connection_timeout");
+    assert!(
+        probe["value"]["elapsed_ms"].as_u64().unwrap() < 3_000,
+        "probe is bounded by max_http_ms, got {} ms",
+        probe["value"]["elapsed_ms"]
+    );
+    let refused = finding(&out, "connection-refused");
+    assert_eq!(refused["severity"], "high");
+    assert_bounded_envelope(&out);
+    assert_no_root_cause_claims(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 13 — browser runtime failure
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_13_browser_runtime_failure() {
+    // Deterministic browser evidence: the diagnostics engine classifies a
+    // tab with console errors and exceptions without needing a browser.
+    let engine = DiagnosticsEngine::with_defaults();
+    let data = TabDiagnosticData {
+        cpu_percent: Some(12.0),
+        js_heap_used_bytes: Some(200 * 1024 * 1024),
+        console_errors: 8,
+        exceptions: 4,
+        ..TabDiagnosticData::default()
+    };
+    let report = engine.analyze_tab(&data);
+    assert_eq!(report.status, "signals_detected");
+    assert!(
+        report.signals.iter().any(|s| s.kind == "runtime_errors"),
+        "runtime_errors signal present"
+    );
+    assert!(!report.possible_causes.is_empty());
+    assert!(report.agent_guidance.contains("hypotheses"));
+    assert_no_root_cause_claims(&serde_json::to_value(&report).unwrap());
+
+    // Workflow level: diagnose_workspace with include_browser and no managed
+    // session reports the absence honestly instead of fabricating evidence.
+    let ws = WorkspaceFixture::node_workspace();
+    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
+    let out = call(
+        &state,
+        "diagnose_workspace",
+        json!({ "workspace_path": ws.canonical(), "dev_server_ports": [3000], "include_browser": true }),
+    )
+    .await
+    .unwrap();
+    assert!(
+        out["limitations"].as_array().unwrap().iter().any(|l| l
+            .as_str()
+            .unwrap_or("")
+            .contains("browser evidence skipped")),
+        "browser evidence absence is a limitation, not a fabrication"
+    );
+    assert_bounded_envelope(&out);
+    assert_no_root_cause_claims(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 14 — browser network failure
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_14_browser_network_failure() {
+    let engine = DiagnosticsEngine::with_defaults();
+    let data = TabDiagnosticData {
+        cpu_percent: Some(10.0),
+        js_heap_used_bytes: Some(150 * 1024 * 1024),
+        total_requests: 100,
+        failed_requests: 30,
+        avg_response_ms: Some(800.0),
+        p95_response_ms: Some(2_000.0),
+        bytes_transferred: Some(20 * 1024 * 1024),
+        ..TabDiagnosticData::default()
+    };
+    let report = engine.analyze_tab(&data);
+    assert_eq!(report.status, "signals_detected");
+    let failed = report
+        .signals
+        .iter()
+        .find(|s| s.kind == "many_failed_requests")
+        .expect("many_failed_requests signal present");
+    assert!(
+        failed
+            .evidence
+            .iter()
+            .any(|e| e.metric == "failed_requests"),
+        "signal cites the failed-requests measurement"
+    );
+    assert!(!report.possible_causes.is_empty());
+    let network_cause = report
+        .possible_causes
+        .iter()
+        .find(|c| c.hypothesis.contains("network bottleneck"))
+        .expect("failed requests + high latency correlate into a network hypothesis");
+    assert!(network_cause
+        .supporting_signals
+        .iter()
+        .any(|s| s == "many_failed_requests"));
+    assert!(network_cause
+        .reasoning
+        .contains("not a verified root cause"));
+    assert_no_root_cause_claims(&serde_json::to_value(&report).unwrap());
+
+    // Permission behavior: launching a managed browser from diagnose_local_webapp
+    // in read_only mode is a reported limitation, not a silent browser launch.
+    let server = TestServer::new(Behavior::Respond {
+        responses: vec![http_response(200, "ok")],
+        delay_ms: 0,
+    });
+    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
+    let out = call(
+        &state,
+        "diagnose_local_webapp",
+        json!({ "url": server.url(), "launch_managed_browser": true }),
+    )
+    .await
+    .unwrap();
+    assert!(
+        out["limitations"].as_array().unwrap().iter().any(|l| l
+            .as_str()
+            .unwrap_or("")
+            .contains("managed browser not launched")),
+        "read_only mode reports the launch denial as a limitation"
+    );
+    assert_eq!(
+        state.managed.list().await.len(),
+        0,
+        "no browser was launched"
+    );
+    assert_bounded_envelope(&out);
+    assert_no_root_cause_claims(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 15 — managed Chrome startup, inspection, and cleanup (tool surface)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_15_managed_chrome_tool_surface() {
+    // The managed-browser tools live in the browser/full profiles; use full
+    // so every tool in the scenario is callable.
+    let full_config = || {
+        let mut config = default_config();
+        config.tools.profile = "full".to_string();
+        config
+    };
+
+    // Feature gate: with the default config, lifecycle is disabled and the
+    // denial names the exact configuration required.
+    let state = eval_state(full_config(), ScenarioBackend::with_fixtures());
+    let err = call(&state, "chrome_start_managed_session", json!({}))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::FeatureDisabled);
+    assert!(err.message.contains("[chrome.managed] enabled = true"));
+
+    // Reading the (empty) owned-session list works read-only.
+    let list = call(&state, "chrome_list_managed_sessions", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(list["enabled"], false);
+    assert_eq!(list["count"], 0);
+    assert_eq!(list["sessions"].as_array().unwrap().len(), 0);
+
+    // Permission gate: even with the feature enabled, read_only never grants
+    // lifecycle actions, and the denial names the capability.
+    let mut config = full_config();
+    config.chrome.managed.enabled = true;
+    let state = eval_state(config, ScenarioBackend::with_fixtures());
+    for tool in [
+        "chrome_start_managed_session",
+        "chrome_navigate_managed_session",
+        "chrome_stop_managed_session",
+    ] {
+        let args = if tool == "chrome_navigate_managed_session" {
+            json!({ "session_id": "wk-x", "url": "http://localhost:3000" })
+        } else {
+            json!({ "session_id": "wk-x" })
+        };
+        let err = call(&state, tool, args).await.unwrap_err();
+        assert_eq!(err.kind, ErrorKind::PermissionDenied, "{tool}");
+        assert!(
+            err.message.contains("application.browser."),
+            "{tool} denial names the action capability: {}",
+            err.message
+        );
+    }
+
+    // Owned-session semantics: unknown session ids fail cleanly with stable
+    // errors, never touching anything.
+    let err = call(
+        &state,
+        "chrome_stop_managed_session",
+        json!({ "session_id": "wk-does-not-exist" }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        err.kind,
+        ErrorKind::PermissionDenied,
+        "read_only gates stop"
+    );
+    let err = call(
+        &state,
+        "chrome_get_page_summary",
+        json!({ "session_id": "wk-does-not-exist" }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::NotFound);
+    let err = call(
+        &state,
+        "chrome_capture_screenshot",
+        json!({ "session_id": "wk-does-not-exist" }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::NotFound);
+
+    // The documented state machine surface exists and serializes stably.
+    use winkit::providers::applications::chrome::managed::ManagedState;
+    for state in [
+        ManagedState::Disabled,
+        ManagedState::Starting,
+        ManagedState::Ready,
+        ManagedState::EndpointUnavailable,
+        ManagedState::BrowserExited,
+        ManagedState::Stopping,
+        ManagedState::Closed,
+        ManagedState::CleanupFailed,
+    ] {
+        let s = serde_json::to_string(&state).unwrap();
+        assert!(!s.is_empty(), "all documented states serialize");
+    }
+    assert_eq!(
+        serde_json::to_string(&ManagedState::CleanupFailed).unwrap(),
+        "\"cleanup_failed\""
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 16 — redaction / privacy boundary
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn scenario_16_redaction_and_privacy_boundary() {
+    // 16a: .env secrets never leak from workspace_snapshot.
+    let ws = WorkspaceFixture::node_workspace();
+    let state = eval_state(default_config(), quiet_backend());
+    let out = call(
+        &state,
+        "workspace_snapshot",
+        json!({ "workspace_path": ws.canonical(), "detail": "detailed" }),
+    )
+    .await
+    .unwrap();
+    let serialized = serde_json::to_string(&out).unwrap();
+    assert!(!serialized.contains("EVAL_SUPER_SECRET_TOKEN_9f2c"));
+    assert!(!serialized.contains("do-not-leak-this-value"));
+
+    // 16b: privacy_info is explicit about the posture.
+    let info = call(&state, "privacy_info", json!({})).await.unwrap();
+    assert_eq!(info["permission"]["mode"], "read_only");
+    assert_eq!(info["tool_profile"], "developer");
+    assert_eq!(info["telemetry"]["enabled"], false);
+    assert_eq!(info["external_url_policy"]["allow_external"], false);
+    assert_eq!(info["managed_browser"]["enabled"], false);
+    assert_eq!(info["history_policy"], "no_history_persisted");
+    let excluded: Vec<&str> = info["excluded_data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    for category in [
+        "cookies",
+        "authorization headers",
+        "request bodies",
+        "credentials",
+        "tokens",
+    ] {
+        assert!(
+            excluded.contains(&category),
+            "excluded data lists {category}"
+        );
+    }
+    assert_no_root_cause_claims(&info);
+
+    // 16c: external URLs are blocked by default with a stable report.
+    let out = call(
+        &state,
+        "diagnose_local_webapp",
+        json!({ "url": "http://example.com/" }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(out["status"], "blocked");
+    let rejected = finding(&out, "url-rejected");
+    assert_eq!(rejected["severity"], "high");
+    assert_eq!(rejected["category"], "server");
+    assert_no_root_cause_claims(&out);
+
+    // 16d: a caller-supplied URL carrying userinfo is rejected AND never
+    // echoed with the credentials in the report.
+    let server = TestServer::new(Behavior::Respond {
+        responses: vec![http_response(200, "ok")],
+        delay_ms: 0,
+    });
+    let out = call(
+        &state,
+        "diagnose_local_webapp",
+        json!({ "url": format!("http://alice:EVAL_SECRET_PW@127.0.0.1:{}/", server.port) }),
+    )
+    .await
+    .unwrap();
+    let serialized = serde_json::to_string(&out).unwrap();
+    assert!(
+        !serialized.contains("EVAL_SECRET_PW"),
+        "credentials are never echoed into reports"
+    );
+
+    // 16e: safe mode denies application reads (permission boundary).
+    let mut config = default_config();
+    config.permissions.mode = "safe".to_string();
+    let safe_state = eval_state(config, quiet_backend());
+    let err = call(&safe_state, "chrome_list_tabs", json!({}))
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::PermissionDenied);
+    assert!(err.message.contains("application.tabs.read"));
+
+    // 16f: the report envelope for a healthy web app carries no secrets.
+    let server = TestServer::new(Behavior::Respond {
+        responses: vec![http_response(200, "EVAL_SECRET_BODY_7f3a")],
+        delay_ms: 0,
+    });
+    let out = call(
+        &state,
+        "diagnose_local_webapp",
+        json!({ "url": server.url() }),
+    )
+    .await
+    .unwrap();
+    let serialized = serde_json::to_string(&out).unwrap();
+    assert!(
+        !serialized.contains("EVAL_SECRET_BODY_7f3a"),
+        "bodies never surface"
+    );
+    assert!(out["evidence"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|e| e["value"]["body_bytes"].is_null() || e["value"]["body_bytes"] == 0));
+    assert_bounded_envelope(&out);
+}
+
+// ---------------------------------------------------------------------------
+// Shared cross-scenario integrity guard
+// ---------------------------------------------------------------------------
+
+/// One shared scenario: the full registry is healthy under eval conditions.
+#[tokio::test]
+async fn scenario_17_registry_integrity_under_eval_state() {
+    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
+    let names = state.tools.names();
+    assert!(!names.is_empty());
+    assert!(names.contains(&"diagnose_workspace".to_string()));
+    assert!(names.contains(&"chrome_start_managed_session".to_string()));
+    let mut sorted = names.clone();
+    sorted.sort();
+    assert_eq!(names, sorted, "registry names are deterministic");
+    let unique: std::collections::HashSet<&String> = names.iter().collect();
+    assert_eq!(unique.len(), names.len(), "no tool is registered twice");
+}
+
+/// Compile-time-ish check that the eval scenarios build an AppState exactly
+/// like the rest of the test suite (guards against drift in helpers).
+#[allow(dead_code)]
+fn _unused_type_check(state: &Arc<AppState>) {
+    let _: &Config = &state.config;
+}

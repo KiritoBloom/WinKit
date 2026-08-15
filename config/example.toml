@@ -1,0 +1,168 @@
+# WinKit example configuration.
+#
+# WinKit resolves configuration in this order:
+#   1. `winkit --config <path>`
+#   2. `WIN_KIT_CONFIG` environment variable
+#   3. `./winkit.toml` or `./config/winkit.toml` in the working directory
+#   4. Built-in defaults (no file needed)
+#
+# Every key below shows its default value. Omit what you do not need.
+# Unknown keys are rejected so typos do not silently vanish.
+
+[server]
+# error | warn | info | debug | trace
+log_level = "info"
+
+[permissions]
+# safe | read_only | approval | unrestricted
+#   safe         -> Windows-level read tools only (application adapters are
+#                   discoverable but deep inspection is denied)
+#   read_only    -> all v1 read capabilities (Windows + applications)
+#   approval     -> reserved for future write capabilities; behaves like
+#                   read_only in v1 because no action capabilities exist
+#   unrestricted -> reserved; in v1 enables exactly the implemented reads
+mode = "read_only"
+
+[providers]
+# Provider ids to activate. Empty means "all built-in providers".
+enabled = ["windows", "chrome"]
+
+[tools]
+# Tools to disable entirely, e.g. ["find_large_files"].
+disabled = []
+# Active tool profile: core | developer | browser | full. tools/list exposes
+# only the tools of the effective profile.
+profile = "developer"
+
+[workspaces]
+# Paths that may be scanned. Empty means "any path allowed".
+allow_roots = []
+# Paths that are never scanned, e.g. personal folders or secrets dirs. A path
+# is rejected when it equals or is contained under a deny root.
+deny_roots = []
+# Maximum directory depth scanned below the workspace root.
+max_depth = 8
+# Maximum number of files/directories examined in one scan.
+max_files = 2000
+
+[web]
+# Allow external (non-loopback, non-localhost) hosts. Default false.
+allow_external_urls = false
+# Explicitly trusted development hosts, e.g. ["dev.myapp.test"]. Hosts here
+# are reachable even when `allow_external_urls` is false.
+dev_hosts = []
+# Permit probing https:// local endpoints (self-signed TLS is reported, never
+# validated against the system store).
+local_tls_allowed = true
+# Cap on an HTTP response body read by WinKit (bytes).
+max_http_bytes = 262144
+# Absolute deadline for one HTTP probe (ms).
+max_http_ms = 5000
+# Maximum redirect hops followed during a probe.
+max_redirects = 10
+
+[limits]
+# Result caps for AI-agent requests (which can be broad).
+max_processes = 500
+max_network_results = 1000
+max_storage_results = 200
+max_events = 200
+max_services = 500
+max_windows = 500
+max_tabs = 200
+max_snapshot_processes = 25
+max_find_depth = 8
+# Cap on any single serialized MCP response payload (bytes).
+max_payload_bytes = 2000000
+# Default timeout for a single tool operation (ms).
+operation_timeout_ms = 30000
+# Maximum diagnostics of any kind running concurrently.
+max_concurrent_diagnostics = 8
+
+[chrome]
+connection_timeout_ms = 5000
+# Absolute deadline for one full Chrome discovery pass (ms). The pass derives
+# a single deadline from this and gives every probe only the remaining budget.
+discovery_timeout_ms = 1500
+operation_timeout_ms = 25000
+observation_window_ms = 3000
+sample_interval_ms = 500
+max_payload_bytes = 500000
+max_tabs = 200
+fallback_port = 9222
+# Automatically detect and connect, or only report availability.
+auto_connect = true
+# Tab trend sampling: gap between samples and the max observation window (ms).
+trend_sample_interval_ms = 2000
+trend_max_ms = 30000
+
+[chrome.managed]
+# Master switch for managed-session lifecycle tools. Off until enabled.
+enabled = false
+# Root directory for WinKit-owned profiles. Empty = system temp dir under a
+# `winkit-managed` subdirectory. Cleanup only ever deletes canonical paths
+# under this root.
+profile_root = ""
+# Timeout for Chrome startup + DevTools endpoint readiness (ms).
+startup_timeout_ms = 10000
+# Remove the owned profile directory when a session closes.
+cleanup_on_close = true
+# Allow navigation to non-localhost hosts from a managed session.
+allow_external_urls = false
+# Whether spawned sessions are headless by default. false (the default): a
+# real visible Chrome window opens. true: an opt-in non-visible session for
+# automation/CI that opens no window by design.
+default_headless = false
+# Maximum number of concurrent WinKit-owned sessions.
+max_sessions = 2
+# Maximum number of browser targets reported per session.
+max_targets = 50
+# Cap on the page-summary text WinKit returns (characters).
+max_summary_chars = 8000
+# Cap on the larger screenshot dimension (pixels).
+max_screenshot_dimension = 1280
+# Cap on a serialized screenshot payload (bytes).
+max_screenshot_bytes = 524288
+
+[trends]
+# Upper bound a caller-requested trend window may be (ms).
+max_window_ms = 120000
+# Default polling interval when the caller does not set one (ms).
+default_interval_ms = 5000
+# Maximum number of samples per trend.
+max_samples = 24
+
+[diagnostics]
+# Deterministic heuristic thresholds used by the diagnostics engine.
+# These are documented in docs/diagnostics.md; they are not guarantees.
+high_cpu_percent = 30.0
+high_heap_bytes = 536870912
+heap_growth_bytes_per_second = 2097152
+# Sustained heap growth (bytes/s) with repeated upward trend samples.
+sustained_growth_bytes_per_second = 1048576
+high_script_ms = 1500.0
+long_task_ms = 1000.0
+failed_request_threshold = 10
+failed_request_ratio = 0.1
+high_latency_ms = 500.0
+high_p95_ms = 1500.0
+high_network_bytes = 10485760
+runtime_error_threshold = 5
+high_dom_nodes = 50000
+# System available-memory decrease (bytes/s) that counts as runaway memory
+# growth in system_diagnose (50 MB/s).
+system_memory_growth_bytes_per_second = 52428800
+
+[health]
+# Thresholds for the machine-wide health tools (system_health, system_diagnose).
+# CPU percentages are of total system CPU capacity: 100% means all logical
+# processors fully busy; one busy core on an 8-core machine reports 12.5%.
+high_cpu_percent = 30.0
+# Total working set (bytes) that marks an app group as high_memory (2 GiB).
+high_memory_bytes = 2147483648
+# Free space at or below this (bytes) marks a drive as low (10 GiB).
+low_disk_free_bytes = 10737418240
+# System memory load at or above this percent is memory pressure.
+high_memory_load_percent = 85.0
+# Maximum application groups returned, by total working set.
+max_groups = 20

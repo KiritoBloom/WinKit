@@ -1,0 +1,36 @@
+# Rust build artifacts
+/target
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS cruft
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Local configuration (never commit personal config)
+winkit.toml
+config/winkit.toml
+
+# Logs
+*.log
+
+# Windows
+*.exe
+*.pdb
+
+# The npm platform package ships the release binary (packed and published).
+!npm/win32-x64-msvc/bin/
+!npm/win32-x64-msvc/bin/winkit.exe
+
+# Test output
+coverage/
+
+# Packed-package smoke test scratch space (created and removed per run)
+/.pack-smoke-*/
+
+# Cargo.lock is committed (binary crate: reproducible builds).

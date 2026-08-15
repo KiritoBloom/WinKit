@@ -1,0 +1,26 @@
+[
+  {
+    "port": 3000,
+    "protocol": "tcp",
+    "pid": 900,
+    "process_name": "node.exe",
+    "state": "listen",
+    "address": "127.0.0.1"
+  },
+  {
+    "port": 9222,
+    "protocol": "tcp",
+    "pid": 420,
+    "process_name": "chrome.exe",
+    "state": "listen",
+    "address": "127.0.0.1"
+  },
+  {
+    "port": 5432,
+    "protocol": "tcp",
+    "pid": 771,
+    "process_name": "postgres.exe",
+    "state": "listen",
+    "address": "0.0.0.0"
+  }
+]

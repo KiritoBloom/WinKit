@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "winkit": {
+      "type": "local",
+      "command": ["npx", "--yes", "@winkit/mcp@latest"],
+      "enabled": true
+    }
+  }
+}

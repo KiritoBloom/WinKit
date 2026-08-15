@@ -1,0 +1,81 @@
+[package]
+name = "winkit"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Local Windows observability and diagnostics platform for AI agents, exposed through MCP."
+license = "MIT"
+keywords = ["mcp", "windows", "observability", "diagnostics", "devtools"]
+categories = ["development-tools", "command-line-utilities"]
+
+# The binary name is `winkit`. The library target exists so that the server,
+# tools, and providers can be exercised by unit and integration tests.
+[lib]
+name = "winkit"
+path = "src/lib.rs"
+
+[[bin]]
+name = "winkit"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+futures-util = "0.3"
+native-tls = "0.2"
+quick-xml = "0.37"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+toml = "0.8"
+tokio = { version = "1", features = [
+    "fs",
+    "io-std",
+    "io-util",
+    "macros",
+    "net",
+    "process",
+    "rt-multi-thread",
+    "sync",
+    "time",
+] }
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Services",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[features]
+default = []
+# Mock providers and fixture-backed backends, used only by tests. The
+# fixture mock is compiled unconditionally (integration tests work without
+# the feature); `--features mocks` additionally compiles the mocks-gated
+# unit-test surface (e.g. Chrome session discovery tests). Canonical runs:
+# `cargo test --features mocks` and `cargo test --features mocks --test eval`.
+mocks = []
+# Opt-in live Windows tests: `WINKIT_LIVE_WINDOWS=1 cargo test --features live-windows`.
+live-windows = []
+# Opt-in live Chrome tests: `WINKIT_LIVE_CHROME=1 cargo test --features live-chrome`.
+# Starts a real managed Chrome session, inspects a page, and verifies cleanup.
+live-chrome = []
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

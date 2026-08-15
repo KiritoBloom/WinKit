@@ -1,0 +1,24 @@
+{
+  "metrics": {
+    "TaskDuration": 2400.0,
+    "ScriptDuration": 3100.0,
+    "LayoutDuration": 420.0,
+    "RecalcStyleDuration": 310.0,
+    "LayoutCount": 88,
+    "RecalcStyleCount": 120,
+    "JSHeapUsedSize": 734003200,
+    "JSHeapTotalSize": 1048576000
+  },
+  "deltas": {
+    "TaskDuration": 2400.0,
+    "ScriptDuration": 3100.0,
+    "LayoutDuration": 420.0,
+    "RecalcStyleDuration": 310.0,
+    "LayoutCount": 88,
+    "RecalcStyleCount": 120,
+    "JSHeapUsedSize": 41943040
+  },
+  "sample_interval_ms": 500,
+  "long_task_ms": 2400.0,
+  "script_ms": 3100.0
+}
