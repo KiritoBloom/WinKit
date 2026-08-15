@@ -11,10 +11,7 @@ pub async fn list_windows_handler(state: Arc<AppState>, args: Value) -> Result<V
     let max = state.config.limits.max_windows;
     let limit = clamp_limit(optional_usize(&args, "limit"), max);
     let include_hidden = optional_bool(&args, "include_hidden").unwrap_or(false);
-    let mut windows = state.windows.list_windows(limit)?;
-    if !include_hidden {
-        windows.retain(|w| w.visible);
-    }
+    let windows = state.windows.list_windows(limit, !include_hidden)?;
     let count = windows.len();
     Ok(json!({ "windows": windows, "count": count }))
 }

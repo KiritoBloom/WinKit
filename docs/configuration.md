@@ -51,7 +51,7 @@ limits.
 | --- | --- | --- | --- |
 | `max_processes` | integer | 500 | Cap on `list_processes` results. |
 | `max_network_results` | integer | 1000 | Cap on port/connection listing results. |
-| `max_storage_results` | integer | 200 | Cap on `find_large_files` results. |
+| `max_storage_results` | integer | 200 | Cap on `find_large_files` and `disk_scan_*` results. |
 | `max_events` | integer | 200 | Cap on event log results. |
 | `max_services` | integer | 500 | Cap on `list_services` results. |
 | `max_windows` | integer | 500 | Cap on `list_windows` results. |

@@ -21,7 +21,7 @@ never to source files existing):
 | 7 | Phase A baseline recorded | docs/requirements-matrix.md | — | — | — | — | — | done |
 | 8 | `cargo fmt --all -- --check` passes | all | Keep clean | None | None | fmt check | — | done |
 | 9 | `cargo clippy --all-targets --features mocks -- -D warnings` passes | all | Keep clean | — | — | clippy | — | done |
-| 10 | `cargo test --features mocks` passes (267 tests) | tests/, src/** | Keep green | — | — | cargo test | — | done |
+| 10 | `cargo test --features mocks` passes (351 tests) | tests/, src/** | Keep green | — | — | cargo test | — | done |
 | 11 | `cargo build --release` passes | — | Keep building | — | — | build | — | done |
 | 12 | Requirement matrix created | docs/requirements-matrix.md | — | — | — | — | — | done |
 | 13 | Evidence model (stable ID, source category, redacted subject, timestamp, bounded value, confidence, limitation) | src/models/evidence.rs | Implemented | Evidence type with evidence IDs | Redaction built in | unit tests, eval scenarios | docs/diagnostics.md | done |

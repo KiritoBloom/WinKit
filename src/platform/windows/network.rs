@@ -119,20 +119,22 @@ pub fn list_listening_ports(limit: usize) -> Result<Vec<PortInfo>, WinkitError> 
             address: ipv4_to_string(row.dwLocalAddr),
         });
         if out.len() >= limit {
-            return Ok(out);
+            break;
         }
     }
-    for row in udp_table_v4()? {
-        out.push(PortInfo {
-            port: port_to_host(row.dwLocalPort),
-            protocol: "udp".to_string(),
-            pid: (row.dwOwningPid != 0).then_some(row.dwOwningPid),
-            process_name: None,
-            state: None,
-            address: ipv4_to_string(row.dwLocalAddr),
-        });
-        if out.len() >= limit {
-            return Ok(out);
+    if out.len() < limit {
+        for row in udp_table_v4()? {
+            out.push(PortInfo {
+                port: port_to_host(row.dwLocalPort),
+                protocol: "udp".to_string(),
+                pid: (row.dwOwningPid != 0).then_some(row.dwOwningPid),
+                process_name: None,
+                state: None,
+                address: ipv4_to_string(row.dwLocalAddr),
+            });
+            if out.len() >= limit {
+                break;
+            }
         }
     }
     // Resolve process names lazily (only for the bounded result set).

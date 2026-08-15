@@ -8,6 +8,9 @@ use std::ptr::null_mut;
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, HANDLE,
 };
+use windows_sys::Win32::System::Registry::{
+    RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE, KEY_READ,
+};
 use windows_sys::Win32::System::Services::{
     EnumServicesStatusExW, OpenSCManagerW, OpenServiceW, QueryServiceConfigW, QueryServiceStatusEx,
     ENUM_SERVICE_STATUS_PROCESSW, QUERY_SERVICE_CONFIGW, SC_ENUM_PROCESS_INFO,
@@ -85,6 +88,61 @@ fn pwstr_in_buffer(ptr: *const u16, buffer_start: usize, buffer_len: usize) -> S
     }
     let max_chars = (buffer_len - off) / 2;
     wide_to_string(unsafe { std::slice::from_raw_parts(ptr, max_chars) })
+}
+
+/// The SCM does not expose a service's display name through the config APIs
+/// in windows-sys 0.59, so read it from the registry where SCM stores it.
+fn registry_display_name(service_name: &str) -> String {
+    let subkey = format!("SYSTEM\\CurrentControlSet\\Services\\{service_name}");
+    let subkey_wide = crate::utils::to_wide(&subkey);
+    let mut key = null_mut();
+    let rc = unsafe {
+        RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            subkey_wide.as_ptr(),
+            0,
+            KEY_READ,
+            &mut key,
+        )
+    };
+    if rc != 0 || key.is_null() {
+        return String::new();
+    }
+    let value_wide = crate::utils::to_wide("DisplayName");
+    let mut len: u32 = 0;
+    let rc = unsafe {
+        RegQueryValueExW(
+            key,
+            value_wide.as_ptr(),
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            &mut len,
+        )
+    };
+    let out = if rc == 0 && len > 0 {
+        let mut buf = vec![0u16; (len as usize + 1) / 2];
+        let mut size = len;
+        let rc = unsafe {
+            RegQueryValueExW(
+                key,
+                value_wide.as_ptr(),
+                null_mut(),
+                null_mut(),
+                buf.as_mut_ptr() as *mut u8,
+                &mut size,
+            )
+        };
+        if rc == 0 {
+            wide_to_string(&buf[..(size as usize).min(buf.len() * 2) / 2])
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+    unsafe { RegCloseKey(key) };
+    out
 }
 
 /// List services, bounded by `limit`.
@@ -176,7 +234,7 @@ pub fn get_service(name: &str) -> Result<Option<ServiceInfo>, WinkitError> {
 
     let mut info = ServiceInfo {
         name: name.to_string(),
-        display_name: String::new(),
+        display_name: registry_display_name(name),
         state: "unknown".to_string(),
         service_type: "unknown".to_string(),
         process_id: None,

@@ -49,7 +49,7 @@ pub trait WindowsBackend: Send + Sync {
     fn list_services(&self, limit: usize) -> Result<Vec<ServiceInfo>, WinkitError>;
     fn get_service(&self, name: &str) -> Result<Option<ServiceInfo>, WinkitError>;
     fn get_recent_events(&self, query: &EventQuery) -> Result<Vec<EventInfo>, WinkitError>;
-    fn list_windows(&self, limit: usize) -> Result<Vec<WindowInfo>, WinkitError>;
+    fn list_windows(&self, limit: usize, visible_only: bool) -> Result<Vec<WindowInfo>, WinkitError>;
     fn foreground_window_title(&self) -> Result<Option<String>, WinkitError>;
     /// Aggregate CPU usage of all processes named `chrome.exe` (used for
     /// cross-layer correlation). Returns `None` when Chrome is not running.
@@ -196,8 +196,8 @@ impl WindowsBackend for RealWindowsBackend {
         crate::platform::windows::events::get_recent_events(query)
     }
 
-    fn list_windows(&self, limit: usize) -> Result<Vec<WindowInfo>, WinkitError> {
-        crate::platform::windows::win32::list_windows(limit)
+    fn list_windows(&self, limit: usize, visible_only: bool) -> Result<Vec<WindowInfo>, WinkitError> {
+        crate::platform::windows::win32::list_windows(limit, visible_only)
     }
 
     fn foreground_window_title(&self) -> Result<Option<String>, WinkitError> {

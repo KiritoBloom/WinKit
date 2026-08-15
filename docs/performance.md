@@ -56,8 +56,9 @@ dispatch, and provider work. This is what a client actually experiences.
 | `chrome_tab_trend` | 2 | 10473 | 10524 | 10524 |
 
 Not benchmarked: `find_large_files`, `get_application_errors`,
-`get_system_errors`, `chrome_get_active_tab` (pathological or environment-
-dependent by nature).
+`get_system_errors`, `chrome_get_active_tab`, and the `disk_scan_*` family
+(pathological or environment-dependent by nature — whole-volume scans and
+event-log reads vary wildly with the machine).
 
 ## Reading the numbers
 

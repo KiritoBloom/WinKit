@@ -119,7 +119,7 @@ fn render_event(handle: *mut std::ffi::c_void) -> Option<EventInfo> {
 /// Render one event to its XML form.
 fn render_event_xml(handle: *mut std::ffi::c_void) -> Option<String> {
     let mut used: u32 = 0;
-    let mut needed: u32 = 0;
+    let mut property_count: u32 = 0;
     let mut ok = unsafe {
         ffi::EvtRender(
             null_mut(),
@@ -128,7 +128,7 @@ fn render_event_xml(handle: *mut std::ffi::c_void) -> Option<String> {
             0,
             null_mut(),
             &mut used,
-            &mut needed,
+            &mut property_count,
         )
     };
     if ok == 0 {
@@ -137,7 +137,11 @@ fn render_event_xml(handle: *mut std::ffi::c_void) -> Option<String> {
             return None;
         }
     }
-    let mut buf = vec![0u16; needed as usize];
+    // On the sizing probe EvtRender reports the required buffer size in
+    // bytes through `used` (BufferUsed); `property_count` is unrelated to
+    // buffer sizing and must not be used to allocate.
+    let mut buf = vec![0u16; (used as usize + 1) / 2];
+    used = 0;
     ok = unsafe {
         ffi::EvtRender(
             null_mut(),
@@ -146,13 +150,13 @@ fn render_event_xml(handle: *mut std::ffi::c_void) -> Option<String> {
             (buf.len() * 2) as u32,
             buf.as_mut_ptr() as *mut std::ffi::c_void,
             &mut used,
-            &mut needed,
+            &mut property_count,
         )
     };
     if ok == 0 {
         return None;
     }
-    let chars = (used as usize).saturating_sub(2) / 2; // drop trailing NUL
+    let chars = (used as usize).min(buf.len() * 2) / 2;
     Some(wide_to_string(&buf[..chars.min(buf.len())]))
 }
 

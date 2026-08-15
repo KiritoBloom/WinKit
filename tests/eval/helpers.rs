@@ -166,8 +166,8 @@ impl WindowsBackend for ScenarioBackend {
         self.inner.get_recent_events(query)
     }
 
-    fn list_windows(&self, limit: usize) -> Result<Vec<WindowInfo>, WinkitError> {
-        self.inner.list_windows(limit)
+    fn list_windows(&self, limit: usize, visible_only: bool) -> Result<Vec<WindowInfo>, WinkitError> {
+        self.inner.list_windows(limit, visible_only)
     }
 
     fn foreground_window_title(&self) -> Result<Option<String>, WinkitError> {

@@ -21,6 +21,9 @@ type TopLevelWindow = (HWND, String, String, u32);
 struct WindowCollector {
     windows: Vec<TopLevelWindow>,
     limit: usize,
+    /// When true, hidden windows are skipped during enumeration so `limit`
+    /// counts visible windows only.
+    visible_only: bool,
     /// Set when the callback stops because `limit` was reached. `EnumWindows`
     /// returns 0 in that case too, so this flag distinguishes a normal early
     /// stop from a genuine API failure.
@@ -33,6 +36,9 @@ extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
         if collector.windows.len() >= collector.limit {
             collector.stopped = true;
             return 0; // stop
+        }
+        if collector.visible_only && IsWindowVisible(hwnd) == 0 {
+            return 1; // skip hidden window, keep enumerating
         }
         // Title.
         let mut title_buf = [0u16; 1024];
@@ -51,10 +57,11 @@ extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
 }
 
 /// Run one bounded `EnumWindows` pass, returning `(windows, ok, stopped)`.
-fn enumerate(limit: usize) -> (Vec<TopLevelWindow>, i32, bool) {
+fn enumerate(limit: usize, visible_only: bool) -> (Vec<TopLevelWindow>, i32, bool) {
     let mut collector = WindowCollector {
         windows: Vec::new(),
         limit,
+        visible_only,
         stopped: false,
     };
     let ok = unsafe {
@@ -66,7 +73,8 @@ fn enumerate(limit: usize) -> (Vec<TopLevelWindow>, i32, bool) {
     (collector.windows, ok, collector.stopped)
 }
 
-/// Enumerate top-level windows, bounded by `limit`.
+/// Enumerate top-level windows, bounded by `limit`. When `visible_only` is
+/// true, hidden windows are skipped so the limit applies to visible windows.
 ///
 /// `EnumWindows` has been observed to succeed with zero top-level windows
 /// under heavy parallel load even though windows exist, so an empty first
@@ -75,15 +83,15 @@ fn enumerate(limit: usize) -> (Vec<TopLevelWindow>, i32, bool) {
 /// callback did not stop early at `limit` (a normal limit stop also makes
 /// `EnumWindows` return 0); that case returns an explicit error instead of
 /// silently surfacing an empty or partial list.
-pub fn list_windows(limit: usize) -> Result<Vec<WindowInfo>, WinkitError> {
-    let (mut raw, mut ok, mut stopped) = enumerate(limit);
+pub fn list_windows(limit: usize, visible_only: bool) -> Result<Vec<WindowInfo>, WinkitError> {
+    let (mut raw, mut ok, mut stopped) = enumerate(limit, visible_only);
     if ok == 0 && !stopped {
         log_warn!("EnumWindows returned 0");
         return Err(WinkitError::windows_api("EnumWindows"));
     }
     if ok != 0 && raw.is_empty() {
         log_warn!("EnumWindows succeeded with no windows; retrying once");
-        (raw, ok, stopped) = enumerate(limit);
+        (raw, ok, stopped) = enumerate(limit, visible_only);
         if ok == 0 && !stopped {
             log_warn!("EnumWindows returned 0");
             return Err(WinkitError::windows_api("EnumWindows"));

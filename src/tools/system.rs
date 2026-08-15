@@ -74,7 +74,7 @@ pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Valu
     let drives = state.windows.list_drives()?;
     let services = state.windows.list_services(cfg.limits.max_services)?;
     let running_services = services.iter().filter(|s| s.state == "running").count();
-    let windows = state.windows.list_windows(cfg.limits.max_windows)?;
+    let windows = state.windows.list_windows(cfg.limits.max_windows, false)?;
     let ports = state
         .windows
         .list_listening_ports(cfg.limits.max_network_results)?;

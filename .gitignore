@@ -33,4 +33,7 @@ coverage/
 # Packed-package smoke test scratch space (created and removed per run)
 /.pack-smoke-*/
 
+# Coding Agents
+.freebuff
+
 # Cargo.lock is committed (binary crate: reproducible builds).

@@ -724,7 +724,7 @@ pub(crate) fn find_owned_visible_window(profile: &Path) -> Option<crate::models:
     if pids.is_empty() {
         return None;
     }
-    let windows = crate::platform::windows::win32::list_windows(500).ok()?;
+    let windows = crate::platform::windows::win32::list_windows(500, true).ok()?;
     windows
         .into_iter()
         .find(|w| w.visible && !w.minimized && pids.contains(&w.process_id))

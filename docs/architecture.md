@@ -9,7 +9,7 @@ unit and integration tests without launching the binary.
 
 ```text
 server (MCP over stdio, JSON-RPC 2.0, session lifecycle)
-  ├── tools        (34 tool definitions + argument handling + registry)
+  ├── tools        (59 tool definitions + argument handling + registry)
   │     ├── providers (WindowsBackend / ApplicationProvider traits)
   │     └── platform::windows (real Win32 implementations, windows-sys 0.59)
   ├── permissions  (modes, capabilities, policy, approval surface)

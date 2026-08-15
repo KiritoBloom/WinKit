@@ -368,8 +368,14 @@ impl WindowsBackend for MockWindowsBackend {
         Ok(out)
     }
 
-    fn list_windows(&self, limit: usize) -> Result<Vec<WindowInfo>, WinkitError> {
-        Ok(self.windows.iter().take(limit).cloned().collect())
+    fn list_windows(&self, limit: usize, visible_only: bool) -> Result<Vec<WindowInfo>, WinkitError> {
+        Ok(self
+            .windows
+            .iter()
+            .filter(|w| !visible_only || w.visible)
+            .take(limit)
+            .cloned()
+            .collect())
     }
 
     fn foreground_window_title(&self) -> Result<Option<String>, WinkitError> {

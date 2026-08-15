@@ -129,7 +129,11 @@ Every broad query is capped:
   (1000), `max_storage_results` (200), `max_events` (200), `max_services`
   (500), `max_windows` (500), `max_tabs` (200).
 - `max_find_depth` (8) bounds recursive scans; `find_large_files` requires an
-  explicit path and never scans a whole drive.
+  explicit path and never scans a whole drive. The `disk_scan_*` family can
+  scan a whole volume when asked, but never follows reparse points (no
+  cycles, no volume escapes), falls back to the requested directory rather
+  than silently the whole drive, and reports `scanner` /
+  `fast_path_unavailable` honestly.
 - `max_payload_bytes` (2,000,000) caps any single serialized response;
   handlers truncate before returning.
 - `operation_timeout_ms` (30,000) and per-tool overrides (e.g. Chrome

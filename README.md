@@ -35,7 +35,7 @@ single heaviest tab, then whether it is getting worse.
 
 ## Highlights
 
-- **51 MCP tools** across system, process, network, storage, service, event,
+- **59 MCP tools** across system, process, network, storage, service, event,
   window, developer-environment, application, Chrome, managed-browser, and
   machine-health domains, organized into tool profiles (`core`,
   `developer` [default], `browser`, `full`) so an agent only sees what it
@@ -89,7 +89,7 @@ single heaviest tab, then whether it is getting worse.
   explain exactly what would be required.
 - **Provider architecture** — everything sits behind `WindowsBackend` /
   `ApplicationProvider` traits; the real Win32 layer is fully separable, and a
-  mock backend plus deterministic fixtures power a 263-test suite
+  mock backend plus deterministic fixtures power a 351-test suite
   (`cargo test --features mocks`) with no machine dependency.
 - **Hardened by construction** — bounded results, per-tool timeouts, payload
   caps, an 8 MiB transport frame cap, strict JSON schema validation, and
@@ -191,7 +191,7 @@ ports, or tabs exist. Full table and methodology:
 | Machine health | `system_health`, `system_diagnose` |
 | Processes | `list_processes`, `get_process`, `get_process_tree`, `find_process` |
 | Network | `list_listening_ports`, `find_process_on_port`, `list_network_interfaces`, `list_connections` |
-| Storage | `list_drives`, `disk_usage`, `find_large_files` |
+| Storage | `list_drives`, `disk_usage`, `find_large_files`, `disk_scan`, `disk_scan_start`, `disk_scan_status`, `disk_scan_cancel`, `disk_scan_largest_files`, `disk_scan_largest_folders`, `disk_scan_folder_size`, `disk_scan_find` |
 | Services | `list_services`, `get_service` |
 | Events | `get_recent_events`, `get_application_errors`, `get_system_errors` |
 | Windows | `list_windows` |
@@ -225,7 +225,7 @@ findings; the LLM explains them:
 
 ```text
 server (MCP over stdio, JSON-RPC 2.0, session lifecycle)
-  ├── tools        (51 tool definitions + argument handling + registry)
+  ├── tools        (59 tool definitions + argument handling + registry)
   │     ├── providers (WindowsBackend / ApplicationProvider traits)
   │     │     └── chrome::managed (isolated WinKit-owned sessions)
   │     └── platform::windows (real Win32 implementations, windows-sys 0.59)
@@ -286,7 +286,7 @@ WinKit treats limits as first-class output, not bugs:
 ```powershell
 cargo check                 # compile checks
 cargo build                 # debug build
-cargo test --features mocks # full test suite (267 tests)
+cargo test --features mocks # full test suite (351 tests)
 cargo clippy --all-targets  # lint
 
 # evaluation suite (fixture-backed failure scenarios)
@@ -343,5 +343,3 @@ failure scenarios. See [docs/development.md](docs/development.md) and
 MIT — see [LICENSE](LICENSE). WinKit is local-first and open source; it
 contains no telemetry and makes no network calls except the loopback Chrome
 DevTools probe.
-#   W i n K i t  
- 

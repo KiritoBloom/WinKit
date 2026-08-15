@@ -87,8 +87,8 @@ after `initialize` to complete the handshake; it is not needed for this check.)
 ```
 
 WinKit exits when stdin closes. If you see an `initialize` result and a
-`tools/list` result listing the tools of the active profile — 44 tools with
-the default `developer` profile, 51 with `full` — the binary is ready.
+`tools/list` result listing the tools of the active profile — 52 tools with
+the default `developer` profile, 59 with `full` — the binary is ready.
 
 ## Configuration
 

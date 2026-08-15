@@ -1,9 +1,9 @@
 # Tool Reference
 
-WinKit registers 51 MCP tools: read-only Windows diagnostics plus the
+WinKit registers 59 MCP tools: read-only Windows diagnostics plus the
 approval-gated managed-browser lifecycle tools. The default `developer` tool
-profile exposes 44 of them; `core` exposes 5, `browser` exposes 37, and
-`full` exposes all 51. This reference lists every tool with its arguments and
+profile exposes 52 of them; `core` exposes 5, `browser` exposes 45, and
+`full` exposes all 59. This reference lists every tool with its arguments and
 output shape. The JSON input schema is also available live via `tools/list`
 in any MCP client, filtered to the effective profile.
 

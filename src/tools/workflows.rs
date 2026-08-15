@@ -3168,8 +3168,9 @@ mod tests {
         fn list_windows(
             &self,
             limit: usize,
+            visible_only: bool,
         ) -> Result<Vec<crate::models::WindowInfo>, WinkitError> {
-            self.inner.list_windows(limit)
+            self.inner.list_windows(limit, visible_only)
         }
         fn foreground_window_title(&self) -> Result<Option<String>, WinkitError> {
             self.inner.foreground_window_title()
