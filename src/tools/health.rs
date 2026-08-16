@@ -15,7 +15,8 @@ use crate::diagnostics::findings::{
 use crate::errors::WinkitError;
 use crate::models::{
     ApplicationGroupInfo, DriveHealth, DriveInfo, HealthIssue, ResourceSnapshot, SystemAppEvidence,
-    SystemDiagnosticData, SystemDriveEvidence, SystemHealth, SystemHealthReport,
+    SystemBatteryEvidence, SystemDiagnosticData, SystemDriveEvidence, SystemHealth,
+    SystemHealthReport, SystemStorageHealthEvidence, SystemThermalEvidence, SystemWifiEvidence,
 };
 use crate::permissions::Capability;
 use crate::server::AppState;
@@ -217,6 +218,80 @@ pub async fn system_diagnose_handler(
     let groups = state.windows.application_groups(limit).unwrap_or_default();
     let drives = state.windows.list_drives().unwrap_or_default();
 
+    // Bounded hardware evidence (§64, §77): each probe runs under the
+    // configured budget and degrades to `None`/empty instead of failing.
+    let budget = state.config.hardware.probe_timeout_ms;
+    let thermal = crate::tools::hardware::probe(budget, || state.windows.thermal_snapshot())
+        .await
+        .ok()
+        .map(|r| {
+            let mut temps: Vec<f64> = r
+                .sensors
+                .iter()
+                .filter(|s| s.availability.is_available())
+                .filter(|s| {
+                    matches!(
+                        s.class,
+                        crate::models::SensorClass::CpuPackage
+                            | crate::models::SensorClass::CpuCore
+                    )
+                })
+                .filter_map(|s| s.value)
+                .collect();
+            temps.sort_by(|a, b| a.total_cmp(b));
+            SystemThermalEvidence {
+                cpu_thermal_pressure: r.thermal_state.cpu_thermal_pressure.clone(),
+                cpu_throttling: r.thermal_state.cpu_throttling.clone(),
+                cpu_frequency_reduced: r.thermal_state.cpu_frequency_reduced,
+                cpu_temperature_c: temps.last().copied(),
+                gpu_thermal_pressure: r.thermal_state.gpu_thermal_pressure.clone(),
+            }
+        });
+    let storage_health: Vec<SystemStorageHealthEvidence> =
+        crate::tools::hardware::probe(budget, || state.windows.disk_health())
+            .await
+            .ok()
+            .map(|r| {
+                r.devices
+                    .into_iter()
+                    .map(|d| SystemStorageHealthEvidence {
+                        device: d.device,
+                        interface: d.interface,
+                        health_status: d.health_status,
+                        temperature_c: d.temperature_c,
+                        percentage_used: d.percentage_used,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+    let battery = crate::tools::hardware::probe(budget, || state.windows.battery_status())
+        .await
+        .ok()
+        .map(|b| SystemBatteryEvidence {
+            present: b.present,
+            percent: b.percent,
+            ac_online: b.ac_online,
+            charging: b.charging,
+            battery_state: b.battery_state,
+            health_percent: b.health.as_ref().and_then(|h| h.health_percent),
+        });
+    let wifi: Vec<SystemWifiEvidence> =
+        crate::tools::hardware::probe(budget, || state.windows.wifi_status())
+            .await
+            .ok()
+            .map(|adapters| {
+                adapters
+                    .into_iter()
+                    .map(|a| SystemWifiEvidence {
+                        description: a.description,
+                        state: a.state,
+                        signal_percent: a.signal_percent,
+                        link_speed_mbps: a.link_speed_mbps,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
     let start = std::time::Instant::now();
     let snap_a = state.windows.resource_snapshot(0).ok();
     tokio::time::sleep(Duration::from_millis(1_000)).await;
@@ -270,6 +345,10 @@ pub async fn system_diagnose_handler(
                 cpu_percent: g.cpu_percent,
             })
             .collect(),
+        thermal,
+        storage_health,
+        battery,
+        wifi,
     };
 
     let diagnosis = crate::diagnostics::system::analyze_system(
@@ -287,7 +366,7 @@ pub async fn system_diagnose_handler(
 pub fn system_diagnose_definition(_config: &Config) -> ToolDefinition {
     ToolDefinition {
         name: "system_diagnose",
-        description: "Machine-wide diagnosis: gathers application, storage, memory, and memory-growth evidence, applies deterministic threshold rules, and returns ranked findings with explicit scores plus a 'checked clean' list of dimensions that were measured and found healthy. Use it to answer 'why is my computer unhealthy' — findings are evidence-backed hypotheses, not root-cause claims.",
+        description: "Machine-wide diagnosis: gathers application, storage, memory, memory-growth, thermal, storage-health, battery, and Wi-Fi evidence, applies deterministic threshold rules, and returns ranked findings with explicit scores plus a 'checked clean' list of dimensions that were measured and found healthy. Use it to answer 'why is my computer unhealthy' — findings are evidence-backed hypotheses, not root-cause claims.",
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -456,6 +535,7 @@ mod tests {
                 working_set_bytes: 3_500 * 1024 * 1024,
                 cpu_percent: Some(45.0),
             }],
+            ..SystemDiagnosticData::default()
         };
         let diagnosis = crate::diagnostics::system::analyze_system(
             &data,

@@ -1,4 +1,4 @@
-//! WinKit failure-scenario evaluation suite (16 scenarios).
+//! WinKit failure-scenario evaluation suite (18 scenarios).
 //!
 //! Deterministic, fixture-backed evaluations of the developer-failure
 //! workflows: machine pressure, workspace metadata, port ownership, HTTP

@@ -80,6 +80,67 @@ pub fn memory_growth_score(rate_bytes_per_second: f64, threshold_bytes_per_secon
     ((rate_bytes_per_second / (threshold_bytes_per_second * 2.0)) * 100.0).clamp(0.0, 100.0) as u8
 }
 
+/// CPU thermal-pressure score from the interpreted thermal state. `high`
+/// matches a sustained above-threshold package temperature, `elevated` is
+/// the next band down.
+pub fn thermal_pressure_score(pressure: &str) -> u8 {
+    match pressure {
+        "high" => 90,
+        "elevated" => 60,
+        _ => 0,
+    }
+}
+
+/// CPU frequency-reduction score: throttling that is `likely`, or a measured
+/// current/base ratio well below 1.0.
+pub fn frequency_reduction_score(throttling: &str, reduced: Option<bool>) -> u8 {
+    match throttling {
+        "likely" => 85,
+        _ if reduced == Some(true) => 70,
+        _ => 0,
+    }
+}
+
+/// Storage-health score from the reported health status, falling back to
+/// NVMe percentage used when no status is available.
+pub fn storage_health_score(
+    health_status: Option<&str>,
+    percentage_used: Option<u8>,
+    used_warning_percent: u8,
+) -> u8 {
+    match health_status {
+        Some("critical") => 95,
+        Some("warning") => 70,
+        _ => {
+            if let Some(p) = percentage_used {
+                if p >= used_warning_percent {
+                    return 60;
+                }
+            }
+            0
+        }
+    }
+}
+
+/// Battery-degradation score: 0 at the healthy threshold, 100 at zero health.
+pub fn battery_health_score(health_percent: f64, low_threshold_percent: f64) -> u8 {
+    if low_threshold_percent <= 0.0 {
+        return 100;
+    }
+    (((low_threshold_percent - health_percent.min(low_threshold_percent)) / low_threshold_percent)
+        * 100.0)
+        .clamp(0.0, 100.0) as u8
+}
+
+/// Wi-Fi signal score: 0 at the weak threshold, 100 at zero signal.
+pub fn wifi_signal_score(signal_percent: u8, weak_threshold: u8) -> u8 {
+    if weak_threshold == 0 {
+        return 100;
+    }
+    let s = signal_percent.min(weak_threshold) as f64;
+    ((weak_threshold as f64 - s) / weak_threshold as f64 * 100.0).clamp(0.0, 100.0) as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +205,36 @@ mod tests {
             100
         );
         assert_eq!(memory_growth_score(0.0, threshold as f64), 0);
+    }
+
+    #[test]
+    fn thermal_and_frequency_scores_follow_interpreted_bands() {
+        assert_eq!(thermal_pressure_score("high"), 90);
+        assert_eq!(thermal_pressure_score("elevated"), 60);
+        assert_eq!(thermal_pressure_score("low"), 0);
+        assert_eq!(thermal_pressure_score("unknown"), 0);
+        assert_eq!(frequency_reduction_score("likely", None), 85);
+        assert_eq!(frequency_reduction_score("not_observed", Some(true)), 70);
+        assert_eq!(frequency_reduction_score("not_observed", Some(false)), 0);
+    }
+
+    #[test]
+    fn storage_health_score_uses_status_then_endurance() {
+        assert_eq!(storage_health_score(Some("critical"), None, 80), 95);
+        assert_eq!(storage_health_score(Some("warning"), None, 80), 70);
+        assert_eq!(storage_health_score(Some("healthy"), None, 80), 0);
+        assert_eq!(storage_health_score(None, Some(90), 80), 60);
+        assert_eq!(storage_health_score(None, Some(50), 80), 0);
+    }
+
+    #[test]
+    fn battery_and_wifi_scores_ramp_from_threshold() {
+        assert_eq!(battery_health_score(60.0, 60.0), 0);
+        assert_eq!(battery_health_score(30.0, 60.0), 50);
+        assert_eq!(battery_health_score(0.0, 60.0), 100);
+        assert_eq!(wifi_signal_score(30, 30), 0);
+        assert_eq!(wifi_signal_score(15, 30), 50);
+        assert_eq!(wifi_signal_score(0, 30), 100);
+        assert_eq!(wifi_signal_score(60, 30), 0);
     }
 }

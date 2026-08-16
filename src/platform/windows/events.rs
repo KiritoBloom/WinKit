@@ -140,7 +140,7 @@ fn render_event_xml(handle: *mut std::ffi::c_void) -> Option<String> {
     // On the sizing probe EvtRender reports the required buffer size in
     // bytes through `used` (BufferUsed); `property_count` is unrelated to
     // buffer sizing and must not be used to allocate.
-    let mut buf = vec![0u16; (used as usize + 1) / 2];
+    let mut buf = vec![0u16; (used as usize).div_ceil(2)];
     used = 0;
     ok = unsafe {
         ffi::EvtRender(

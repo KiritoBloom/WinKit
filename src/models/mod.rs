@@ -10,6 +10,7 @@ pub mod diagnostics;
 pub mod diskscan;
 pub mod event;
 pub mod evidence;
+pub mod hardware;
 pub mod health;
 pub mod network;
 pub mod process;
@@ -25,8 +26,9 @@ pub use browser::{
 };
 pub use diagnostics::{
     DiagnosticCorrelation, DiagnosticReport, DiagnosticSignal, EvidencePoint, Measurement,
-    PossibleCause, RankedFinding, SystemAppEvidence, SystemDiagnosis, SystemDiagnosticData,
-    SystemDriveEvidence, TabDiagnosticData,
+    PossibleCause, RankedFinding, SystemAppEvidence, SystemBatteryEvidence, SystemDiagnosis,
+    SystemDiagnosticData, SystemDriveEvidence, SystemStorageHealthEvidence, SystemThermalEvidence,
+    SystemWifiEvidence, TabDiagnosticData,
 };
 pub use diskscan::{
     DiskQueryKind, DiskQueryRequest, DiskQueryResult, DiskScanInfo, DiskScanRequest,
@@ -37,6 +39,14 @@ pub use event::{EventInfo, EventLevel, EventQuery};
 pub use evidence::{
     sort_findings, stable_id, DetailLevel, EvidenceConfidence, EvidenceItem, EvidenceSource,
     FindingCategory, FindingConfidence, FindingItem, FindingSeverity, ReportEnvelope, ReportStatus,
+};
+pub use hardware::{
+    BatteryHealth, BatteryInfo, BatteryStatus, CpuHardwareInfo, DiskActivity, DiskHealthReport,
+    GpuHardwareInfo, HardwareSnapshot, MemoryHardwareInfo, NetworkAdapterInfo, NetworkDiagnosis,
+    NetworkDiagnosticInterface, NetworkFinding, NetworkSnapshot, PowerStateInfo, PowerStatus,
+    SensorAvailability, SensorClass, SensorKind, SensorQuality, SensorReading, SensorSource,
+    SensorStatus, StorageActivity, StorageDeviceInfo, StorageHealthDevice, ThermalSnapshot,
+    ThermalStateSummary, UnavailableReading, WifiAdapterStatus, WifiNetwork, WifiScan,
 };
 pub use health::{
     ApplicationGroupInfo, DriveHealth, HealthIssue, SystemHealth, SystemHealthReport,

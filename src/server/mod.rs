@@ -43,7 +43,10 @@ pub struct AppState {
 impl AppState {
     /// Build state with the real Windows backend.
     pub fn build(config: Config) -> Result<Arc<Self>, WinkitError> {
-        Self::with_backend(config, Arc::new(RealWindowsBackend::new()))
+        let backend = RealWindowsBackend::with_options(
+            crate::platform::windows::hardware::HardwareOptions::from_config(&config.hardware),
+        );
+        Self::with_backend(config, Arc::new(backend))
     }
 
     /// Build state with an explicit backend (tests inject mocks here).

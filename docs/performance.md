@@ -10,10 +10,11 @@ dispatch, and provider work. This is what a client actually experiences.
 
 - **Host**: DESKTOP-ES2M4J5, Windows 10 (build 19045), x64, 8 cores,
   16.9 GB RAM.
-- **Binary**: `cargo build --release` (LTO, stripped), v0.1.0.
-- **Chrome**: debug instance on port 9222 with a single active tab (YouTube),
-  `process_mapping: "none"` — the tab tools above ran against a tab the
-  adapter could not map to a PID, exercising the degraded-path evidence.
+- **Binary**: `cargo build --release` (LTO, stripped), v0.1.2.
+- **Configuration**: full tool profile with the Chrome provider enabled
+  (`scripts/bench.ps1` requires it), all 69 tools benchmarked.
+- **Chrome**: debug (headless) instance on port 9222 with a single active tab
+  (about:blank). The Chrome rows ran against that tab end-to-end.
 - **Method**: 3 runs per tool (2 for the Chrome observation-window tools),
   median reported. Runs with protocol errors are counted and shown; there
   were none.
@@ -24,36 +25,45 @@ dispatch, and provider work. This is what a client actually experiences.
 
 | Tool | Runs | Min (ms) | Median (ms) | Max (ms) |
 | --- | ---: | ---: | ---: | ---: |
-| `list_drives` | 3 | 16 | 16 | 17 |
-| `system_info` | 3 | 16 | 17 | 77 |
-| `disk_usage` | 3 | 15 | 17 | 19 |
-| `get_service` | 3 | 17 | 19 | 20 |
-| `find_process_on_port` | 3 | 17 | 20 | 22 |
-| `list_network_interfaces` | 3 | 20 | 20 | 21 |
-| `list_listening_ports` | 3 | 20 | 21 | 24 |
-| `list_services` | 3 | 20 | 23 | 27 |
-| `get_process` | 3 | 23 | 25 | 27 |
-| `get_process_tree` | 3 | 27 | 27 | 28 |
-| `list_windows` | 3 | 29 | 30 | 31 |
-| `chrome_list_tabs` | 3 | 51 | 51 | 52 |
-| `list_applications` | 3 | 57 | 58 | 70 |
-| `get_application` | 3 | 51 | 61 | 62 |
-| `chrome_get_tab` | 3 | 62 | 65 | 143 |
-| `list_processes` | 3 | 62 | 71 | 88 |
-| `list_connections` | 3 | 73 | 75 | 81 |
-| `chrome_info` | 3 | 62 | 79 | 124 |
-| `find_process` | 3 | 48 | 80 | 82 |
-| `chrome_get_tab_performance` | 2 | 72 | 79 | 79 |
-| `chrome_get_tab_memory` | 2 | 79 | 82 | 82 |
-| `snapshot` | 3 | 1068 | 1073 | 1093 |
-| `get_recent_events` | 3 | 1131 | 1184 | 1217 |
-| `system_health` | 3 | 1355 | 1362 | 1395 |
-| `system_diagnose` | 3 | 1373 | 1378 | 1407 |
-| `dev_environment` | 3 | 1989 | 2056 | 3927 |
-| `chrome_get_tab_network` | 2 | 3098 | 3099 | 3099 |
-| `chrome_get_tab_runtime` | 2 | 3089 | 3105 | 3105 |
-| `chrome_diagnose_tab` | 2 | 3452 | 3463 | 3463 |
-| `chrome_tab_trend` | 2 | 10473 | 10524 | 10524 |
+| `wifi_status` | 3 | 26 | 27 | 32 |
+| `get_service` | 3 | 25 | 30 | 31 |
+| `list_listening_ports` | 3 | 29 | 31 | 38 |
+| `list_drives` | 3 | 22 | 31 | 33 |
+| `wifi_scan` | 3 | 29 | 33 | 36 |
+| `list_services` | 3 | 33 | 34 | 44 |
+| `list_network_interfaces` | 3 | 33 | 36 | 36 |
+| `list_connections` | 3 | 32 | 36 | 38 |
+| `disk_usage` | 3 | 31 | 37 | 38 |
+| `list_windows` | 3 | 32 | 37 | 45 |
+| `get_process` | 3 | 35 | 42 | 46 |
+| `get_process_tree` | 3 | 42 | 45 | 48 |
+| `network_snapshot` | 3 | 41 | 48 | 51 |
+| `get_recent_events` | 3 | 42 | 49 | 50 |
+| `battery_status` | 3 | 48 | 54 | 54 |
+| `chrome_list_tabs` | 3 | 55 | 56 | 61 |
+| `list_applications` | 3 | 55 | 58 | 69 |
+| `get_application` | 3 | 59 | 60 | 64 |
+| `power_status` | 3 | 59 | 61 | 71 |
+| `chrome_info` | 3 | 59 | 63 | 64 |
+| `chrome_get_tab_memory` | 2 | 62 | 64 | 64 |
+| `find_process` | 3 | 62 | 64 | 83 |
+| `list_processes` | 3 | 58 | 66 | 87 |
+| `system_info` | 3 | 53 | 68 | 148 |
+| `chrome_get_tab` | 2 | 59 | 76 | 76 |
+| `chrome_get_tab_performance` | 2 | 72 | 77 | 77 |
+| `disk_health` | 3 | 90 | 94 | 95 |
+| `thermal_snapshot` | 3 | 707 | 713 | 794 |
+| `hardware_snapshot` | 3 | 1130 | 1158 | 1654 |
+| `system_health` | 3 | 1365 | 1367 | 1378 |
+| `snapshot` | 3 | 1854 | 1857 | 2197 |
+| `system_diagnose` | 3 | 2050 | 2068 | 2085 |
+| `chrome_get_tab_network` | 2 | 3076 | 3079 | 3079 |
+| `chrome_get_tab_runtime` | 2 | 3080 | 3082 | 3082 |
+| `chrome_diagnose_tab` | 2 | 3416 | 3431 | 3431 |
+| `dev_environment` | 3 | 3281 | 3505 | 4002 |
+| `network_diagnose` | 3 | 3583 | 3996 | 3997 |
+| `disk_performance` | 3 | 6377 | 6405 | 6538 |
+| `chrome_tab_trend` | 2 | 10458 | 10612 | 10612 |
 
 Not benchmarked: `find_large_files`, `get_application_errors`,
 `get_system_errors`, `chrome_get_active_tab`, and the `disk_scan_*` family
@@ -63,19 +73,25 @@ event-log reads vary wildly with the machine).
 ## Reading the numbers
 
 - **The read surface is flat.** Every single-shot read — processes, ports,
-  services, windows, drives, events counts, Chrome tab lists — completes
-  in well under 100 ms regardless of machine scale, because results are
-  bounded and enumeration uses native snapshots.
+  services, windows, drives, events counts, Wi-Fi, power, Chrome tab lists —
+  completes in well under 100 ms regardless of machine scale, because results
+  are bounded and enumeration uses native snapshots.
+- **Hardware telemetry is honest about what it measures.** `disk_health`
+  (≈94 ms) reads the non-elevated OS storage-stack health; `thermal_snapshot`
+  (≈0.7 s) surveys ACPI thermal zones and PDH frequency; `hardware_snapshot`
+  (≈1.2 s) enumerates CPU/GPU/memory/storage/battery devices. `disk_performance`
+  (≈6.4 s) samples per-disk activity over its default 5-second window, and
+  `network_diagnose` (≈4.0 s) round-trips each interface's gateway.
 - **Sampling tools cost their window, not their scope.** `snapshot`
-  (1.07 s), `system_health` (1.36 s), and `system_diagnose` (1.38 s) all
-  include a 1-second resource-sample window; the deepest report costs the
-  same as the shallowest because they share the same sampling pass.
+  (≈1.9 s) and `system_diagnose` (≈2.1 s) include a 1-second resource-sample
+  window; `snapshot` additionally aggregates the hardware summaries, which is
+  why it is heavier than `system_health` (≈1.4 s).
 - **Chrome observation tools cost their observation.** `chrome_get_tab_network`
   and `chrome_get_tab_runtime` sample CDP for ~3 s; `chrome_diagnose_tab`
-  reuses those windows (3.5 s); `chrome_tab_trend` runs a 10-second trend by
+  reuses those windows (3.4 s); `chrome_tab_trend` runs a 10-second trend by
   default (`observe_ms` is configurable).
-- **`dev_environment`** (≈2 s median) is the only tool that scans the
-  filesystem for installed toolchains; its one 3.9 s outlier is a cold
+- **`dev_environment`** (≈3.5 s median) is the only tool that scans the
+  filesystem for installed toolchains; its 4.0 s outlier is a cold
   PATH/mount scan.
 
 ## Re-running
@@ -83,4 +99,4 @@ event-log reads vary wildly with the machine).
 The benchmark script used here is kept in the repository at
 `scripts/bench.ps1` (launch a debug Chrome on 9222 first if you want the
 Chrome rows; the Windows rows work without it). It writes a sorted table to
-stdout and a JSON copy to `$env:TEMP\opencode\bench_results.json`.
+stdout and a JSON copy to `$env:TEMP\opencode\bench_results.{txt,json}`.

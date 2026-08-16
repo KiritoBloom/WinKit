@@ -101,8 +101,8 @@ See [examples/mcp/generic.json](../examples/mcp/generic.json).
 ## What the client gets
 
 After `initialize`, `tools/list` returns the tools of the active profile
-with their JSON input schemas (see [tools.md](tools.md)): 59 tools in the
-`full` profile, 52 in the default `developer` profile, 45 in `browser`, and
+with their JSON input schemas (see [tools.md](tools.md)): 69 tools in the
+`full` profile, 52 in the default `developer` profile, 55 in `browser`, and
 5 in `core`. Each tool is enforced by the permission policy configured for
 the session, and every response is a JSON document wrapped in the standard
 MCP `content`/`isError` envelope.

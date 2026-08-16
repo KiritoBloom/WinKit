@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-17
+
+### Added
+
+- **Hardware telemetry tools** — `hardware_snapshot` (CPU/GPU/memory/storage
+  devices/battery/power/sensors), `thermal_snapshot` (temperature sensors plus
+  a deterministic throttle/pressure interpretation), `battery_status`,
+  `power_status`, `disk_health` (NVMe S.M.A.R.T. health log plus a
+  non-elevated storage-stack health status), `disk_performance`
+  (per-disk activity sampled over a window), `network_snapshot`,
+  `network_diagnose` (per-interface gateway reachability via ICMP + Wi-Fi
+  radio facts), `wifi_status`, and `wifi_scan`. Every reading is measured or
+  explicitly reported unavailable with a reason; each probe runs under the
+  configured `hardware.probe_timeout_ms` budget.
+- **Hardware evidence in machine diagnosis** — `system_diagnose` now
+  consumes CPU thermal pressure/throttling, storage health, battery health,
+  and Wi-Fi signal strength, adding the `cpu_thermal_pressure`,
+  `cpu_frequency_reduction`, `storage_health`, `battery_health`, and
+  `wifi_signal` finding categories with deterministic score formulas.
+- **`snapshot` hardware summaries** — the machine snapshot now carries
+  storage-health, Wi-Fi, thermal, and power summaries when readable.
+- **`[hardware]` configuration section** — `sensors_enabled`,
+  `wifi_scan_enabled`, `ata_smart_enabled`, `probe_timeout_ms`.
+
+### Changed
+
+- **Chrome observability tools are browser-profile only.** The ten
+  `chrome_*` inspection tools moved out of the `developer` profile (they
+  remain in `browser` and `full`); the ten hardware tools joined
+  `developer`, `browser`, and `full`. The registry is now 69 tools
+  (`core` 5, `developer` 52, `browser` 55, `full` 69).
+- **`providers.enabled` defaults to Windows only** — the default
+  configuration no longer enables the Chrome provider; users opt in
+  explicitly.
+
+### Fixed
+
+- **WMI hardware tools crashed with an access violation on real machines.**
+  `WmiSession` dropped the `IWbemServices` proxy *after* `CoUninitialize`
+  (Rust drops fields in declaration order), so releasing the proxy hit a
+  torn-down COM apartment; and the services proxy never received a
+  `CoSetProxyBlanket`, so `ExecQuery` failed with `WBEM_E_ACCESS_DENIED`
+  even for non-elevated users. `services` is now declared before the COM
+  guard (released while the apartment is alive) and every connection sets
+  the NTLM/packet-privacy/impersonate blanket before querying.
+- **`bstr_len` read the wrong length prefix.** The BSTR length word sits
+  4 bytes before the first character, but the old code backed the pointer
+  up by `sub(1)` — 2 bytes for a `*const u16` — producing garbage lengths
+  that let a property read run out of bounds. The prefix is now read at the
+  correct byte offset.
+- **`hardware_snapshot` silently dropped the CPU identity and drive
+  capacity.** `Win32_Processor` rejects `Model` in an explicit column list
+  (a WQL quirk of that class — the query returned
+  `WBEM_E_INITIALIZATION_FAILURE`), so `Model` was removed from the SELECT
+  and the getter already tolerates the missing column. Separately, WMI
+  returns CIM `uint64` properties (`Capacity`, `Size`) as `VT_BSTR` strings,
+  and `WmiValue::as_u64` now parses numeric strings instead of returning
+  `None`, so `memory.total_bytes` and `storage.capacity_bytes` populate.
+- **`hardware_snapshot` mislabeled the system drive.** The old
+  `system_disk_index` opened `\\.\C:` with `IOCTL_STORAGE_GET_DEVICE_NUMBER`,
+  which fails with access denied for non-admin users, so `is_system` was
+  always false. The index now comes from the WMI association classes
+  (`Win32_LogicalDiskToPartition` + `Win32_DiskDriveToDiskPartition`), which
+  need no elevation.
+- **`disk_health` reported nothing for non-NVMe drives.** ATA S.M.A.R.T.
+  pass-through is disabled by default, so SATA/HDD drives came back
+  unavailable even though the OS already assesses their health. Every drive
+  now reports the OS storage-stack health status
+  (`MSFT_PhysicalDisk.HealthStatus` in `root\Microsoft\Windows\Storage`),
+  which is readable without elevation; NVMe S.M.A.R.T. logs still enrich the
+  report when they can be read.
+- **`disk_health` storage-stack `DeviceId` was never matched.** The storage
+  provider returns `DeviceId` as a string (`VT_BSTR`), so the fallback
+  silently missed every disk; `WmiValue::as_u32` now parses numeric strings
+  just like `as_u64` does.
+- **`thermal_snapshot` misreported elevation-gated sensors as
+  unsupported.** On hosts that lock the ACPI thermal-zone WMI class
+  (`MSAcpi_ThermalZoneTemperature` is permission-checked per class, not per
+  namespace), the report now says `permission_denied` with an actionable
+  reason for the zone and CPU-package readings instead of claiming the
+  machine exposes no thermal source.
+
 ## [0.1.1] - 2026-08-15
 
 ### Fixed

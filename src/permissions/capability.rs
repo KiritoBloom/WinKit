@@ -22,6 +22,13 @@ pub enum Capability {
     EventRead,
     WindowRead,
 
+    // Hardware-level read capabilities (v1).
+    HardwareRead,
+    StorageHealthRead,
+    PowerRead,
+    WifiRead,
+    NetworkDiagnosticsRead,
+
     // Application-level read capabilities (v1).
     ApplicationDiscover,
     ApplicationTabsRead,
@@ -58,6 +65,11 @@ impl Capability {
             Self::ServiceRead => "service.read",
             Self::EventRead => "event.read",
             Self::WindowRead => "window.read",
+            Self::HardwareRead => "hardware.read",
+            Self::StorageHealthRead => "storage.health.read",
+            Self::PowerRead => "hardware.power.read",
+            Self::WifiRead => "network.wifi.read",
+            Self::NetworkDiagnosticsRead => "network.diagnostics.read",
             Self::ApplicationDiscover => "application.discover",
             Self::ApplicationTabsRead => "application.tabs.read",
             Self::ApplicationPerformanceRead => "application.performance.read",
@@ -88,6 +100,11 @@ impl Capability {
         Capability::ServiceRead,
         Capability::EventRead,
         Capability::WindowRead,
+        Capability::HardwareRead,
+        Capability::StorageHealthRead,
+        Capability::PowerRead,
+        Capability::WifiRead,
+        Capability::NetworkDiagnosticsRead,
         Capability::ApplicationDiscover,
         Capability::ApplicationTabsRead,
         Capability::ApplicationPerformanceRead,
@@ -110,6 +127,11 @@ impl FromStr for Capability {
             "service.read" => Ok(Self::ServiceRead),
             "event.read" => Ok(Self::EventRead),
             "window.read" => Ok(Self::WindowRead),
+            "hardware.read" => Ok(Self::HardwareRead),
+            "storage.health.read" => Ok(Self::StorageHealthRead),
+            "hardware.power.read" => Ok(Self::PowerRead),
+            "network.wifi.read" => Ok(Self::WifiRead),
+            "network.diagnostics.read" => Ok(Self::NetworkDiagnosticsRead),
             "application.discover" => Ok(Self::ApplicationDiscover),
             "application.tabs.read" => Ok(Self::ApplicationTabsRead),
             "application.performance.read" => Ok(Self::ApplicationPerformanceRead),
@@ -145,6 +167,7 @@ mod tests {
     #[test]
     fn capability_names_match_protocol() {
         assert_eq!(Capability::SystemRead.as_str(), "system.read");
+        assert_eq!(Capability::HardwareRead.as_str(), "hardware.read");
         assert_eq!(Capability::ProcessTerminate.as_str(), "process.terminate");
         assert_eq!(
             "network.read".parse::<Capability>().unwrap(),

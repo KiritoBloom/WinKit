@@ -49,7 +49,11 @@ pub trait WindowsBackend: Send + Sync {
     fn list_services(&self, limit: usize) -> Result<Vec<ServiceInfo>, WinkitError>;
     fn get_service(&self, name: &str) -> Result<Option<ServiceInfo>, WinkitError>;
     fn get_recent_events(&self, query: &EventQuery) -> Result<Vec<EventInfo>, WinkitError>;
-    fn list_windows(&self, limit: usize, visible_only: bool) -> Result<Vec<WindowInfo>, WinkitError>;
+    fn list_windows(
+        &self,
+        limit: usize,
+        visible_only: bool,
+    ) -> Result<Vec<WindowInfo>, WinkitError>;
     fn foreground_window_title(&self) -> Result<Option<String>, WinkitError>;
     /// Aggregate CPU usage of all processes named `chrome.exe` (used for
     /// cross-layer correlation). Returns `None` when Chrome is not running.
@@ -59,6 +63,18 @@ pub trait WindowsBackend: Send + Sync {
     /// are applied by the tool layer.
     fn application_groups(&self, limit: usize) -> Result<Vec<ApplicationGroupInfo>, WinkitError>;
     fn dev_environment(&self) -> Result<DevEnvironment, WinkitError>;
+    // Hardware telemetry (§Hardware). Thresholds live in the platform
+    // modules; the configurable thresholds are applied by `system_diagnose`.
+    fn hardware_snapshot(&self) -> Result<HardwareSnapshot, WinkitError>;
+    fn thermal_snapshot(&self) -> Result<ThermalSnapshot, WinkitError>;
+    fn battery_status(&self) -> Result<BatteryStatus, WinkitError>;
+    fn power_status(&self) -> Result<PowerStatus, WinkitError>;
+    fn disk_health(&self) -> Result<DiskHealthReport, WinkitError>;
+    fn storage_activity(&self, sample_window_ms: u64) -> Result<StorageActivity, WinkitError>;
+    fn network_snapshot(&self) -> Result<NetworkSnapshot, WinkitError>;
+    fn wifi_status(&self) -> Result<Vec<WifiAdapterStatus>, WinkitError>;
+    fn wifi_scan(&self) -> Result<WifiScan, WinkitError>;
+    fn network_diagnose(&self, sample_window_ms: u64) -> Result<NetworkDiagnosis, WinkitError>;
 }
 
 /// Aggregate view of Chrome processes from the Windows layer (§28).
@@ -81,12 +97,18 @@ pub struct ChromeProcessSummary {
 #[derive(Debug, Clone, Default)]
 pub struct RealWindowsBackend {
     scans: Arc<crate::platform::windows::diskscan::DiskScanService>,
+    hardware: crate::platform::windows::hardware::HardwareOptions,
 }
 
 impl RealWindowsBackend {
     pub fn new() -> Self {
+        Self::with_options(crate::platform::windows::hardware::HardwareOptions::default())
+    }
+
+    pub fn with_options(hardware: crate::platform::windows::hardware::HardwareOptions) -> Self {
         Self {
             scans: Arc::new(crate::platform::windows::diskscan::DiskScanService::default()),
+            hardware,
         }
     }
 }
@@ -196,7 +218,11 @@ impl WindowsBackend for RealWindowsBackend {
         crate::platform::windows::events::get_recent_events(query)
     }
 
-    fn list_windows(&self, limit: usize, visible_only: bool) -> Result<Vec<WindowInfo>, WinkitError> {
+    fn list_windows(
+        &self,
+        limit: usize,
+        visible_only: bool,
+    ) -> Result<Vec<WindowInfo>, WinkitError> {
         crate::platform::windows::win32::list_windows(limit, visible_only)
     }
 
@@ -257,6 +283,46 @@ impl WindowsBackend for RealWindowsBackend {
     fn dev_environment(&self) -> Result<DevEnvironment, WinkitError> {
         crate::providers::windows::dev_environment()
     }
+
+    fn hardware_snapshot(&self) -> Result<HardwareSnapshot, WinkitError> {
+        crate::platform::windows::hardware::hardware_snapshot(&self.hardware)
+    }
+
+    fn thermal_snapshot(&self) -> Result<ThermalSnapshot, WinkitError> {
+        crate::platform::windows::hardware::thermal_snapshot(&self.hardware)
+    }
+
+    fn battery_status(&self) -> Result<BatteryStatus, WinkitError> {
+        crate::platform::windows::power::battery_status()
+    }
+
+    fn power_status(&self) -> Result<PowerStatus, WinkitError> {
+        crate::platform::windows::power::power_status()
+    }
+
+    fn disk_health(&self) -> Result<DiskHealthReport, WinkitError> {
+        crate::platform::windows::storage_health::disk_health(&self.hardware)
+    }
+
+    fn storage_activity(&self, sample_window_ms: u64) -> Result<StorageActivity, WinkitError> {
+        crate::platform::windows::pdh::disk_activity(sample_window_ms)
+    }
+
+    fn network_snapshot(&self) -> Result<NetworkSnapshot, WinkitError> {
+        crate::platform::windows::network_diag::network_snapshot()
+    }
+
+    fn wifi_status(&self) -> Result<Vec<WifiAdapterStatus>, WinkitError> {
+        Ok(crate::platform::windows::wifi::wifi_statuses())
+    }
+
+    fn wifi_scan(&self) -> Result<WifiScan, WinkitError> {
+        crate::platform::windows::wifi::wifi_scan(&self.hardware)
+    }
+
+    fn network_diagnose(&self, sample_window_ms: u64) -> Result<NetworkDiagnosis, WinkitError> {
+        crate::platform::windows::network_diag::network_diagnose(sample_window_ms)
+    }
 }
 
 /// Concrete provider type registered in the registry.
@@ -296,6 +362,11 @@ impl Provider for WindowsProvider {
             Capability::ServiceRead,
             Capability::EventRead,
             Capability::WindowRead,
+            Capability::HardwareRead,
+            Capability::StorageHealthRead,
+            Capability::PowerRead,
+            Capability::WifiRead,
+            Capability::NetworkDiagnosticsRead,
         ]
     }
 }

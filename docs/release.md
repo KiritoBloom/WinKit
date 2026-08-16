@@ -27,7 +27,7 @@ tests exercise.
 
 Releases are cut from `main` with a version bump, a changelog entry, and a
 tagged build, per [CONTRIBUTING](../CONTRIBUTING.md). The current version is
-`0.1.1` (`Cargo.toml` and both `npm/*/package.json` files); the examples
+`0.1.2` (`Cargo.toml` and both `npm/*/package.json` files); the examples
 below use `vX.Y.Z` and `YYYY-MM-DD` placeholders wherever the actual value is
 decided at release time.
 
@@ -44,13 +44,13 @@ local run is a good proxy for a green tag build.
   clean (the `--features mocks` form additionally compiles the
   mocks-gated test surface).
 - [ ] **Tests** — `cargo test` (no features) and
-`cargo test --features mocks` pass: 351 tests with the feature (345
-without), split across lib unit tests, the fixture-backed evaluation
+`cargo test --features mocks` pass: 363 tests with the feature (357
+  without), split across lib unit tests, the fixture-backed evaluation
   suite (`tests/eval`), protocol, fixture, and mock-tool integration
   tests. No test touches the real machine. The evaluation suite is
   collision-safe and passes under normal parallel Cargo execution.
 - [ ] **Evaluation suite** — `cargo test --features mocks --test eval`
-  passes: 18 deterministic fixture-backed tests (17 scenarios plus a
+  passes: 19 deterministic fixture-backed tests (18 scenarios plus a
   fixture-concurrency regression test).
 - [ ] **Release build** — `cargo build --release` succeeds and produces
   `.\target\release\winkit.exe`. The release profile builds both the binary
@@ -66,8 +66,8 @@ without), split across lib unit tests, the fixture-backed evaluation
   `init --client …`, `configure --dry-run`, the MCP initialize handshake,
   exit-code propagation, and missing-runtime behavior through the installed
   launcher.
-- [ ] **Docs consistency** — README states 59 tools and the current test
-  count (351 with `--features mocks`, 345 without); the tool count matches the registry
+- [ ] **Docs consistency** — README states 69 tools and the current test
+  count (363 with `--features mocks`, 357 without); the tool count matches the registry
   in `src/tools/` and the test count matches the `cargo test` output. Every
   link in the README docs list points to an existing file — write any
   missing doc or drop the link before release.
@@ -79,7 +79,7 @@ without), split across lib unit tests, the fixture-backed evaluation
 - [ ] **Live smoke** — launch Chrome with remote debugging
   (`chrome.exe --remote-debugging-port=9222 --user-data-dir=C:\winkit-chrome-profile`),
   then drive the release binary from an MCP client: `initialize`,
-`tools/list` (59 tools in the `full` profile, 52 in the default
+`tools/list` (69 tools in the `full` profile, 52 in the default
 `developer` profile), and one deep read such as `chrome_diagnose_tab`
   against a real tab. Stdout must carry only protocol frames.
 - [ ] **Live managed Chrome, both modes (required before any
@@ -164,7 +164,7 @@ carries the name.
 
 Publishing is a **separate, explicit, credentialed step** — pull-request CI
 never publishes, and nothing is published automatically. The package version
-must match the crate version (`0.1.1` today). Requirements:
+must match the crate version (`0.1.2` today). Requirements:
 
 1. Both packages have been staged and validated locally (the checklist above
    covers pack dry-runs, package-content validation, and the packed-package
@@ -190,7 +190,7 @@ final `npm pack --dry-run` and the packed-package smoke test right before
 publishing. After publishing, verify from a clean directory:
 
 ```bash
-npx --yes @winkit/mcp@0.1.1 doctor
+npx --yes @winkit/mcp@0.1.2 doctor
 ```
 
 ## GitHub release notes
@@ -202,8 +202,8 @@ for a human reading the repo for the first time.
 
 ### Highlights
 
-- **59 MCP tools** spanning system, process, network, storage, service,
-  event, window, developer-environment, application, Chrome,
+- **69 MCP tools** spanning system, process, network, storage, hardware,
+  power, service, event, window, developer-environment, application, Chrome,
   managed-browser, and machine-health domains, organized into tool profiles
   (`core`, `developer`, `browser`, `full`).
 - **Evidence-first, deterministic diagnostics** — every report separates raw

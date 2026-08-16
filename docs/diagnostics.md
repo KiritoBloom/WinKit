@@ -22,6 +22,8 @@ tab evidence (TabDiagnosticData)
 
 machine evidence (SystemDiagnosticData)
   ├─ system::analyze_system  (signals + deterministic score per finding)
+  │    evidence domains: application groups, drives, memory growth,
+  │    CPU thermal pressure/throttling, storage health, battery, Wi-Fi
   ├─ findings                 (ranked, 0-100 scores, severity bands)
   └─ SystemDiagnosis          (report + findings + checked_clean)
 ```
@@ -154,9 +156,10 @@ cause."
 ## Machine-wide diagnosis (`system_diagnose`)
 
 `system_diagnose` collects machine evidence (application groups, drives, two
-memory samples ~1 s apart for a growth rate) and runs it through the same
-evidence-first engine. The result adds two machine-specific pieces to the
-standard report:
+memory samples ~1 s apart for a growth rate) and hardware evidence (CPU
+thermal pressure and throttling, storage health, battery health, Wi-Fi
+signal strength) and runs it through the same evidence-first engine. The
+result adds two machine-specific pieces to the standard report:
 
 ### Ranked findings
 
@@ -184,14 +187,21 @@ Score formulas (all pure functions of measured values):
 | `app_cpu` | the CPU percent itself (of system capacity), clamped | 57% → 57 |
 | `app_memory` | working set ÷ max(¼ RAM, memory threshold), × 100 | 4.6 GB on 16 GB → 100 |
 | `memory_growth` | rate ÷ (2 × runaway threshold), × 100 | 62 MB/s (threshold 50) → 62 |
+| `cpu_thermal_pressure` | `high` → 90, `elevated` → 60, else 0 | sustained > high-temp threshold → 90 |
+| `cpu_frequency_reduction` | throttling `likely` → 85; measured reduction → 70; else 0 | frequency well below base clock → 85 |
+| `storage_health` | status `critical` → 95, `warning` → 70; else NVMe %-used ≥ threshold → 60; else 0 | NVMe critical warning → 95 |
+| `battery_health` | linear from 0 at the low-health threshold to 100 at 0% health | health at 40% (threshold 60) → 33 |
+| `wifi_signal` | linear from 0 at the weak-signal threshold to 100 at 0% signal | signal at 40% (threshold 50) → 20 |
 
 ### Checked-clean list
 
 `checked_clean` lists the dimensions that were **measured** and stayed below
 every threshold ("no evidence of ..."). Only dimensions actually measured
 appear; a failed collection yields `evidence_completeness: "limited"` and the
-dimension is not claimed clean. Network failure and service instability are
-not part of machine diagnosis in this release.
+dimension is not claimed clean. Service instability is not part of machine
+diagnosis in this release; network failure is not inferred — Wi-Fi signal
+weakness is reported as a radio-condition finding, never as an "Internet
+broken" claim.
 
 `system_health` applies the same thresholds to the same evidence and returns
 `issues` with the same `score` / `category` / `severity`, sorted by score —

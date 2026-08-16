@@ -1,981 +1,3188 @@
+# WinKit — Full Refocus, Hardware Observability, Diagnostics, and Tool-Surface Overhaul
 
-You are the lead engineer responsible for turning the existing WinKit repository into a reliable, installable, agent-native Windows developer-environment diagnosis product.
-You are experienced in Rust, Windows native APIs, MCP over stdio, Node.js and npm distribution, Chrome DevTools Protocol, local web development, security engineering, testing, documentation, and release engineering.
-Work directly in the existing WinKit repository. Inspect the repository before changing architecture. Preserve useful existing code and behavior. Do not create a disconnected prototype, a second server, or a parallel implementation. Implement the work, add tests, update documentation, run verification, and report the actual results.
-Do not claim that a feature works until the relevant test or smoke test has actually run.
-1. Product mission
-WinKit is a Windows-native runtime context and diagnosis layer for coding agents such as OpenCode, Claude Code, Codex, and other MCP-capable developer tools.
-The product should help an agent answer questions that source-code inspection alone cannot answer:
-Why can the local application not be reached?
-What process owns port 3000?
-Is the development server alive, stale, or listening on another port?
-Why is localhost returning HTTP 404, 500, or a redirect loop?
-Why is the page blank even though the server responds?
-Why is the browser reporting runtime errors or failed requests?
-Is the browser looking at an old server or an unrelated process?
-Did a relevant process exit or crash recently?
-Is Windows memory pressure, disk pressure, CPU pressure, or a service problem contributing to the failure?
-What evidence supports the diagnosis?
-What should the agent inspect next?
-Can the agent open an isolated Chrome instance, inspect a local application, and cleanly close it afterward without the developer manually enabling remote debugging?
-The primary product promise is:
-When a developer's local application is broken on Windows, WinKit correlates the workspace, server, port, process, machine, and browser evidence into a concise, trustworthy diagnosis.
+You are working directly inside the existing **WinKit** repository.
 
-WinKit is not primarily a collection of Windows commands. Low-level inspection tools remain available, but the product's value comes from task-oriented workflows that combine evidence and tell the agent what to do next.
-2. Competitive positioning discovered during research
-The implementation must explicitly reflect the current open-source landscape.
-2.1 Existing projects to respect
-The following projects cover important parts of the market:
-Chrome DevTools MCP provides mature Chrome inspection, performance tracing, network debugging, console inspection, screenshots, and browser automation for coding agents.
-Microsoft Playwright MCP provides broad browser automation through Playwright and established npx onboarding patterns for many coding agents.
-DevInspector provides frontend runtime context including DOM state, styles, network, console, terminal output, screenshots, MCP integration, and agent skills.
-MCP OS Doctor provides read-only Windows diagnostics for event logs, services, processes, system information, boot history, GPU, DirectX, and sensors.
-WinRemote MCP and Windows-MCP expose broad Windows control, including shell, files, GUI automation, registry, services, and process actions.
-Microsoft DebugMCP focuses on code-process debugging with breakpoints, stepping, and inspection.
-WinKit must not pretend that it invented Windows diagnostics, browser inspection, MCP, or agent skills.
-2.2 What WinKit must not compete on
-Do not turn WinKit into a generic replacement for Chrome DevTools MCP or Playwright MCP.
-Do not optimize the product around:
-Generic browser clicking and typing.
-Broad browser automation.
-Arbitrary JavaScript execution.
-Arbitrary CDP method execution.
-Full browser test-framework coverage.
-Remote Windows desktop control.
-PowerShell or shell execution.
-File write automation.
-Registry mutation.
-Killing arbitrary processes.
-Browser inspection is a supporting capability. Windows and local-development correlation is the product center.
-2.3 WinKit's ownable intersection
-WinKit should own this intersection:
-Windows-native machine observability.
-Workspace and development-environment metadata.
-Local server and port ownership.
-Process ancestry and relationship to a workspace.
-HTTP reachability and response diagnosis.
-Browser runtime evidence from an isolated managed Chrome session.
-Recent failure correlation.
-Evidence-first explanations for coding agents.
-Read-only-by-default behavior.
-Simple npx onboarding with no manually managed executable or debugging port.
-The main README, package description, examples, tool descriptions, and demos must communicate this positioning consistently.
-3. Existing repository and architecture
-The current repository is a Rust 2021, Windows-first MCP server over stdio. Before changing anything, inspect the actual code and reconcile this prompt with the repository.
-The current repository is expected to include or resemble:
-src/platform/windows/ for native Windows implementations.
-src/providers/windows.rs for production provider composition.
-src/providers/mock.rs for deterministic test providers.
-src/providers/applications/chrome/ for Chrome discovery, CDP, and sessions.
-src/tools/ for MCP tool definitions.
-src/server/ for MCP transport, registry, dispatch, lifecycle, and protocol handling.
-src/config/ for configuration schema, loading, defaults, and validation.
-src/permissions/ for capabilities, policies, and approvals.
-src/diagnostics/ for scoring, findings, and correlation.
-tests/ for fixture, mock, and MCP protocol tests.
-examples/mcp/ for client configurations.
-Mocks are test infrastructure, not product backends. They exist to make tests deterministic. Real users must use the real Windows provider and the real Chrome/CDP provider.
-Do not replace real providers with mocks to make tests pass. Do not make mock-only behavior appear as production functionality.
-4. Required engineering process
-Follow this order.
-Phase A: Inspect and baseline
-Inspect:
-Cargo.toml and Cargo.lock.
-Every source module and public model.
-Tool registration and MCP dispatch.
-Provider traits and production/mock implementations.
-Windows process, network, storage, services, events, windows, health, and development providers.
-Chrome discovery, CDP transport, session ownership, and process handling.
-Configuration parsing, defaults, unknown-key handling, and migrations.
-Permission capabilities and approval behavior.
-All tests, fixtures, CI workflows, scripts, examples, and docs.
-Run and record the baseline before code changes:
-cargo fmt --all -- --check
-cargo clippy --all-targets --features mocks -- -D warnings
-cargo test --features mocks
-cargo build --release
-If a command fails, record the failure and continue the audit. Do not silently treat a failed baseline as passing.
-Phase B: Make a requirement matrix
-Create an implementation matrix before coding with these columns:
-Requirement.
-Existing location.
-Planned change.
-New or changed public behavior.
-Security impact.
-Test required.
-Documentation required.
-Verification status.
-Use the matrix to ensure that no section of this prompt is forgotten.
-Phase C: Implement in dependency order
-Implement in this order unless the existing architecture requires a justified variation:
-Correctness and baseline fixes.
-Shared evidence and diagnostic models.
-Workspace, server, and local web-app diagnosis.
-Waiting and correlation workflows.
-Tool profiles and agent-facing descriptions.
-Managed Chrome lifecycle and browser evidence.
-npm and npx distribution.
-Agent skill packaging.
-Tests, demos, docs, and release automation.
-Phase D: Verify the product workflow
-The final verification must include the whole workflow:
-npx -> MCP client -> diagnose_workspace -> diagnose_local_webapp -> managed Chrome -> browser diagnosis -> evidence-backed result -> cleanup
-5. Non-negotiable product and security constraints
-Windows is the first supported platform.
-The production backend is the real Windows-native provider.
-MCP over stdio remains the primary integration protocol.
-The default configuration is safe and read-only.
-Managed browser lifecycle actions are disabled unless explicitly enabled.
-Managed browser actions are permission-gated separately from read-only inspection.
-Do not add Playwright, Selenium, ChromeDriver, browser downloads, or browser automation dependencies.
-Use direct native process spawning and the existing direct CDP implementation for managed Chrome.
-Do not silently attach to the developer's normal Chrome profile.
-Do not accept arbitrary shell commands, PowerShell, command strings, JavaScript, CDP methods, WebSocket endpoints, Chrome flags, executable paths, or profile paths from tool callers.
-Never expose cookies, authorization headers, request bodies, form values, credentials, tokens, raw environment blocks, private keys, or secret-bearing command lines.
-Do not make outbound telemetry, analytics, update checks, usage reporting, crash uploads, or registry calls at runtime unless the user explicitly enables a separately documented feature. The default product must be local-only.
-Bound every operation with absolute deadlines, result limits, payload caps, concurrency limits, and cancellation or cleanup behavior.
-Diagnostics must distinguish confirmed facts, observations, signals, hypotheses, limitations, and recommended next checks.
-Never describe timing correlation as proven causality.
-Never terminate, restart, modify, or delete anything WinKit did not create and explicitly own.
-Every new tool requires a capability, permission rule, schema, timeout, limits, provider behavior, mock behavior, tests, and documentation.
-stdout must remain clean for MCP protocol traffic. Human diagnostics and logs go to stderr or an explicitly requested diagnostic output channel.
-Do not claim unsupported platforms work.
-Do not claim release readiness when a required test, package check, or live smoke test has not run.
-Important npm clarification: npm is allowed for the WinKit launcher and distribution packages. The restriction is against requiring browser automation packages or browser downloads, not against using npm for installation and distribution.
-6. Product workflows that must work
-Implement and test these user stories.
-Workflow 1: Diagnose the machine
-User asks:
-Diagnose my Windows development environment.
+Your job is to substantially improve WinKit into a focused, production-quality **Windows observability and diagnostics MCP server for AI agents**.
 
-WinKit should inspect bounded machine health, relevant processes, listening ports, available storage, recent relevant errors, services when permitted, and development tooling metadata. It should return a concise report with evidence and next tools.
-Workflow 2: Diagnose a workspace
-User asks:
-Diagnose this project and tell me why development is failing.
+Do not treat this as a greenfield project.
 
-The agent should be able to call diagnose_workspace with an explicit workspace path. WinKit should identify the project, relevant manifests, package manager, likely development commands without executing them, active servers, related processes, ports, health signals, and browser state when available.
-Workflow 3: Diagnose a local web application
-User asks:
-Open my local app and explain why it is broken.
+Do not throw away working architecture.
 
-The agent should call diagnose_local_webapp. The result should correlate URL validation, port ownership, process identity, HTTP reachability, response status, timing, browser console/runtime evidence, browser network failures, and system pressure.
-Workflow 4: Find a stale port
-User asks:
-What owns port 3000, and is it related to this project?
+Do not create a second architecture beside the existing one.
 
-WinKit should report the listener, PID, executable, safe working directory, parent process relationship, workspace relationship, and uncertainty. It must not kill the process.
-Workflow 5: Wait for a server
-User asks:
-Wait for my dev server to become ready.
+First understand the repository deeply, then modify the existing implementation in place.
 
-The agent should call a bounded condition-based wait tool. WinKit must not busy-loop, run arbitrary commands, or wait forever.
-Workflow 6: Isolated browser debugging
-User asks:
-Start a safe browser for localhost:3000, inspect the page, and close it when finished.
+The current repository already has a strong separation between MCP/tool definitions, providers, Windows implementations, permissions, models, diagnostics, testing, packaging, and documentation. Preserve that general philosophy unless you find a concrete technical reason that it must change.
 
-WinKit should create an isolated managed Chrome profile, bind DevTools to loopback, inspect the local page, return bounded evidence, and clean up only resources it owns.
-7. Shared evidence and diagnostic model
-Create or strengthen shared models instead of implementing each high-level tool with unrelated ad hoc JSON.
-7.1 Evidence model
-Each evidence item should have:
-A stable evidence ID.
-A source category.
-A redacted subject.
-A timestamp when available.
-A bounded value or structured observation.
-A confidence or reliability marker.
-A limitation when the data is partial.
-Source categories should include:
-Workspace metadata.
-Repository metadata.
-Process inspection.
-Port and listener inspection.
-HTTP probe.
-Windows events.
-Service state.
-System health.
-Chrome session state.
-Browser runtime.
-Browser network.
-Browser performance.
-7.2 Finding model
-Each finding should have:
-A stable finding ID.
-A severity.
-A short title.
-A clear explanation.
-Supporting evidence IDs.
-Contradicting evidence IDs when applicable.
-A confidence level.
-A category such as server, port, process, browser, workspace, system, or unknown.
-Recommended next tools.
-A statement of what would confirm or disprove it.
-7.3 Fact and hypothesis rules
+The most important goal is not "add as many features as possible."
+
+The goal is:
+
+> Make WinKit the thing an AI agent calls when it needs to understand what is happening on a Windows machine, why the machine is unhealthy, what resource is responsible, and what evidence supports that conclusion.
+
+WinKit should be **agent-native**, **evidence-first**, **Windows-native**, **read-only by default**, fast, honest about unavailable telemetry, and focused.
+
+---
+
+# 1. Start by auditing the repository
+
+Before editing anything, inspect the entire repository.
+
+Read and understand at minimum:
+
+* `README.md`
+* `Cargo.toml`
+* all source modules under `src/`
+* tool definitions and registration
+* provider traits
+* Windows implementations
+* data models
+* diagnostics engine
+* permissions
+* config
+* tests
+* evaluation suite
+* MCP integration examples
+* documentation
+* npm packaging
+* skill files
+* benchmarks/performance documentation
+* changelog
+
+Do not assume the current architecture from the README alone.
+
+Trace the actual code paths.
+
+Determine:
+
+1. How an MCP request enters the program.
+2. How tools are registered.
+3. How permissions are checked.
+4. How tool arguments are validated.
+5. How providers are selected.
+6. How Win32 APIs are isolated.
+7. How results are normalized.
+8. How diagnostics consume measurements.
+9. How findings are generated.
+10. How tests replace Windows dependencies with mocks.
+11. How configuration controls tool profiles.
+12. How the npm launcher and native binary interact.
+
+Before making changes, identify:
+
+* duplicated abstractions
+* overexposed low-level tools
+* unnecessary application-specific functionality
+* missing hardware abstractions
+* missing diagnostic correlations
+* places where the existing schemas can be extended rather than replaced
+* places where adding a new provider is cleaner than adding logic to a generic provider
+* any current limitations that must remain explicit
+
+Do not destroy working functionality merely because it is not part of the new focus.
+
+---
+
+# 2. Establish the new product boundary
+
+The primary product identity should become:
+
+> **WinKit is a Windows-native observability and diagnostic engine for AI agents.**
+
+It is NOT primarily:
+
+* a Chrome debugger
+* a web-development environment
+* a browser automation server
+* a generic Windows API wrapper
+* a collection of unrelated utilities
+
+The core question should be:
+
+> "What is happening on this Windows machine, and what evidence explains it?"
+
+The second question should be:
+
+> "What specific subsystem or resource is likely responsible?"
+
+The agent should not have to manually combine dozens of primitive measurements every time.
+
+WinKit should do that work.
+
+---
+
+# 3. Remove Chrome from the core WinKit product
+
+The repository currently contains substantial Chrome and managed-browser functionality.
+
+Do not simply delete it blindly.
+
+First identify every Chrome-dependent component:
+
+* running Chrome tools
+* CDP implementation
+* browser provider
+* managed Chrome lifecycle
+* Chrome permissions
+* browser-specific configuration
+* Chrome-specific tests
+* Chrome-specific evaluation scenarios
+* Chrome documentation
+* browser-specific agent skill guidance
+* browser-specific dependencies
+* browser-specific benchmarks
+
+Then refactor the project so that Chrome is no longer part of the **core diagnostic product surface**.
+
+Important:
+
+## Do not destroy the existing Chrome implementation unless there is a strong technical reason.
+
+Instead, isolate it as an optional integration/provider.
+
+The conceptual boundary should become:
+
+```text
+WinKit Core
+    Windows observation
+    Windows diagnosis
+    Hardware telemetry
+    Storage
+    Network
+    Power
+    Processes
+    Services
+    Events
+    Trends
+    Correlation
+
+Optional Integrations
+    Chrome
+    future application adapters
+```
+
+The core should function completely without Chrome.
+
+The core diagnostics engine must not depend on Chrome.
+
+The core permissions model must not require Chrome.
+
+Core installation must not require browser automation.
+
+Core system health must not mention Chrome-specific concepts.
+
+The README must stop presenting Chrome as one of WinKit's main purposes.
+
+Chrome can remain available as an optional integration/profile if the current architecture supports that cleanly.
+
+If maintaining the current Chrome implementation creates excessive complexity, duplication, or coupling, simplify it aggressively.
+
+Do not let application-specific code contaminate the core Windows observability abstractions.
+
+---
+
+# 4. Reassess developer-environment functionality
+
+Audit:
+
+* `diagnose_workspace`
+* `diagnose_local_webapp`
+* `list_dev_servers`
+* `wait_for_port`
+* `wait_for_http`
+* `wait_for_process`
+* `correlate_recent_failures`
+* `workspace_snapshot`
+* `dev_environment`
+
+Keep generic functionality that is clearly useful for Windows observability.
+
+Do not remove useful Windows-native diagnostics just because they were initially built for developers.
+
+However, application-specific web-debugging logic should not dominate the core.
+
+The final distinction should be:
+
+```text
+Windows diagnostic capability
+        vs
+developer/application integration
+```
+
+For example:
+
+* process inspection = core
+* port inspection = core
+* network diagnostics = core
+* service inspection = core
+* workspace-specific web-app diagnosis = optional developer integration
+* Chrome tab analysis = optional Chrome integration
+
+Do not allow "developer tools" to become an excuse for mixing application-specific behavior into the core.
+
+---
+
+# 5. Preserve the existing architecture
+
+Do not flatten the project.
+
+The current separation of responsibilities is valuable.
+
+Maintain the general model:
+
+```text
+MCP surface
+    ↓
+tool layer
+    ↓
+provider abstraction
+    ↓
+Windows implementation
+    ↓
+normalized models
+    ↓
+diagnostics/correlation
+```
+
+The MCP layer must not directly call Win32.
+
+The diagnostic engine must not directly call Win32.
+
+Hardware sensor implementations must be providers behind well-defined abstractions.
+
+Mocks must remain possible.
+
+Every new hardware subsystem must be testable without requiring real hardware.
+
+Do not introduce machine-specific logic into the MCP handlers.
+
+---
+
+# 6. Build a real hardware telemetry subsystem
+
+This is the most important addition.
+
+WinKit should gain a first-class hardware telemetry layer.
+
+The system must be designed around **sensor discovery**, not assumptions.
+
+Do NOT assume every machine has:
+
+* CPU temperature
+* GPU temperature
+* motherboard temperature
+* battery temperature
+* SSD temperature
+* fan speed
+* power readings
+* every thermal zone
+
+Some systems will expose many sensors.
+
+Some will expose very few.
+
+Some will expose only OS thermal zones.
+
+Some will expose vendor-specific sensors.
+
+The API must represent this honestly.
+
+---
+
+# 7. Create a hardware/sensor provider abstraction
+
+Introduce or extend a provider abstraction suitable for hardware telemetry.
+
+It must be capable of representing:
+
+* sensor identity
+* sensor class/type
+* physical component
+* current value
+* unit
+* source
+* confidence/reliability
+* availability
+* timestamp
+* optional hardware metadata
+* optional min/max
+* optional state/status
+* optional throttling information
+
+Do not hard-code the assumption that all sensors are temperatures.
+
+Design the abstraction so it can later accommodate:
+
+* temperature
+* fan speed
+* voltage
+* current
+* power
+* clock rate
+* battery metrics
+* utilization
+
+but implement temperature/thermal telemetry first.
+
+A sensor should conceptually be able to answer:
+
+```text
+What is this?
+What component does it belong to?
+What is its current value?
+Where did the value come from?
+How reliable is the source?
+When was it sampled?
+Why might it be unavailable?
+```
+
+---
+
+# 8. Implement Windows thermal-zone support first
+
+Use Windows-native mechanisms wherever available.
+
+Investigate and implement support for Windows thermal-zone telemetry through the appropriate Windows APIs/performance-counter/ACPI mechanisms available to user-mode applications.
+
+Do not assume a thermal zone is the CPU.
+
+A thermal zone might correspond to:
+
+* CPU-related thermal management
+* chassis/skin temperature
+* motherboard
+* battery area
+* another thermal region
+
+Therefore represent thermal zones independently from semantic labels like `cpu_temperature`.
+
+The raw result should preserve:
+
+```text
+thermal_zone_id
+name
+temperature
+source
+timestamp
+availability
+```
+
+Where available, capture relevant thermal-management state such as:
+
+* passive cooling/throttling
+* throttle percentage
+* thermal state
+* throttle reason
+* active/passive state
+
+Do not fabricate values.
+
+If only a generic thermal zone exists, report it as a generic thermal zone.
+
+Do not incorrectly label it "CPU temperature."
+
+---
+
+# 9. Investigate CPU-specific sensor access
+
+Implement CPU telemetry through hardware-aware providers where reliable access is possible.
+
+Support Intel first if that is the simplest reliable implementation.
+
+Then support AMD.
+
+The implementation should investigate the proper hardware/Windows mechanisms rather than relying on undocumented guesses.
+
+Possible information may include:
+
+* package temperature
+* core temperatures when available
+* CPU frequency
+* effective frequency if available
+* thermal throttling
+* package power where available
+* processor utilization
+
+Do not assume every CPU exposes core temperatures.
+
+Do not fail the entire hardware snapshot because one CPU metric is unavailable.
+
+Example:
+
+```json
+{
+  "sensor": "CPU Package",
+  "type": "cpu_package_temperature",
+  "temperature_c": 91.0,
+  "source": "hardware_sensor",
+  "availability": "available"
+}
+```
+
+If only an OS thermal zone exists:
+
+```json
+{
+  "sensor": "Thermal Zone 0",
+  "type": "thermal_zone",
+  "temperature_c": 58.0,
+  "source": "windows_thermal_zone",
+  "availability": "available"
+}
+```
+
+These must remain semantically distinct.
+
+---
+
+# 10. Implement GPU thermal telemetry
+
+Add GPU temperature providers where supported.
+
+The architecture should be provider-based so the implementation can distinguish:
+
+* NVIDIA
+* AMD
+* Intel integrated graphics
+
+Do not invent cross-vendor compatibility.
+
+Where a vendor exposes reliable thermal telemetry, use it.
+
+Where a GPU is present but temperature cannot be read, explicitly report:
+
+```text
+available hardware: true
+temperature: unavailable
+reason: unsupported sensor path
+```
+
+Do not report zero.
+
+Do not omit the GPU entirely.
+
+---
+
+# 11. Implement storage temperatures
+
+Storage devices should have thermal telemetry where the hardware exposes it.
+
+Support at least:
+
+* NVMe
+* SATA SSD
+* HDD where practical
+
+Integrate storage thermal telemetry with the future disk-health model.
+
+A disk record should be able to eventually expose:
+
+```text
+device
+model
+interface
+temperature
+health
+wear
+errors
+power_on_hours
+capacity
+free_space
+activity
+performance
+```
+
+Only populate fields that are actually available.
+
+---
+
+# 12. Implement battery and power telemetry
+
+For laptops, battery and power are extremely important to system diagnosis.
+
+Add a first-class power subsystem.
+
+Collect, where available:
+
+* battery present
+* battery percentage
+* charging/discharging
+* AC connected
+* battery state
+* estimated remaining time
+* battery health/capacity information
+* designed capacity
+* full-charge capacity
+* current charge
+* charging rate
+* discharge rate
+* battery temperature if available
+* power source
+* thermal/power-related limits where available
+
+Do not assume battery temperature is exposed.
+
+Desktop systems should simply report that battery telemetry is not applicable.
+
+---
+
+# 13. Add thermal throttling as a diagnostic concept
+
+Do not stop at temperature collection.
+
+Correlate:
+
+```text
+temperature
++
+CPU/GPU frequency
++
+utilization
++
+thermal state
++
+time
+```
+
+The diagnostic engine should be able to distinguish:
+
+### High temperature without clear throttling
+
+```text
+Temperature: 94°C
+Frequency: normal
+Throttle: not observed
+```
+
+Do not claim thermal throttling.
+
+### High temperature with frequency reduction
+
+```text
+Temperature: 96°C
+Frequency: significantly below baseline
+Throttle state: active
+```
+
+Potential finding:
+
+```text
+Thermal throttling likely
+```
+
+### High CPU with normal temperature
+
+Do NOT diagnose thermal throttling.
+
+Potential finding:
+
+```text
+CPU contention likely
+```
+
+### Low frequency with low utilization and no thermal evidence
+
+Do NOT automatically claim thermal throttling.
+
+State that the evidence is incomplete.
+
+This is extremely important.
+
+WinKit must never convert correlation into false certainty.
+
+---
+
+# 14. Build sensor discovery, not fixed sensor names
+
+Do not expose a rigid schema that assumes every computer has:
+
+```text
+cpu_temp
+gpu_temp
+ssd_temp
+battery_temp
+motherboard_temp
+```
+
+Instead, expose a collection of discovered sensors.
+
+Each sensor should include a semantic classification when known.
+
+Possible classifications:
+
+```text
+cpu_package
+cpu_core
+gpu
+nvme
+sata
+battery
+thermal_zone
+skin_temperature
+motherboard
+unknown
+```
+
+If classification cannot be established reliably:
+
+```text
+type: unknown
+```
+
+Do not guess.
+
+---
+
+# 15. Add hardware snapshot
+
+Create a high-level hardware snapshot capability.
+
+It should answer:
+
+> "What hardware and hardware telemetry can WinKit currently observe?"
+
+It should include:
+
+* CPU
+* GPU(s)
+* physical memory
+* storage devices
+* network adapters
+* battery
+* thermal sensors
+* power state
+* important hardware identifiers
+* availability/completeness
+
+Keep output bounded.
+
+Do not dump enormous hardware blobs.
+
+Do not expose unnecessary serial numbers or sensitive identifiers by default.
+
+---
+
+# 16. Add thermal snapshot
+
+Create a focused high-level thermal tool.
+
+The result should include:
+
+* all discovered thermal sensors
+* temperatures
+* source
+* type
+* timestamps
+* thermal states
+* throttling evidence
+* unavailable categories
+
+For example:
+
+```text
+Thermals:
+  CPU Package        94°C   source=hardware
+  GPU                78°C   source=vendor
+  NVMe               67°C   source=nvme
+  Thermal Zone 0     51°C   source=windows
+  Battery            unavailable
+
+Thermal state:
+  CPU throttling: likely
+  GPU throttling: unknown
+
+Completeness:
+  limited
+```
+
+Do not make the agent infer which numbers are trustworthy.
+
+---
+
+# 17. Add disk health as a first-class capability
+
+This is a major requirement.
+
+WinKit should eventually answer:
+
+> "Is my disk healthy?"
+
+not just:
+
+> "How much space is used?"
+
+Support appropriate storage-health mechanisms for:
+
+* NVMe
+* ATA/SATA
+* HDD where possible
+
+Investigate the appropriate Windows APIs and protocol mechanisms.
+
+Collect, when available:
+
+* health status
+* temperature
+* media errors
+* critical warnings
+* wear
+* percentage used
+* power-on hours
+* unsafe shutdowns
+* read/write error indicators
+* reallocated sectors where applicable
+* spare capacity where applicable
+* device model
+* firmware information where appropriate
+
+Do not force one universal SMART schema.
+
+Use a normalized common subset plus device/protocol-specific fields.
+
+Important:
+
+Do not treat "SMART available" as equivalent to "drive healthy."
+
+Interpret health explicitly.
+
+---
+
+# 18. Integrate disk health with storage usage
+
+The current storage tooling should remain useful.
+
+Preserve:
+
+* drive listing
+* disk usage
+* large-file discovery
+* large-folder discovery
+* asynchronous/bounded scanning
+* cancellation
+* status tracking
+
+Then add:
+
+```text
+disk health
+disk temperature
+disk activity
+disk performance
+```
+
+The diagnostic engine should eventually be able to distinguish:
+
+### Capacity issue
+
+```text
+Drive nearly full
+```
+
+from:
+
+### Performance issue
+
+```text
+High queue depth
+High latency
+Sustained activity
+```
+
+from:
+
+### Health issue
+
+```text
+Media errors
+Critical warning
+Excessive wear
+```
+
+These are different diagnoses.
+
+---
+
+# 19. Add network/Wi-Fi observability
+
+Network should become a proper subsystem.
+
+Preserve existing:
+
+* adapters
+* listening ports
+* connections
+* process/port correlation
+
+Add Wi-Fi telemetry where supported.
+
+Collect:
+
+* adapter
+* SSID where appropriate
+* connection state
+* signal strength
+* RSSI where available
+* link speed
+* channel
+* frequency/band
+* authentication/security state where safe
+* network type
+* interface status
+
+Separate:
+
+```text
+wifi_status
+```
+
+from:
+
+```text
+wifi_scan
+```
+
+A nearby-network scan can expose more privacy-sensitive information and should be treated separately.
+
+Do not make nearby access-point scanning part of basic system health.
+
+---
+
+# 20. Add network diagnosis
+
+Create a high-level network diagnostic capability.
+
+It should help distinguish:
+
+* local adapter issue
+* weak Wi-Fi signal
+* poor link quality
+* packet loss
+* high local latency
+* gateway latency
+* DNS-related problem
+* connectivity problem
+* port/listener problem
+* process-specific network problem
+
+Do not automatically claim:
+
+> "Internet is broken."
+
+when the evidence only shows poor Wi-Fi signal.
+
+Example:
+
+```text
+Adapter: Intel Wi-Fi
+Signal: 38%
+RSSI: -76 dBm
+Link speed: 72 Mbps
+Packet loss: 6.8%
+Local gateway latency: elevated
+
+Finding:
+Weak wireless link likely contributing to degraded network performance.
+```
+
+---
+
+# 21. Add Bluetooth only as a secondary subsystem
+
+Bluetooth is not a central WinKit diagnostic domain.
+
+Support it only after the core hardware/network work is solid.
+
+Useful information may include:
+
+* adapter presence
+* adapter state
+* paired devices
+* connected devices
+* device type
+* connection state
+
+Do not make Bluetooth a major part of system health.
+
+Do not expose unnecessary personal/device metadata.
+
+---
+
+# 22. Do NOT make GPS/location a core feature
+
+Do not add GPS/location to the default WinKit observability surface.
+
+There are privacy and product-focus reasons.
+
+Location is not generally necessary to answer:
+
+> "Why is my PC slow?"
+
+Keep the architecture extensible enough to support location later as an optional capability, but do not implement it as a core WinKit subsystem during this refactor unless the repository already has a compelling reason that makes it necessary.
+
+Do not expand scope merely because Windows has an API.
+
+---
+
+# 23. Rework the diagnostic engine around cross-domain evidence
+
+This is more important than adding another dozen tools.
+
+The diagnostic engine should increasingly correlate:
+
+```text
+CPU
+GPU
+RAM
+Processes
+Disk
+Disk health
+Disk temperature
+Network
+Wi-Fi
+Thermals
+Battery
+Power
+Services
+Windows events
+```
+
+It should not simply run independent threshold checks.
+
+Examples:
+
+## Thermal throttling
+
+Evidence:
+
+```text
+CPU temperature high
+CPU frequency below baseline
+thermal state active
+duration sustained
+```
+
+Finding:
+
+```text
+thermal_throttling
+confidence: likely
+```
+
+## CPU contention
+
+Evidence:
+
+```text
+CPU utilization high
+one process dominates CPU
+temperature normal
+no throttling evidence
+```
+
+Finding:
+
+```text
+process_cpu_pressure
+confidence: likely
+```
+
+## Disk contention
+
+Evidence:
+
+```text
+high disk activity
+high latency
+high queue depth
+specific process correlates with activity
+```
+
+Finding:
+
+```text
+storage_contention
+```
+
+## Storage health warning
+
+Evidence:
+
+```text
+critical SMART/NVMe warning
+```
+
+Finding:
+
+```text
+storage_health_warning
+confidence: confirmed
+```
+
+## Wi-Fi degradation
+
+Evidence:
+
+```text
+weak RSSI
+low link rate
+packet loss
+gateway latency
+```
+
+Finding:
+
+```text
+wifi_quality_degradation
+```
+
+Each finding must have supporting evidence IDs.
+
+---
+
+# 24. Preserve the existing evidence-first philosophy
+
+This is one of the strongest aspects of the current project.
+
+Keep the distinction between:
+
+```text
+measured
+observed
+likely
+possible
+unknown
+```
+
+Do not weaken it.
+
+Every diagnostic conclusion should identify:
+
+1. what was measured
+2. what signal was derived
+3. what finding was produced
+4. how strong the evidence is
+5. what was not measured
+6. what could contradict the finding
+
+Do not let the agent receive an unexplained score.
+
+A finding should be understandable without reading internal source code.
+
+---
+
+# 25. Improve evidence completeness
+
+The current project already has an explicit concept of measurement completeness.
+
+Extend that idea to hardware.
+
+For example:
+
+```text
+hardware:
+  completeness: limited
+
+available:
+  cpu_temperature
+  thermal_zones
+  nvme_temperature
+
+unavailable:
+  gpu_temperature
+  battery_temperature
+```
+
+This is better than pretending the available sensors represent the whole machine.
+
+A limited report is not a failure.
+
+A truthful limited report is preferable to fabricated completeness.
+
+---
+
+# 26. Do not let missing telemetry become false "healthy"
+
+This is critical.
+
+Bad:
+
+```text
+GPU temperature unavailable
+therefore GPU is healthy
+```
+
+Correct:
+
+```text
+GPU temperature unavailable
+GPU thermal health cannot be assessed
+```
+
+Similarly:
+
+```text
+disk SMART unavailable
+```
+
+must not become:
+
+```text
+disk healthy
+```
+
+The diagnostic engine must distinguish:
+
+```text
+healthy
+unhealthy
+unknown
+not_applicable
+```
+
+---
+
+# 27. Reevaluate the MCP tool surface
+
+The current repository exposes many tools, including a substantial Chrome/browser surface.
+
+After the refactor, the core profile should be much more coherent.
+
+Do NOT automatically expose every low-level helper as a separate MCP tool.
+
+Prefer a small number of strong tools with meaningful semantics.
+
+A target direction is something like:
+
+## System
+
+```text
+system_info
+system_snapshot
+system_health
+system_diagnose
+system_health_trend
+```
+
+## Processes
+
+```text
+list_processes
+get_process
+get_process_tree
+find_process
+```
+
+## Storage
+
+```text
+list_drives
+disk_usage
+disk_scan
+disk_health
+disk_performance
+```
+
+The asynchronous disk scanner can internally keep its start/status/cancel machinery if needed. Do not remove operational primitives that are necessary for long-running scans.
+
+## Hardware
+
+```text
+hardware_snapshot
+thermal_snapshot
+battery_status
+power_status
+```
+
+## Network
+
+```text
+network_snapshot
+network_diagnose
+list_connections
+find_process_on_port
+```
+
+## Windows
+
+```text
+list_services
+get_service
+get_recent_events
+get_application_errors
+get_system_errors
+list_windows
+```
+
+## Optional developer integration
+
+Developer-specific tools may live separately.
+
+## Optional Chrome integration
+
+Chrome tools should live separately.
+
+Do not blindly rename everything.
+
+Use the existing codebase's naming conventions where possible.
+
+---
+
+# 28. Think in terms of "high-level question tools"
+
+The MCP tools should answer actual agent questions.
+
+Examples:
+
+```text
+What's wrong with the machine?
+→ system_diagnose
+
+What hardware can I observe?
+→ hardware_snapshot
+
+Is the machine overheating?
+→ thermal_snapshot
+
+Is the disk healthy?
+→ disk_health
+
+Why is storage slow?
+→ disk_performance / system_diagnose
+
+What's wrong with the network?
+→ network_diagnose
+
+What's happening with my battery?
+→ battery_status
+```
+
+Do not force the agent to manually call 15 tiny tools just to answer one ordinary question.
+
+Low-level capabilities may still exist internally.
+
+The MCP surface should prioritize useful semantics.
+
+---
+
+# 29. Keep raw measurement tools where they are genuinely valuable
+
+Do not overcorrect.
+
+A tool like:
+
+```text
+list_processes
+```
+
+is useful.
+
+A tool like:
+
+```text
+get_process_tree
+```
+
+is useful.
+
+A tool like:
+
+```text
+disk_scan_status
+```
+
+is necessary for asynchronous work.
+
+A tool like:
+
+```text
+thermal_sensor_reading_foo
+```
+
+would usually be a bad public abstraction.
+
+Find the correct level of abstraction for each capability.
+
+---
+
+# 30. Improve trend/sampling support
+
+WinKit already has time-window diagnostics.
+
+Extend this philosophy to hardware.
+
+Thermal readings especially need time.
+
+A single reading:
+
+```text
+CPU: 96°C
+```
+
+is much less useful than:
+
+```text
+10-second observation
+
+temperature:
+  79 → 84 → 88 → 91 → 95 → 96°C
+
+frequency:
+  2.8 → 2.7 → 2.5 → 2.1 → 1.6 → 1.2 GHz
+```
+
+The diagnostic engine can then recognize a trend.
+
+Add bounded sampling for:
+
+* temperature
+* frequency
+* utilization
+* disk activity
+* network quality
+* battery/power
+
+Do not create infinite streams.
+
+Use bounded windows.
+
+Respect the existing timeout and payload safety model.
+
+---
+
+# 31. Add thermal trend diagnosis
+
+A useful pattern is:
+
+```text
+temperature rising
++
+frequency falling
++
+utilization sustained
+```
+
+versus:
+
+```text
+temperature high
++
+frequency stable
+```
+
+versus:
+
+```text
+temperature spike
++
+no sustained effect
+```
+
+These must lead to different interpretations.
+
+Do not call every spike "overheating."
+
 Use language like:
-confirmed: the probe directly observed the condition.
-observed: the provider returned a signal without proving the underlying cause.
-likely: multiple supporting observations make the explanation plausible.
-possible: the explanation is compatible with the evidence but weakly supported.
-unknown: required evidence was unavailable.
-Never say “the cause is” when the data only supports “the most likely explanation is.”
-7.4 Shared report envelope
-High-level tools should return a stable envelope similar to:
-{
-  "schema_version": "1",
-  "status": "ok | issues_detected | no_supported_signal_detected | limited | blocked",
-  "summary": "Short conclusion.",
-  "findings": [],
-  "evidence": [],
-  "checked": [],
-  "recommended_next_tools": [],
-  "limitations": [],
-  "generated_at": "RFC3339",
-  "duration_ms": 0,
-  "detail_level": "compact"
-}
-Use deterministic ordering and stable IDs. Do not implement compact mode by blindly truncating serialized JSON. Compact mode must be a deliberate projection of the report.
-Support:
-compact: summary, top findings, and essential evidence.
-normal: all findings and bounded evidence.
-detailed: complete bounded measurements and provider notes.
-8. Correctness and release hardening
-8.1 Formatting and stale documentation
-Fix all current formatting failures, including the known formatting issue in the Windows storage provider if it still exists.
-Remove stale hardcoded test counts and tool totals from README and documentation. Prefer wording that cannot become stale. If exact totals are retained, derive and verify them from the source of truth.
-8.2 Registry integrity
-Make the tool registry the source of truth and add tests verifying:
-Every expected tool is registered.
-No tool is registered twice.
-Every tool has a name, description, input schema, output contract, capability, timeout, and limits.
-MCP tools/list matches the effective registry for the selected tool profile.
-Disabled or unavailable tools are represented consistently.
-8.3 Health consistency
-Fix any mismatch between system_health, system_diagnose, and other health consumers. Extract shared application-group classification into a pure function. Shared behavior must include:
-CPU thresholds.
-Memory thresholds.
-Application grouping.
-Status classification.
-Display names.
-CPU basis.
-Units.
-Missing-evidence behavior.
-Threshold-boundary behavior.
-Add regression tests proving that the tools agree.
-8.4 Chrome discovery latency
-Refactor chrome_info and related discovery paths to use one coherent bounded discovery pass.
-When no endpoint exists:
-Do not open a WebSocket.
-Do not issue CDP commands.
-Do not inspect tabs.
-Return an unavailable state quickly.
-Include remediation guidance.
-Use one absolute deadline and pass remaining budget to each probe. Use a short-lived cache only for safe discovery metadata. Invalidate after endpoint failure, browser exit, managed-session changes, or TTL expiry.
-Test Chrome absent, Chrome not running, Chrome running without debugging, invalid endpoints, closed endpoints, endpoint disappearance, endpoint availability, and duplicate-discovery prevention.
-9. Developer workflow tools
-Keep useful low-level tools, but add high-level tools that solve complete developer problems.
-9.1 workspace_snapshot
-Input:
-{
-  "workspace_path": "D:\\dev\\MyProject",
-  "detail": "compact",
-  "include_git": true,
-  "include_manifests": true,
-  "include_environment": false
-}
-Requirements:
-Require or safely infer an explicit workspace path from the server context.
-Canonicalize the path.
-Enforce configured allow and deny roots.
-Never scan an entire drive.
-Do not read source files by default.
-Detect repository root, nested projects, monorepos, languages, frameworks, package managers, manifests, lockfiles, scripts, build directories, Docker files, solutions, and project files.
-Support Cargo, npm, pnpm, Yarn, Python, Go, Java, C#, CMake, and common Windows project metadata.
-Return bounded metadata.
-Never read .env, credential stores, SSH keys, cloud credentials, certificate stores, or secret files by default.
-Redact usernames, tokens, credentials, connection strings, and private values.
-Report safe repository metadata without running arbitrary shell commands.
-9.2 list_dev_servers
-Given a workspace and optional ports, report:
-Local listeners.
-Protocol.
-PID.
-Executable identity.
-Safe working directory.
-Parent relationship.
-Likely framework.
-Relationship to the requested workspace.
-Optional bounded HTTP reachability.
-Do not return raw command lines by default. If a diagnostic mode exposes a command line, redact likely secrets and clearly label it as partial.
-9.3 diagnose_workspace
-This is the flagship general-purpose developer tool.
-Input:
-{
-  "workspace_path": "D:\\dev\\MyProject",
-  "dev_server_ports": [3000, 5173, 8000],
-  "include_browser": true,
-  "include_events": true,
-  "detail": "compact"
-}
-Combine bounded evidence from:
-Workspace metadata.
-Repository state.
-Development-server discovery.
-Port ownership.
-Local HTTP reachability.
-Process resources and ancestry.
-Memory pressure.
-CPU pressure.
-Disk space.
-Recent relevant errors where permitted.
-Managed Chrome state.
-Browser evidence when a managed tab exists.
-Return:
-A concise summary.
-Ranked findings.
-Stable finding IDs.
-Evidence IDs.
-Checked dimensions.
-Recommended next tools.
-Limitations.
-Timestamp.
-Duration.
-Do not claim verified causality from temporal proximity alone.
-9.4 diagnose_local_webapp
-Input:
-{
-  "url": "http://localhost:3000",
-  "workspace_path": "D:\\dev\\MyProject",
-  "launch_managed_browser": true,
-  "run_browser_diagnostics": true,
-  "wait_for_ready_ms": 10000,
-  "detail": "normal"
-}
-Requirements:
-Accept localhost, 127.0.0.1, [::1], and explicitly configured development hosts by default.
-Reject unsupported schemes and external hosts unless explicitly enabled.
-Validate the URL before any network or browser action.
-Resolve the port.
-Identify the owner.
-Identify whether the owner is related to the workspace.
-Wait with an absolute deadline when requested.
-Make a bounded HTTP request.
-Report status, timing, content type, redirect behavior, and connection errors.
-Avoid returning full response bodies by default.
-Return only bounded, redacted previews when explicitly requested.
-Launch an isolated managed browser when requested.
-Inspect browser evidence when a managed tab exists.
-Correlate server and browser signals.
-Recommend next tools.
-Distinguish at minimum:
-Connection refused.
-Wrong port.
-Unrelated listener.
-HTTP 4xx.
-HTTP 5xx.
-Redirect loop.
-Slow response.
-Runtime exception.
-Browser network failure.
-Blank or nearly blank page.
-Local TLS failure.
-Browser exited.
-Evidence unavailable.
-9.5 Waiting tools
-Add or standardize:
-wait_for_port.
-wait_for_http.
-wait_for_process.
-Use condition-based polling, absolute deadlines, clamped intervals, bounded attempts, cancellation where possible, and structured timeout results. Never execute, restart, or kill processes.
-9.6 correlate_recent_failures
-Correlate bounded:
-Application errors.
-Relevant Windows errors.
-Observable process exits.
-Port disappearance.
-HTTP failures.
-Browser runtime errors.
-Browser network failures.
-Return possible correlations with supporting and contradicting evidence. Do not assert causality from timing alone.
-9.7 system_health_trend
-Support optional local trend sampling for:
-System memory.
-Application working sets.
-Aggregate CPU.
-Disk space.
-Port availability.
-Require an explicit maximum window, interval, and sample count. Do not persist or transmit history by default. Classify trends as sustained, flat, noisy, or inconclusive.
-9.8 privacy_info
-Expose:
-Enabled providers.
-Read and action capabilities.
-Active tool profile.
-Managed-browser status.
-External URL policy.
-History policy.
-Managed profile root.
-Cleanup policy.
-Excluded data categories.
-Telemetry state.
-Active limits and timeouts.
-10. Progressive tool profiles
-Implement tool profiles so a coding agent receives a focused tool list rather than every low-level capability by default.
-The exact configuration shape must follow the existing config architecture, but the product must support these logical profiles.
-core
-Safe, low-latency essentials:
-workspace_snapshot.
-system_health.
-list_processes.
-list_listening_ports.
-privacy_info.
-developer
-The recommended default for coding agents:
-All core tools.
-list_dev_servers.
-diagnose_workspace.
-diagnose_local_webapp.
-wait_for_port.
-wait_for_http.
-wait_for_process.
-correlate_recent_failures.
-system_health_trend.
-Read-only browser inspection tools.
-browser
-Browser discovery.
-Managed session status.
-Managed browser launch, only when the permission and feature flag allow it.
-Page summary.
-Runtime errors.
-Network failures.
-Performance and memory inspection.
-Screenshot capture when supported.
-full
-All safe read-only tools plus explicitly enabled managed-browser actions. The profile must not bypass permission checks.
-Profile requirements:
-tools/list must expose only the effective profile unless a compatibility mode is enabled.
-Tool descriptions must tell the agent when to use a high-level tool instead of manually calling many low-level tools.
-The default profile should be developer for a developer-focused installation, unless an existing compatibility requirement makes core safer.
-Changing profile must be visible in privacy_info.
-Profiles must be covered by registry, schema, permissions, and protocol tests.
-11. Agent-facing tool descriptions and behavior
-Every tool description must state:
-What problem it solves.
-When the agent should call it.
-What inputs are required.
-What it does not do.
-Whether it reads or changes state.
-Expected latency.
-Important limits.
-Recommended next tools.
-Excluded or redacted data.
-High-level tools should guide the agent toward the shortest useful workflow. For example:
-If a local app is unreachable, use diagnose_local_webapp before manually calling several low-level tools.
-If the cause is unclear, use diagnose_workspace.
-If a server is still starting, use wait_for_http rather than repeated manual probes.
-If browser evidence is requested, use the managed session workflow and do not ask the developer to manually start Chrome with a debugging port.
-Use stable error codes for:
-Invalid arguments.
-Unsupported platform.
-Permission denied.
-Approval required.
-Feature disabled.
-Path rejected.
-URL rejected.
-Timeout.
-Not found.
-Endpoint unavailable.
-Browser exited.
-Payload limit.
-Concurrency limit.
-Partial evidence.
-Cleanup failure.
-12. Managed Chrome sessions
-WinKit must provide a simple safe browser workflow without Playwright, Selenium, ChromeDriver, browser downloads, or manual debug startup.
-12.1 Browser scope
-WinKit is not a general browser automation framework. Its managed Chrome tools exist to diagnose local applications and collect bounded runtime evidence.
-Do not add generic click, fill, arbitrary evaluate, arbitrary CDP, or unrestricted browsing tools.
-12.2 Browser process and profile rules
-Use:
-The installed Chrome executable found through trusted discovery.
-Direct native process spawning.
-The existing direct CDP client.
-A unique temporary managed profile.
-A loopback-only DevTools endpoint.
-An opaque WinKit-owned session ID.
-Never:
-Attach to the normal Chrome profile silently.
-Accept an arbitrary executable path.
-Accept an arbitrary profile path.
-Accept arbitrary Chrome flags.
-Accept arbitrary CDP methods.
-Accept an arbitrary WebSocket endpoint.
-Accept arbitrary JavaScript.
-Return cookies, headers, bodies, credentials, form values, or tokens.
-12.3 Configuration
-Add a strict configuration section similar to:
-[chrome.managed]
-enabled = false
-profile_root = ""
-startup_timeout_ms = 10000
-cleanup_on_close = true
-allow_external_urls = false
-default_headless = false
-max_sessions = 2
-Keep unknown-key rejection. Document every setting, default, security implication, and cleanup behavior.
-12.4 Capabilities and permissions
-Use explicit capabilities such as:
-application.browser.launch.
-application.browser.navigate.
-application.browser.close.
-Permission behavior:
-safe: deny all managed-browser actions while allowing safe reads.
-read_only: deny managed-browser lifecycle actions while allowing permitted inspection.
-approval: require explicit approval for launch, navigation, and close operations as configured.
-unrestricted: still require the managed feature flag and all validation rules.
-Denials must explain the capability, permission mode, feature flag, and configuration required.
-12.5 chrome_start_managed_session
-Input:
-{
-  "url": "http://localhost:3000",
-  "headless": false,
-  "reuse_existing": true,
-  "wait_for_ready_ms": 10000
-}
-The tool must:
-Accept only http and https.
-Reject javascript:, data:, file:, chrome:, devtools:, control characters, malformed URLs, and ambiguous URLs.
-Reject external URLs unless explicitly configured.
-Create an opaque session ID.
-Create and validate a unique profile under the managed root.
-Select an available loopback port.
-Spawn Chrome directly without a shell.
-Use a dedicated user-data directory.
-Bind DevTools to loopback.
-Suppress first-run prompts only through fixed safe arguments.
-Remain visible by default.
-Support explicit headless mode.
-Poll readiness with an absolute deadline.
-Validate the DevTools version endpoint.
-Verify the WebSocket endpoint is loopback-only.
-Verify the process remains alive.
-Verify a target exists when a URL was supplied.
-Return structured session and tab metadata without sensitive values.
-12.6 Managed session tools
-Add or standardize:
-chrome_list_managed_sessions: list only sessions owned by WinKit.
-chrome_navigate_managed_session: navigate only tracked tabs with URL validation and bounded timeout.
-chrome_stop_managed_session: gracefully close exact owned sessions and safely clean their profiles.
-chrome_get_page_summary: return bounded title, redacted URL, headings, visible text summary, landmarks, form labels without values, runtime errors, network failures, and timing.
-chrome_capture_screenshot: capture only an authorized managed tab with dimension and byte caps.
-Preserve existing read-only tab, performance, memory, network, runtime, diagnosis, and trend tools where useful. Keep names and schemas backward-compatible when possible.
-Use explicit states:
-disabled
-starting
-ready
-endpoint_unavailable
-browser_exited
-stopping
-closed
-cleanup_failed
-Handle missing Chrome, profile failure, port collision, timeout, crash, manual close, duplicate launch, session limits, server restart, cancellation, and orphaned sessions.
-Never terminate an arbitrary Chrome process. Never delete a path unless it is canonical, contained under the configured managed root, session-owned, and not the normal Chrome profile.
-13. Security and privacy implementation
-13.1 Paths and workspaces
-Canonicalize every workspace and profile path. Support allow and deny roots. Reject whole-drive scanning and path traversal. Do not read secret files by default. Redact usernames, tokens, credentials, connection strings, and private values.
-13.2 URLs and network
-Local web tools are loopback-only by default. Reject unsupported schemes. Block redirects from local hosts to external hosts unless explicitly configured. Do not fetch arbitrary external URLs by default.
-13.3 Processes
-Do not expose arbitrary commands, complete environment blocks, or unredacted command lines. If process cleanup exists, it must be limited to exact process ownership established when WinKit launched the managed process. Do not kill a PID merely because a caller supplied it.
-13.4 Browser data
-Enforce loopback-only DevTools, no arbitrary WebSocket connections, no arbitrary CDP or JavaScript, no normal-profile attachment, no cookies, no headers, no bodies, no credentials, no form values, bounded text, bounded screenshots, and payload caps.
-13.5 Telemetry
-WinKit must have no runtime telemetry by default. Do not add update checks, analytics, crash reporting, or registry pings without an explicit opt-in design, configuration, documentation, and tests. privacy_info must make the state visible.
-13.6 Limits and cleanup
-Add configurable limits for:
-Concurrent diagnostics.
-Managed sessions.
-Workspace depth and file count.
-HTTP bytes and response time.
-Screenshot dimensions and bytes.
-Page summary size.
-Trend samples.
-Event results.
-Browser targets.
-Use absolute deadlines. Support cancellation where possible. Clean up on cancellation, timeout, startup failure, server shutdown, browser exit, and session rejection. Never kill processes WinKit did not start.
-14. npm and npx distribution
-The developer must not need to locate winkit.exe, install Rust, build the repository, install Playwright, download a browser, or manually start Chrome with a debugging flag.
-The native executable may remain underneath because Windows APIs require native code. Users interact with the npm package and npx.
-14.1 Package naming
+
+```text
+temperature elevated
+thermal pressure observed
+thermal throttling likely
+thermal throttling not observed
+insufficient evidence
+```
+
+---
+
+# 32. Add hardware-aware baselines carefully
+
+Do not hard-code one universal CPU threshold and call it a diagnosis.
+
+Different machines have different thermal limits.
+
 Prefer:
-@winkit/mcp for the public launcher.
-@winkit/win32-x64-msvc for the Windows x64 native runtime.
-Before publishing, verify that the selected npm name and scope are available and controlled by the maintainer. If the preferred scope is unavailable, make a deliberate documented naming decision. Do not silently publish under an unrelated name.
-14.2 Package layout
-Create or adapt to:
-npm/
-  mcp/
-    package.json
-    bin/winkit.js
-    README.md
-  win32-x64-msvc/
-    package.json
-    bin/winkit.exe
-The launcher package must:
-Expose a bin command named winkit.
-Use only Node built-ins.
-Select the correct platform runtime.
-Produce actionable unsupported-platform errors.
-Preserve stdin, stdout, stderr, exit codes, signals, and termination behavior.
-Spawn the native binary directly with an argument array.
-Use shell: false.
-Never invoke PowerShell, cmd.exe, exec, or command-string concatenation.
-Use no install scripts.
-Use no runtime binary downloads.
-Start the MCP server when no CLI subcommand is supplied.
-Support --version, --help, doctor, init, and configure.
-Keep stdout protocol-clean.
-Send launcher diagnostics to stderr.
-Use the npm bin field and npx execution model documented by npm. Use Node direct child-process spawning APIs with argument arrays and shell: false. Test Windows argument behavior, missing binaries, exit propagation, and signal handling.
-Design for future Windows ARM64, Linux, and macOS packages, but do not claim they work until real artifacts and tests exist.
-14.3 Configuration examples
-The preferred user experience should be:
-{
-  "mcpServers": {
-    "winkit": {
-      "command": "npx",
-      "args": ["--yes", "@winkit/mcp@latest"]
-    }
-  }
-}
-Also document exact-version pinning:
-{
-  "mcpServers": {
-    "winkit": {
-      "command": "npx",
-      "args": ["--yes", "@winkit/mcp@0.2.0"]
-    }
-  }
-}
-For Codex, document the current official stdio configuration shape in ~/.codex/config.toml, using mcp_servers.<id>.command and mcp_servers.<id>.args. Verify the exact syntax against current official Codex documentation at implementation time.
-For OpenCode, Claude Code, and other clients, verify their current official configuration or CLI commands at implementation time. Do not assume every client uses the same JSON or TOML shape.
-14.4 winkit doctor
-Check:
-OS and architecture.
-Launcher and native runtime versions.
-Native package resolution.
-Configuration path and parse status.
-Permission mode.
-Active tool profile.
-Enabled providers.
-MCP stdio startup.
-Chrome installation.
-Managed Chrome configuration.
-Managed profile creation without leaving an orphan.
-Local port availability.
-Disk space.
-Client configuration when a path is supplied.
-Telemetry disabled state.
-Provide human-readable and --json output. Do not claim readiness if a required check failed.
-14.5 winkit init
-Support:
-npx --yes @winkit/mcp init --client opencode
-npx --yes @winkit/mcp init --client claude-code
-npx --yes @winkit/mcp init --client codex
-npx --yes @winkit/mcp init --client generic
-Print configuration by default. Writing requires --write. Overwriting requires --force, must create a backup, and must show the destination. Never write secrets. Verify the generated configuration against current client documentation.
-14.6 winkit configure
-Add a non-destructive configuration helper that can:
-Print the effective configuration.
-Print the selected profile.
-Explain permission mode.
-Enable or disable managed Chrome through an explicit command.
-Set safe limits through validated arguments.
-Show a dry-run before writing.
-Require --write for mutations.
-Create a backup before overwriting.
-Never write credentials or arbitrary caller-supplied secrets.
-15. Agent skill and integration package
-Ship a portable Agent Skill with the repository so compatible coding agents can learn how to use WinKit effectively.
-Create:
-skills/
-  winkit-developer-debugging/
-    SKILL.md
-The skill must teach the agent:
-WinKit's product purpose.
-When to call diagnose_workspace.
-When to call diagnose_local_webapp.
-When to use list_dev_servers and port inspection.
-When to wait rather than repeatedly probe.
-When to use managed Chrome.
-How to interpret facts, observations, hypotheses, confidence, limitations, and evidence IDs.
-How to report a diagnosis without overstating causality.
-How to respect read-only and approval boundaries.
-How to avoid exposing secrets.
-How to clean up managed sessions.
-What to do when a tool is unavailable or returns partial evidence.
-Include a concise routing table in the skill:
-Developer request	First tool	Follow-up tools
-Project environment is broken	diagnose_workspace	list_dev_servers, health, events
-Local URL is unreachable	diagnose_local_webapp	port, process, wait tools
-Page is blank or crashes	diagnose_local_webapp	managed browser page summary and runtime
-Server is still starting	wait_for_http	diagnose_local_webapp
-Port is occupied	list_dev_servers	process details, workspace relationship
-Machine is slow	system_health or diagnose_workspace	process, storage, trend
-Browser memory is high	managed browser memory tools	trend and page diagnosis
 
+1. hardware-reported limits when available
+2. Windows thermal state
+3. observed baseline
+4. documented safe ranges where technically justified
 
-The skill must not tell agents to execute arbitrary commands or bypass WinKit permissions.
-Document installation through the current Agent Skills ecosystem where appropriate, but keep the skill usable by manual copying into supported agent skill directories. Do not make the runtime depend on an external skill registry.
-If the repository later adds a plugin manifest for a specific agent, keep the MCP server and skill discoverable independently. Do not make OpenCode, Claude Code, or Codex support depend on one vendor's plugin format.
-16. Failure scenarios, demos, and evaluation suite
-Create deterministic demos and fixture-backed evaluations that prove WinKit solves real developer problems rather than merely exposing individual measurements.
-At minimum cover:
-Port 3000 is owned by a stale unrelated process.
-The expected development server is listening on port 3001 instead.
-The server returns HTTP 500.
-The server is reachable but the browser reports a runtime exception.
-The browser reports failed API requests while the HTML shell loads.
-The page is blank or nearly blank.
-A relevant process exits while the agent is diagnosing.
-Disk space is low.
-Memory pressure is high.
-Chrome is not installed.
-Chrome is installed but no managed session exists.
-Managed Chrome starts, inspects a local page, and cleans up.
-A managed Chrome process is manually closed.
-A caller attempts to use an external URL when external access is disabled.
-A caller attempts to inspect a normal Chrome profile.
-A caller attempts to expose a secret-bearing environment value.
-A deadline expires during a wait or diagnosis.
-A provider is unavailable and the response must be marked limited rather than fabricated.
-Each scenario should assert:
-The correct status.
-Finding IDs.
-Evidence IDs.
-Redaction behavior.
-Recommended next tools.
-Stable errors where relevant.
-Bounded duration.
-No unintended writes or process termination.
-Add a README demo that starts from the user's problem and shows the resulting agent-friendly diagnosis. Include examples for stale ports, HTTP 500, browser runtime failure, and machine pressure.
-17. Testing requirements
-17.1 Rust and mock tests
-Keep deterministic mocks and add tests for:
-Exact registry contents.
-Profile filtering.
-Schemas.
-Common report envelopes.
-Detail levels.
-Stable errors.
-Evidence IDs and finding IDs.
-Workspace metadata and redaction.
-Dev-server discovery.
-Port ownership.
-URL validation.
-Redirect blocking.
-HTTP probe limits.
-Wait deadlines and polling.
-Health consistency.
-Finding ranking.
-Correlation supporting and contradicting evidence.
-Trends.
-Permissions.
-Managed command construction.
-Profile containment.
-Port selection.
-Loopback enforcement.
-Lifecycle and cleanup.
-Cancellation and timeout cleanup.
-17.2 MCP protocol tests
-Verify:
-Initialization.
-tools/list for each profile.
-Tool schemas.
-Unknown arguments.
-Invalid arguments.
-Disabled tools.
-Read-only action denial.
-Approval behavior.
-Stable errors.
-Payload limits.
-Concurrency limits.
-Clean stdout.
-No log leakage into protocol output.
-17.3 npm tests
-Verify:
-npm pack --dry-run.
-Package contents.
-Binary inclusion.
-Absence of secrets and unrelated files.
-Platform selection.
-Launcher commands.
-Safe direct spawning.
-Exit-code propagation.
-Missing runtime.
-Unsupported platform.
---version.
---help.
-doctor.
-init.
-configure dry-run and write protection.
-MCP handshake through npx.
-Use an isolated npm cache in CI.
-17.4 Optional live Windows tests
-Use an explicit opt-in such as:
-$env:WINKIT_LIVE_WINDOWS = "1"
-cargo test --features live-windows
-Verify real processes, drives, ports, services, event reads, and windows where permissions allow. Tests must skip clearly when the opt-in is absent.
-17.5 Optional live Chrome tests
-Use an explicit opt-in such as:
-$env:WINKIT_LIVE_CHROME = "1"
-cargo test --features live-chrome
-Start managed Chrome, open a local test page, inspect tab, page summary, performance, memory, network, runtime, diagnosis, and trend, capture a screenshot if supported, stop the session, and verify cleanup. Do not use Playwright.
-18. Documentation and onboarding
-Rewrite the README around developer problems, not raw categories of tools.
-The first-success path must be:
-1. Add the WinKit npx MCP entry.
-2. Restart the coding agent.
-3. Ask: "Diagnose my development environment."
-4. Ask: "Open my local app and explain why it is broken."
-The README must explain:
-The product promise.
-What WinKit is and is not.
-Why it complements Chrome DevTools MCP instead of replacing it.
-Why the native runtime exists.
-Why users do not manually manage the executable.
-Why Playwright is unnecessary for WinKit's design.
-What npx installs.
-Pinned and unpinned versions.
-Tool profiles.
-Read-only behavior.
-Managed browser permissions.
-Profile isolation.
-Cleanup.
-Privacy and no-telemetry behavior.
-External URL policy.
-Unsupported platforms.
-Troubleshooting.
-Evidence versus hypothesis.
-Show real output examples for:
-Stale port.
-Wrong port.
-HTTP 500.
-Browser runtime exception.
-Browser network failure.
-Low disk space.
-High memory pressure.
-Managed Chrome startup and cleanup.
-Limited evidence.
-Update, as applicable:
-README.md.
-docs/installation.md.
-docs/chrome.md.
-docs/security.md.
-docs/permissions.md.
-docs/configuration.md.
-docs/tools.md.
-docs/diagnostics.md.
-docs/development.md.
-docs/release.md.
-docs/mcp-integration.md.
-SECURITY.md.
-CHANGELOG.md.
-CONTRIBUTING.md.
-The new Agent Skill documentation.
-Keep client-specific examples current. Verify Codex configuration against current official OpenAI documentation and verify third-party client configuration against the client documentation at implementation time.
-19. CI, GitHub, npm, and release engineering
-Add or update release automation that:
-Runs formatting.
-Runs Clippy with warnings denied.
-Runs unit, mock, protocol, fixture, and launcher tests.
-Builds the Windows native artifact.
-Packages and audits the platform npm package.
-Runs npm pack --dry-run.
-Verifies no secrets or unrelated files are included.
-Verifies package metadata and bin entries.
-Publishes the platform package.
-Publishes the launcher package.
-Produces a GitHub ZIP as a secondary/manual distribution path.
-Generates SHA-256 checksums.
-Publishes accurate release notes.
-States clearly whether binaries are signed.
-Uses trusted short-lived CI publishing credentials where available.
-Never commits long-lived npm tokens.
-Add release smoke tests that install the packed package from a local tarball before publishing. Test the exact command a user will run:
-npx --yes @winkit/mcp@VERSION --version
-npx --yes @winkit/mcp@VERSION --help
-npx --yes @winkit/mcp@VERSION doctor
-npx --yes @winkit/mcp@VERSION init --client codex
-npx --yes @winkit/mcp@VERSION configure --dry-run
-npx --yes @winkit/mcp@VERSION
-Do not treat a GitHub ZIP or a manually built executable as the primary onboarding path. They are secondary recovery and development paths.
-20. Definition of done
-The implementation is complete only when all applicable items below are true and verified:
-The repository was inspected before architecture changes.
-A requirement matrix was created and completed.
-Formatting passes.
-Clippy with warnings denied passes.
-Mock, unit, protocol, fixture, launcher, and relevant live tests pass.
-The release build succeeds.
-The tool registry is source-of-truth verified.
-Tool profiles filter tools/list correctly.
-Documentation has no stale totals or contradictory security claims.
-Health consumers agree on shared semantics.
-Chrome discovery performs one bounded pass.
-No-endpoint Chrome discovery returns within its budget.
-workspace_snapshot returns bounded, redacted metadata.
-list_dev_servers identifies listeners and workspace relationships.
-diagnose_workspace correlates machine, workspace, process, port, and server evidence.
-diagnose_local_webapp identifies port, HTTP, and browser failures.
-Wait tools use bounded condition polling.
-Correlation reports supporting and contradicting evidence.
-Findings distinguish facts from hypotheses.
-High-level responses are compact and agent-friendly.
-Privacy posture is inspectable.
-No arbitrary command, JavaScript, or CDP execution exists.
-Unrelated processes cannot be terminated.
-Unrelated directories cannot be deleted by cleanup.
-Managed Chrome works without Playwright or browser downloads.
-Managed Chrome uses an isolated profile and loopback-only endpoint.
-Read-only modes cannot launch or navigate browsers.
-Managed sessions clean up on success, failure, timeout, cancellation, and shutdown.
-The npm launcher uses direct shell-free process spawning.
-npm packages contain no secrets.
-npx --yes @winkit/mcp@VERSION --version works on Windows.
-npx --yes @winkit/mcp@VERSION doctor works on Windows.
-npx --yes @winkit/mcp@VERSION init --client ... prints valid current client configuration.
-npx --yes @winkit/mcp@VERSION configure --dry-run works.
-npx --yes @winkit/mcp@VERSION completes MCP initialization.
-stdout remains protocol-clean.
-The Agent Skill exists, is accurate, and teaches the recommended workflows.
-Reproducible developer-failure demos and evaluation scenarios pass.
-The README explains the product around real developer problems.
-GitHub and npm release instructions are tested and documented.
-Remaining limitations are explicitly documented.
-The final implementation report must include:
-What was implemented.
-What was intentionally not implemented.
-Changed files.
-New tools and schemas.
-Tool profiles.
-CLI commands.
-npm package names.
-Permission behavior.
-Security implications.
-Privacy and telemetry behavior.
-Agent Skill installation and contents.
-Actual test commands and actual results.
-Live test instructions.
-Publication instructions.
-Known limitations.
-An honest release-readiness verdict.
-Do not stop when the code merely compiles. The success criterion is that a Windows developer can install WinKit with npx, connect it to a coding agent, ask for help with a broken local development environment, and receive a useful evidence-backed answer without manually managing a native executable, starting a browser with debugging flags, or granting the agent arbitrary machine control.
-Research constraints for the implementing agent
-When making decisions about current package behavior, client configuration, MCP host behavior, or third-party APIs:
-Inspect current official documentation before guessing.
-Use official npm documentation for npm package fields, npx, publishing, and package execution.
-Use official Node.js documentation for process spawning and Windows behavior.
-Use current official OpenAI Codex documentation for Codex MCP configuration.
-Use current client documentation for OpenCode, Claude Code, and other integrations.
-Treat GitHub competitors as evidence for positioning and onboarding patterns, not as dependencies.
-Do not copy competitor code or license-incompatible material.
-Record any unresolved documentation or compatibility uncertainty in the final limitations section.
+Where a hard limit cannot be established, report raw telemetry and avoid overly strong conclusions.
+
+Use thresholds as signals, not absolute truth.
+
+---
+
+# 33. Handle sensor source and quality
+
+Every measurement should have enough metadata for the diagnostic engine to distinguish sources.
+
+Suggested conceptual source categories:
+
+```text
+windows_api
+windows_thermal_zone
+performance_counter
+hardware_sensor
+cpu_vendor
+gpu_vendor
+nvme
+ata
+battery
+unknown
+```
+
+Also support measurement quality:
+
+```text
+high
+medium
+low
+unknown
+```
+
+The quality field should have a clear documented meaning.
+
+Do not use it as a fake confidence score.
+
+Source and confidence are different concepts.
+
+---
+
+# 34. Handle privilege requirements correctly
+
+Some hardware telemetry may require elevated access.
+
+Do not silently fail.
+
+Do not silently request elevation.
+
+Do not make the entire server require administrator privileges unless absolutely necessary.
+
+Instead:
+
+```text
+sensor:
+  available: false
+  reason: insufficient_privilege
+  required_capability: hardware.telemetry
+```
+
+or whatever naming best matches the existing permissions architecture.
+
+The agent should know:
+
+> "This could not be measured because this operation requires elevation."
+
+Do not turn access failure into sensor absence.
+
+Distinguish:
+
+```text
+unsupported
+unavailable
+not_present
+permission_denied
+driver_missing
+transient_failure
+```
+
+where practical.
+
+---
+
+# 35. Preserve read-only-by-default
+
+Hardware telemetry must remain read-only.
+
+Disk health reads are read-only.
+
+SMART reads are read-only.
+
+Thermal reads are read-only.
+
+Wi-Fi status is read-only.
+
+Do not introduce configuration writes, driver writes, firmware updates, network changes, service changes, or device-control operations as part of this refactor.
+
+Keep WinKit observational.
+
+---
+
+# 36. Privacy rules
+
+Be conservative.
+
+Do not expose:
+
+* full Wi-Fi scan results by default
+* unnecessary unique hardware identifiers
+* serial numbers unless explicitly requested and justified
+* credentials
+* network authentication secrets
+* browser cookies
+* request bodies
+* private content
+
+Retain the existing privacy model and extend it to new telemetry.
+
+Network telemetry should primarily describe system state.
+
+Do not turn WinKit into a surveillance tool.
+
+---
+
+# 37. Update profiles
+
+Reevaluate:
+
+```text
+core
+developer
+browser
+full
+```
+
+The new default/core profile should emphasize Windows observability.
+
+A sensible direction is:
+
+```text
+core
+developer
+integrations
+full
+```
+
+or preserve the current naming if doing so is less disruptive.
+
+The key requirement is:
+
+**Core must not require Chrome.**
+
+Chrome must not pollute the default tool list.
+
+Hardware and diagnostics should be in core.
+
+---
+
+# 38. Keep optional Chrome integration isolated
+
+If the current Chrome implementation is retained:
+
+* isolate its provider
+* isolate its permissions
+* isolate its config
+* isolate its documentation
+* isolate its tests where appropriate
+* isolate its tool profile
+
+The server must still build and operate without Chrome.
+
+Do not make the diagnostics engine import Chrome types.
+
+Do not add Chrome-specific findings to generic system health unless the Chrome integration is explicitly enabled and the evidence is available.
+
+Do not make "Chrome CPU is high" a required system diagnostic signal.
+
+---
+
+# 39. Revisit the agent skill
+
+The existing WinKit skill should be rewritten around the new core.
+
+The skill should teach an agent a reasoning flow such as:
+
+```text
+1. Start with system snapshot or system diagnosis.
+2. Identify suspicious subsystem.
+3. Gather focused evidence.
+4. Check related hardware telemetry.
+5. Check process correlation.
+6. Check disk/network/power state if relevant.
+7. Use trends when a snapshot is insufficient.
+8. Report evidence and uncertainty.
+```
+
+The agent should not blindly call every tool.
+
+The skill should encourage the smallest useful set of calls.
+
+---
+
+# 40. Improve tool descriptions
+
+Tool descriptions are part of the product.
+
+Each tool description must state:
+
+* what question it answers
+* what it measures
+* what it does not measure
+* whether it is read-only
+* whether elevated permissions may matter
+* whether measurements are instantaneous or sampled
+* how expensive it is
+* what output fields mean
+
+Do not write vague descriptions such as:
+
+```text
+Gets system information.
+```
+
+Prefer:
+
+```text
+Returns a bounded Windows system snapshot including CPU, memory,
+process, storage, network, thermal, and power observations that are
+currently available. Missing telemetry is reported explicitly rather
+than treated as healthy.
+```
+
+---
+
+# 41. Improve result schemas
+
+The result model should remain stable and machine-friendly.
+
+Prefer structured output with:
+
+```text
+status
+timestamp
+duration
+measurements
+signals
+findings
+evidence
+completeness
+unavailable
+warnings
+```
+
+Do not make natural-language strings the only representation.
+
+Keep IDs stable.
+
+Keep evidence references explicit.
+
+Keep outputs bounded.
+
+---
+
+# 42. Add stable identifiers for hardware observations
+
+Where practical, assign stable IDs during a single observation session.
+
+Examples:
+
+```text
+sensor_id
+device_id
+disk_id
+adapter_id
+finding_id
+evidence_id
+```
+
+Avoid leaking unnecessarily sensitive hardware identity.
+
+The purpose is correlation, not fingerprinting.
+
+---
+
+# 43. Expand the deterministic evaluation suite
+
+Do not only test that a sensor returns a value.
+
+Build deterministic fixture scenarios.
+
+At minimum add fixtures for:
+
+### Thermal
+
+1. normal temperature
+2. elevated temperature
+3. thermal throttling
+4. high temperature without throttling
+5. missing CPU sensor
+6. missing GPU sensor
+7. generic thermal zone only
+
+### Storage
+
+8. healthy NVMe
+9. warning NVMe
+10. high disk temperature
+11. unavailable health data
+12. full disk without health failure
+
+### Power
+
+13. AC connected
+14. battery discharging
+15. degraded battery
+16. missing battery on desktop
+
+### Network
+
+17. healthy Wi-Fi
+18. weak signal
+19. packet loss
+20. adapter unavailable
+21. Ethernet healthy
+
+### Diagnostic correlation
+
+22. CPU contention
+23. thermal throttling
+24. storage contention
+25. Wi-Fi degradation
+26. no clear root cause
+
+For each scenario assert:
+
+* status
+* finding IDs
+* evidence IDs
+* evidence completeness
+* confidence
+* absence of false root-cause claims
+* bounded output
+* permission behavior
+
+---
+
+# 44. Test absence and failure as first-class behavior
+
+Every new provider needs tests for:
+
+```text
+hardware absent
+API unsupported
+driver missing
+permission denied
+malformed response
+timeout
+sensor unavailable
+partial data
+unexpected Windows error
+```
+
+The system must degrade gracefully.
+
+A failing GPU sensor must not prevent CPU telemetry.
+
+A failing battery query must not prevent thermal telemetry.
+
+A failed SMART request must not prevent disk capacity information.
+
+Providers should fail independently.
+
+---
+
+# 45. Keep the real Windows implementation separate from mocks
+
+For each new subsystem:
+
+```text
+real Windows implementation
+mock implementation
+fixture data
+normalization
+diagnostic logic
+```
+
+Keep these boundaries clean.
+
+The diagnostics engine must be testable using only fixtures.
+
+No CI test should require a real temperature sensor.
+
+No CI test should require a real NVMe disk.
+
+No CI test should require Wi-Fi.
+
+---
+
+# 46. Add an explicit capability matrix
+
+Document what WinKit supports.
+
+For example:
+
+```text
+Capability                Windows 10    Windows 11    Hardware dependent
+CPU thermal telemetry       yes              yes              yes
+GPU temperature             yes*             yes*             yes
+NVMe temperature            yes*             yes*             yes
+Battery telemetry           yes              yes              laptop only
+Wi-Fi signal                yes              yes              adapter dependent
+Disk health                 partial          partial          controller dependent
+```
+
+Do not publish unsupported claims.
+
+Use "where available" carefully.
+
+Document limitations honestly.
+
+---
+
+# 47. Do not overpromise sensor coverage
+
+README wording must never suggest:
+
+> "WinKit can read every laptop sensor."
+
+It cannot.
+
+The correct positioning is:
+
+> "WinKit discovers and reports hardware telemetry exposed by Windows and supported hardware-specific providers, while explicitly identifying unavailable sensors and permission limitations."
+
+That is credible.
+
+---
+
+# 48. Update the README completely
+
+Rewrite the README around the new product identity.
+
+The README should lead with:
+
+### What WinKit is
+
+A local Windows observability and diagnostic MCP for AI agents.
+
+### What it can diagnose
+
+Examples:
+
+* CPU pressure
+* memory pressure
+* thermal throttling
+* storage pressure
+* storage health problems
+* network/Wi-Fi degradation
+* process contention
+* Windows service problems
+* recent system/application failures
+* power/battery issues
+
+### Why it is different
+
+* evidence-first
+* structured output
+* explicit uncertainty
+* sensor discovery
+* cross-domain correlation
+* local-first
+* read-only by default
+* fast
+* Windows-native
+* no cloud dependency
+
+### What it does not promise
+
+* universal hardware support
+* access to every manufacturer sensor
+* guaranteed root-cause identification
+* perfect telemetry on every machine
+
+Keep the Chrome integration documented separately.
+
+---
+
+# 49. Update documentation structure
+
+Ensure documentation explains:
+
+* architecture
+* provider model
+* sensor model
+* diagnostics model
+* permissions
+* configuration
+* hardware support
+* thermal support
+* storage-health support
+* network support
+* privacy
+* limitations
+* testing
+* performance
+
+Add a dedicated hardware/telemetry document if that is the cleanest design.
+
+---
+
+# 50. Benchmark the new system
+
+The project already cares about latency.
+
+Keep that discipline.
+
+Measure:
+
+* hardware snapshot
+* thermal snapshot
+* battery status
+* disk health
+* network snapshot
+* system diagnosis
+
+Report:
+
+* median
+* p95 where useful
+* sample window duration
+* cold start vs warm call
+* whether elevation changes the path
+
+Do not create expensive telemetry calls that make `system_diagnose` unnecessarily slow.
+
+Parallelize independent provider reads where safe.
+
+Do not sacrifice correctness for microbenchmarks.
+
+---
+
+# 51. Optimize system diagnosis
+
+The final diagnostic experience should be:
+
+```text
+agent asks:
+"What is wrong with this PC?"
+```
+
+WinKit should not require 20 sequential tool calls.
+
+A reasonable high-level flow is:
+
+```text
+system_diagnose
+    ↓
+parallel observation
+    ├── CPU
+    ├── memory
+    ├── processes
+    ├── disk
+    ├── disk health
+    ├── thermals
+    ├── network
+    ├── power
+    └── recent relevant events
+    ↓
+signal extraction
+    ↓
+cross-domain correlation
+    ↓
+ranked findings
+```
+
+Only perform expensive sampling when necessary.
+
+If a fast snapshot is sufficient, return it.
+
+If a trend is necessary to establish a conclusion, collect a bounded observation window.
+
+---
+
+# 52. Avoid making every call expensive
+
+Not every diagnostic requires:
+
+```text
+10-second sample
+```
+
+Use the smallest observation window needed.
+
+Examples:
+
+* drive listing: immediate
+* temperature: immediate
+* process list: immediate
+* CPU pressure: short sample
+* thermal throttling: trend may be required
+* network degradation: short sample
+* battery status: immediate
+* disk performance diagnosis: bounded sample
+
+The diagnostic engine should understand these costs.
+
+---
+
+# 53. Preserve safety hardening
+
+Do not regress:
+
+* result caps
+* payload limits
+* transport limits
+* timeouts
+* stdout discipline
+* schema validation
+* permission enforcement
+* bounded scans
+* cancellation
+* path validation
+* managed browser isolation
+
+Any new provider must use the same safety infrastructure.
+
+Do not write ad-hoc unbounded enumeration.
+
+Do not make a hardware API call hang indefinitely.
+
+---
+
+# 54. Review dependencies
+
+Before adding third-party dependencies:
+
+1. Check whether Windows APIs already provide the functionality.
+2. Check whether the dependency is maintained.
+3. Check licensing.
+4. Check whether it adds a large binary/runtime requirement.
+5. Check whether it requires a kernel driver.
+6. Check whether it requires administrator rights.
+7. Check whether it introduces a security risk.
+8. Check whether it complicates npm distribution.
+
+Prefer native Windows mechanisms where appropriate.
+
+For hardware-specific sensors, carefully assess whether an external dependency is justified.
+
+Do not blindly vendor a large hardware-monitoring library into WinKit.
+
+---
+
+# 55. Be careful with kernel/driver-based sensor techniques
+
+Do not add custom kernel drivers as part of this task.
+
+Do not use unsafe low-level ring-0 techniques.
+
+Do not introduce arbitrary memory access to read hardware sensors.
+
+Use documented Windows APIs or established, auditable user-mode mechanisms where possible.
+
+If a sensor genuinely requires a driver that WinKit does not ship, report it as unavailable rather than introducing a risky driver architecture.
+
+---
+
+# 56. Do not use undocumented hacks unless absolutely necessary
+
+If you encounter hardware that cannot be read through documented mechanisms, document it.
+
+Do not build the main project around brittle undocumented offsets or assumptions.
+
+A good observability tool should prefer:
+
+```text
+unknown
+```
+
+over:
+
+```text
+probably correct but unsupported hack
+```
+
+---
+
+# 57. Keep Windows 10/11 support realistic
+
+Do not claim a capability is universally available if it varies by:
+
+* Windows version
+* hardware
+* driver
+* firmware
+* privilege
+* manufacturer
+
+The provider model should handle capability detection.
+
+---
+
+# 58. Reassess the current permission model
+
+Hardware read capabilities should fit the existing permission architecture.
+
+Possible categories:
+
+```text
+hardware.cpu
+hardware.gpu
+hardware.thermal
+hardware.storage_health
+hardware.power
+hardware.network
+hardware.bluetooth
+```
+
+Use the project's existing naming conventions rather than mechanically adopting these exact names.
+
+The important behavior:
+
+* safe/read-only should permit ordinary observation
+* sensitive operations should remain restricted
+* denied capabilities should explain why
+* absence of privilege should be distinct from unsupported hardware
+
+Do not create unnecessary action capabilities.
+
+---
+
+# 59. Make diagnostics composable
+
+Do not hard-code one giant monolithic function if the existing architecture can support composable detectors.
+
+Prefer independent diagnostic rules:
+
+```text
+thermal_throttling_detector
+cpu_contention_detector
+memory_pressure_detector
+storage_contention_detector
+storage_health_detector
+wifi_quality_detector
+power_problem_detector
+process_anomaly_detector
+service_failure_detector
+```
+
+Then combine them into ranked findings.
+
+This will make the project easier to extend later.
+
+---
+
+# 60. Avoid duplicate findings
+
+If multiple detectors discover the same underlying issue, merge the findings where appropriate.
+
+For example:
+
+```text
+CPU detector:
+high CPU
+
+Thermal detector:
+high temperature
+
+Frequency detector:
+reduced clock
+```
+
+should potentially combine into:
+
+```text
+Thermal throttling likely
+```
+
+rather than returning three unrelated warnings.
+
+Evidence should still preserve the contributing observations.
+
+---
+
+# 61. Rank findings based on evidence strength
+
+Do not rank simply by threshold.
+
+Consider:
+
+* severity
+* confidence
+* number of independent supporting signals
+* persistence
+* contradiction
+* completeness
+
+A strong cross-domain conclusion should outrank a weak single-signal anomaly.
+
+---
+
+# 62. Include contradictions
+
+If evidence disagrees, expose that.
+
+Example:
+
+```text
+temperature: high
+frequency: normal
+throttling: not observed
+```
+
+Then:
+
+```text
+Finding:
+High thermal load observed.
+
+Not established:
+Thermal throttling.
+```
+
+This is much more trustworthy.
+
+---
+
+# 63. Preserve "unknown" as a real state
+
+Do not force every diagnosis into:
+
+```text
+healthy
+warning
+critical
+```
+
+Use:
+
+```text
+unknown
+```
+
+where necessary.
+
+Examples:
+
+```text
+GPU thermal health: unknown
+Disk health: unknown
+Battery health: not applicable
+```
+
+---
+
+# 64. Make system_snapshot genuinely useful
+
+The snapshot should become the central evidence bundle.
+
+A good system snapshot should be able to summarize:
+
+```text
+machine identity
+OS
+CPU
+memory
+process pressure
+storage
+storage health
+network
+Wi-Fi
+thermals
+power
+battery
+services
+recent errors
+```
+
+but keep it bounded.
+
+Do not make it an enormous dump.
+
+A snapshot should be something an agent can consume in one tool call.
+
+---
+
+# 65. Keep raw system info separate from diagnosis
+
+Do not combine every field into `system_info`.
+
+Keep:
+
+```text
+system_info
+```
+
+as mostly static machine identity/configuration.
+
+Keep:
+
+```text
+snapshot
+```
+
+as current observable state.
+
+Keep:
+
+```text
+diagnose
+```
+
+as interpretation.
+
+This separation is useful.
+
+---
+
+# 66. Review every existing tool after the refactor
+
+For each current tool, classify it as:
+
+```text
+KEEP IN CORE
+MOVE TO OPTIONAL INTEGRATION
+MERGE INTO HIGH-LEVEL TOOL
+KEEP INTERNAL ONLY
+REMOVE
+```
+
+Do not preserve tools merely because they already exist.
+
+Do not remove tools merely because they have low-level names.
+
+Make the decision based on whether an AI agent benefits from having the capability directly.
+
+---
+
+# 67. Recommended final conceptual product surface
+
+Aim for something roughly like:
+
+```text
+WinKit
+│
+├── System
+│   ├── system_info
+│   ├── system_snapshot
+│   ├── system_health
+│   ├── system_diagnose
+│   └── system_health_trend
+│
+├── Processes
+│   ├── list_processes
+│   ├── get_process
+│   ├── get_process_tree
+│   └── find_process
+│
+├── Hardware
+│   ├── hardware_snapshot
+│   ├── thermal_snapshot
+│   ├── battery_status
+│   └── power_status
+│
+├── Storage
+│   ├── list_drives
+│   ├── disk_usage
+│   ├── disk_scan
+│   ├── disk_health
+│   └── disk_performance
+│
+├── Network
+│   ├── network_snapshot
+│   ├── network_diagnose
+│   ├── list_connections
+│   └── find_process_on_port
+│
+├── Windows
+│   ├── services
+│   ├── events
+│   └── windows
+│
+└── Optional Integrations
+    ├── developer tools
+    └── Chrome
+```
+
+This is conceptual, not a requirement to create these exact files or modules.
+
+Use the repository's existing organization where it makes more sense.
+
+---
+
+# 68. Do not create arbitrary folders just to match this prompt
+
+The prompt is describing responsibilities, not a mandatory filesystem structure.
+
+Do not reorganize the repository just for aesthetics.
+
+Only move code when doing so materially improves:
+
+* coupling
+* maintainability
+* testability
+* discoverability
+* separation of concerns
+
+Avoid unnecessary churn.
+
+---
+
+# 69. Do not rewrite working code unnecessarily
+
+Before replacing an implementation, ask:
+
+```text
+Can this be extended?
+Can a provider be added?
+Can the existing model be generalized?
+Can the existing diagnostic engine consume this?
+```
+
+Prefer incremental refactoring.
+
+Preserve backwards compatibility where it is practical.
+
+If a breaking change is justified, update:
+
+* tools
+* schemas
+* documentation
+* examples
+* tests
+* config
+* skill files
+* changelog
+
+together.
+
+---
+
+# 70. Keep backward compatibility in mind
+
+Existing integrations may expect current tool names.
+
+Do not casually remove or rename a public tool without determining its impact.
+
+For tools that need to move to optional integrations:
+
+* decide whether to preserve compatibility aliases
+* or make the change explicit
+* document the migration
+
+Do not leave dead documentation pointing at removed tools.
+
+---
+
+# 71. Update configuration
+
+Review the existing TOML/configuration model.
+
+Remove Chrome from defaults.
+
+Keep optional Chrome configuration isolated.
+
+Add configuration only when genuinely necessary.
+
+Do not require users to configure sensors manually.
+
+Sensor discovery should be automatic.
+
+---
+
+# 72. Update npm packaging
+
+The core npm package should not suddenly require:
+
+* Chrome
+* Playwright
+* browser automation
+* browser downloads
+
+Keep the current lightweight launcher philosophy.
+
+Make optional integrations truly optional if the current distribution mechanism permits it.
+
+Verify that the package still works on a clean Windows x64 environment.
+
+---
+
+# 73. Update examples
+
+Update MCP examples so they demonstrate the new core.
+
+Examples should show an agent asking:
+
+```text
+Why is this computer slow?
+```
+
+and then WinKit returning:
+
+```text
+thermal throttling likely
+```
+
+or:
+
+```text
+storage contention likely
+```
+
+or:
+
+```text
+network degradation likely
+```
+
+Do not make Chrome debugging the primary example.
+
+---
+
+# 74. Update the developer skill
+
+Rewrite the agent-facing skill so it teaches:
+
+```text
+Start broad.
+Then narrow.
+Use evidence.
+Use trends when required.
+Check thermals when performance drops.
+Check storage health when disk behavior is abnormal.
+Check network diagnostics for connectivity complaints.
+Do not claim root cause when telemetry is incomplete.
+```
+
+It should include concrete examples.
+
+---
+
+# 75. Update changelog and release notes
+
+Document:
+
+* Chrome core separation
+* hardware telemetry
+* thermal sensors
+* disk health
+* battery/power
+* Wi-Fi
+* diagnostic improvements
+* new limitations
+* compatibility changes
+* removed/deprecated tools
+
+Be explicit about breaking changes.
+
+---
+
+# 76. Run the full test suite repeatedly
+
+At minimum verify:
+
+```text
+cargo fmt --check
+cargo clippy
+cargo test
+cargo test --features mocks
+```
+
+and the project's existing evaluation commands.
+
+Also build the actual Windows release binary.
+
+Do not stop after unit tests.
+
+---
+
+# 77. Test on real Windows hardware if available
+
+The new features specifically require real-hardware validation.
+
+Test at least:
+
+1. A laptop.
+2. A desktop if possible.
+3. Intel CPU.
+4. NVIDIA/AMD/Intel GPU where available.
+5. NVMe drive.
+6. SATA device if possible.
+7. Wi-Fi.
+8. Battery.
+9. A machine with limited thermal telemetry.
+10. A machine with multiple thermal zones.
+
+Record what each machine actually exposes.
+
+Do not "fill in" missing sensors with guesses.
+
+---
+
+# 78. Build a sensor capability report for development
+
+Create a development/testing mechanism that can show:
+
+```text
+Discovered sensors
+------------------
+CPU package       available
+CPU cores         unavailable
+GPU               available
+NVMe              available
+Battery           available
+Thermal Zone 0    available
+Thermal Zone 1    available
+Fan               unavailable
+Power             available
+```
+
+This is extremely useful when debugging support across machines.
+
+Keep it bounded and safe.
+
+---
+
+# 79. Measure real privilege behavior
+
+Test:
+
+* normal user
+* elevated user
+
+Determine which telemetry changes.
+
+Document it.
+
+Do not simply require administrator privileges "because it is easier."
+
+The goal is maximum useful telemetry with minimum privilege.
+
+---
+
+# 80. Review security after adding hardware access
+
+After implementation, perform a security review specifically around:
+
+* Win32 handles
+* IOCTLs if any
+* device access
+* registry access
+* WMI
+* performance counters
+* storage health APIs
+* network enumeration
+* privilege boundaries
+* vendor-specific interfaces
+
+No arbitrary device paths.
+
+No arbitrary kernel interaction.
+
+No unbounded IOCTL interfaces.
+
+No user-controlled memory reads.
+
+No hidden elevation.
+
+---
+
+# 81. Improve observability errors
+
+All providers should return structured failures.
+
+For example:
+
+```text
+kind:
+  unsupported
+  unavailable
+  permission_denied
+  timeout
+  driver_error
+  api_error
+  not_present
+```
+
+plus:
+
+```text
+message
+provider
+component
+timestamp
+```
+
+Do not collapse every problem into:
+
+```text
+failed to read sensor
+```
+
+---
+
+# 82. Keep performance predictable
+
+Hardware telemetry should not add huge latency to the common case.
+
+If a provider is expensive:
+
+* run it in parallel
+* cache static capabilities
+* sample only when necessary
+* make sampling windows explicit
+* bound queries
+
+Do not repeatedly rediscover hardware topology on every tool call if it can safely be cached.
+
+Do not cache volatile measurements too aggressively.
+
+Separate:
+
+```text
+static hardware capability
+```
+
+from:
+
+```text
+volatile telemetry
+```
+
+---
+
+# 83. Introduce sensible caching
+
+Potentially cache:
+
+* hardware inventory
+* CPU model
+* GPU identity
+* storage device identity
+* network adapter identity
+* sensor topology
+
+Do not incorrectly cache:
+
+* temperature
+* utilization
+* packet loss
+* disk activity
+* battery charge
+
+unless the cache duration is explicitly short and justified.
+
+---
+
+# 84. Make diagnostic sampling configurable but bounded
+
+Allow short observation windows where useful.
+
+Do not let arbitrary agents request:
+
+```text
+sample_duration = 999999 seconds
+```
+
+Use hard upper limits.
+
+Use safe defaults.
+
+Return the actual duration used.
+
+---
+
+# 85. Improve model semantics
+
+Review existing measurement/model types.
+
+Avoid:
+
+```text
+Option<f64>
+```
+
+without any indication of why it is absent.
+
+Where practical distinguish:
+
+```text
+missing
+unsupported
+not_present
+permission_denied
+failed
+```
+
+Do this in a way that fits existing project conventions.
+
+---
+
+# 86. Ensure all numerical units are explicit
+
+Never return ambiguous values.
+
+Use:
+
+```text
+temperature_c
+temperature_k
+memory_bytes
+disk_bytes
+frequency_hz
+frequency_mhz
+power_watts
+latency_ms
+signal_percent
+rssi_dbm
+```
+
+or equivalent clearly documented fields.
+
+Do not rely on field names like:
+
+```text
+temp
+speed
+power
+```
+
+when the unit matters.
+
+---
+
+# 87. Avoid confusing signal names with raw measurements
+
+Use clear terminology.
+
+Raw measurement:
+
+```text
+cpu_temperature_c = 94
+```
+
+Derived signal:
+
+```text
+cpu_thermal_pressure = high
+```
+
+Diagnosis:
+
+```text
+thermal_throttling = likely
+```
+
+Do not collapse these concepts.
+
+---
+
+# 88. Preserve the LLM as the explanation layer
+
+WinKit should gather evidence and rank findings.
+
+The LLM can turn that into a conversational explanation.
+
+Do not embed an LLM in WinKit.
+
+Do not call external AI services.
+
+Do not introduce cloud dependencies.
+
+Keep diagnostics deterministic.
+
+---
+
+# 89. Define what WinKit should NOT do
+
+Unless explicitly requested later, do not add:
+
+* system tuning
+* overclocking
+* fan control
+* registry modification
+* service modification
+* network reconfiguration
+* driver installation
+* firmware updates
+* process termination
+* deleting files
+* browser automation as a core function
+* location tracking
+* arbitrary device control
+
+The current mission is observation and diagnosis.
+
+---
+
+# 90. Final target behavior
+
+The completed WinKit should allow an AI agent to receive a request like:
+
+> "My laptop is really slow. Figure out what's wrong."
+
+The agent should be able to call a high-level WinKit diagnostic tool and get enough structured evidence to determine whether the likely problem is something like:
+
+```text
+CPU pressure
+memory pressure
+thermal throttling
+GPU pressure
+disk contention
+disk health issue
+Wi-Fi degradation
+battery/power issue
+service failure
+process anomaly
+Windows error
+unknown/inconclusive
+```
+
+The output should resemble this conceptually:
+
+```text
+STATUS
+degraded
+
+PRIMARY FINDING
+thermal_throttling
+
+CONFIDENCE
+likely
+
+EVIDENCE
+- CPU temperature: 96°C
+- CPU frequency: 1.2 GHz
+- normal observed frequency: 2.8 GHz
+- thermal state: active
+- sustained duration: 19 seconds
+
+RELATED OBSERVATIONS
+- CPU utilization: 91%
+- process: game.exe
+
+CONTRADICTING EVIDENCE
+none observed
+
+COMPLETENESS
+limited
+
+UNMEASURED
+- GPU temperature unavailable
+```
+
+Then the LLM can explain that naturally.
+
+That is the level of result quality to aim for.
+
+---
+
+# 91. Definition of done
+
+Do not consider the task complete until all of the following are true.
+
+## Architecture
+
+* Chrome is no longer part of the core product architecture.
+* Hardware telemetry uses provider abstractions.
+* Windows-specific implementation remains isolated.
+* Diagnostics remain independent of platform details.
+* Mocks exist for all new providers.
+
+## Hardware
+
+* thermal zones supported where available
+* CPU thermal telemetry supported where reliable
+* GPU telemetry supported where reliable
+* storage temperatures supported where available
+* battery telemetry supported where available
+* power telemetry supported where available
+* explicit unavailable/unsupported states implemented
+
+## Storage
+
+* disk health capability exists
+* storage health and storage usage are separate concepts
+* temperature can be correlated with disk health
+* asynchronous scanning remains functional
+
+## Network
+
+* adapter status remains available
+* Wi-Fi telemetry added where supported
+* network diagnosis added
+* signal/link/latency/packet-loss concepts are distinguishable
+
+## Diagnostics
+
+* thermal throttling detection exists
+* storage health detection exists
+* storage contention detection exists
+* Wi-Fi degradation detection exists
+* power/battery issues can be represented
+* evidence IDs remain stable
+* confidence states remain explicit
+* incomplete telemetry cannot produce false "healthy" conclusions
+
+## MCP
+
+* core tool surface is coherent
+* optional integrations are separated
+* tool descriptions are accurate
+* profiles are updated
+* schemas are structured and bounded
+
+## Testing
+
+* full existing suite passes
+* new provider tests pass
+* deterministic diagnostic fixtures pass
+* missing sensor cases are tested
+* permission failures are tested
+* unsupported hardware cases are tested
+* real Windows build succeeds
+
+## Documentation
+
+* README reflects the new identity
+* Chrome is described as optional
+* hardware support is documented
+* limitations are documented
+* permission behavior is documented
+* performance characteristics are documented
+* configuration is updated
+* agent skill is updated
+* changelog is updated
+
+---
+
+# 92. Critical implementation rules
+
+Follow these rules throughout the implementation:
+
+1. **Do not rewrite the project from scratch.**
+2. **Do not invent hardware capabilities.**
+3. **Do not treat unavailable telemetry as healthy.**
+4. **Do not require every sensor to exist.**
+5. **Do not expose Chrome as a core WinKit capability.**
+6. **Do not make Chrome required for builds or installation.**
+7. **Do not introduce unnecessary third-party dependencies.**
+8. **Do not add kernel drivers.**
+9. **Do not introduce write actions.**
+10. **Do not weaken the permission model.**
+11. **Do not weaken the existing evidence-first diagnostic model.**
+12. **Do not remove tests merely because implementation changed.**
+13. **Do not leave stale documentation or tool definitions behind.**
+14. **Do not expose raw low-level APIs as MCP tools unless they provide meaningful agent value.**
+15. **Prefer high-level diagnostic tools backed by internal collectors.**
+16. **Keep output bounded.**
+17. **Keep measurement units explicit.**
+18. **Keep sources explicit.**
+19. **Keep uncertainty explicit.**
+20. **When unsure, inspect the existing code and follow its established patterns instead of inventing a new one.**
+
+---
+
+# 93. Work method
+
+Perform the work in this order:
+
+### Step 1
+
+Audit the repository and write down the current architecture and tool surface.
+
+### Step 2
+
+Identify Chrome/developer-specific boundaries.
+
+### Step 3
+
+Refactor Chrome into an optional integration without breaking the core.
+
+### Step 4
+
+Review and simplify the MCP core surface.
+
+### Step 5
+
+Introduce/generalize hardware provider abstractions.
+
+### Step 6
+
+Implement Windows thermal-zone telemetry.
+
+### Step 7
+
+Implement CPU thermal telemetry.
+
+### Step 8
+
+Implement GPU telemetry.
+
+### Step 9
+
+Implement storage temperature and health.
+
+### Step 10
+
+Implement battery and power telemetry.
+
+### Step 11
+
+Implement Wi-Fi/network diagnostics.
+
+### Step 12
+
+Implement cross-domain diagnostic rules.
+
+### Step 13
+
+Add sampling/trend support where required.
+
+### Step 14
+
+Update system snapshot and system diagnosis to consume the new evidence.
+
+### Step 15
+
+Update permissions/configuration.
+
+### Step 16
+
+Update profiles/tool descriptions/schemas.
+
+### Step 17
+
+Update tests and deterministic evaluation scenarios.
+
+### Step 18
+
+Run real Windows validation.
+
+### Step 19
+
+Benchmark.
+
+### Step 20
+
+Update README, docs, skill, examples, changelog, and package metadata.
+
+### Step 21
+
+Run the full verification suite.
+
+At every step, keep the repository buildable where practical.
+
+Do not make a massive blind change and only discover problems at the end.
+
+---
+
+# 94. Final instruction
+
+Do not optimize for the number of features added.
+
+Optimize for this:
+
+> **An AI agent should be able to ask WinKit a broad question about a Windows machine and receive fast, structured, evidence-backed information that actually helps explain what is happening.**
+
+The finished product should feel like a coherent diagnostic system, not a bag of Windows APIs.
+
+When deciding between adding another feature and improving correlation, correctness, completeness, performance, or agent usability, prefer the latter.
+
+When deciding between exposing another low-level tool and making an existing high-level diagnostic capability smarter, prefer making the high-level capability smarter.
+
+When deciding between claiming support and honestly reporting "unavailable", choose "unavailable".
+
+When deciding between preserving an unrelated application integration in core and keeping the product focused, keep the product focused.
+
+The end result should be a **focused Windows observability platform with hardware awareness, thermal awareness, storage health, network awareness, power awareness, and evidence-first diagnosis**, while preserving the project's existing Rust/MCP architecture, security model, deterministic testing strategy, and local-first philosophy.

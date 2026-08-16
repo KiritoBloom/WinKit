@@ -183,7 +183,7 @@ async fn tools_list_after_initialize_contains_system_info() {
     assert!(names.contains(&"system_info"));
     assert!(names.contains(&"list_processes"));
     assert!(names.contains(&"find_process_on_port"));
-    assert!(names.contains(&"chrome_diagnose_tab"));
+    assert!(names.contains(&"hardware_snapshot"));
     assert!(out["result"]["tools"].as_array().unwrap().len() >= 30);
 }
 
@@ -208,10 +208,11 @@ async fn tools_list_reflects_effective_profile_and_omits_disabled() {
     let server = initialized_server(mock_state_with_profile("developer")).await;
     let dev = listed_names(&server).await;
     assert!(dev.iter().any(|n| *n == "system_info"));
-    assert!(dev.iter().any(|n| *n == "chrome_diagnose_tab"));
+    assert!(dev.iter().any(|n| *n == "hardware_snapshot"));
     assert!(dev.iter().any(|n| *n == "list_dev_servers"));
     assert!(dev.iter().any(|n| *n == "workspace_snapshot"));
     assert!(dev.iter().any(|n| *n == "list_processes"));
+    assert!(!dev.iter().any(|n| *n == "chrome_diagnose_tab"));
 
     // browser: deep Chrome inspection but no dev-server workflow.
     let server = initialized_server(mock_state_with_profile("browser")).await;
@@ -266,8 +267,8 @@ async fn tool_schemas_are_valid_json_objects_with_required_fields() {
         json!(["pid"])
     );
     assert_eq!(
-        by_name["chrome_get_tab"]["inputSchema"]["required"],
-        json!(["tab_id"])
+        by_name["get_service"]["inputSchema"]["required"],
+        json!(["name"])
     );
     assert_eq!(
         by_name["workspace_snapshot"]["inputSchema"]["required"],

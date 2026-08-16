@@ -8,8 +8,9 @@
 
 use crate::config::{DiagnosticsConfig, HealthConfig};
 use crate::diagnostics::findings::{
-    app_cpu_score, app_memory_score, memory_growth_score, memory_pressure_score, score_bands,
-    storage_score,
+    app_cpu_score, app_memory_score, battery_health_score, frequency_reduction_score,
+    memory_growth_score, memory_pressure_score, score_bands, storage_health_score, storage_score,
+    thermal_pressure_score, wifi_signal_score,
 };
 use crate::models::{
     DiagnosticReport, DiagnosticSignal, EvidencePoint, Measurement, PossibleCause, RankedFinding,
@@ -25,6 +26,11 @@ pub enum SystemSignalKind {
     AppHighCpu,
     AppHighMemory,
     MemoryGrowth,
+    CpuThermalPressure,
+    CpuFrequencyReduced,
+    StorageHealth,
+    BatteryDegraded,
+    WifiWeakSignal,
 }
 
 impl SystemSignalKind {
@@ -35,6 +41,11 @@ impl SystemSignalKind {
             Self::AppHighCpu => "app_high_cpu",
             Self::AppHighMemory => "app_high_memory",
             Self::MemoryGrowth => "memory_growth",
+            Self::CpuThermalPressure => "cpu_thermal_pressure",
+            Self::CpuFrequencyReduced => "cpu_frequency_reduced",
+            Self::StorageHealth => "storage_health",
+            Self::BatteryDegraded => "battery_degraded",
+            Self::WifiWeakSignal => "wifi_weak_signal",
         }
     }
 
@@ -45,6 +56,11 @@ impl SystemSignalKind {
             Self::AppHighCpu => "High application CPU usage",
             Self::AppHighMemory => "High application memory usage",
             Self::MemoryGrowth => "Runaway memory growth",
+            Self::CpuThermalPressure => "CPU thermal pressure",
+            Self::CpuFrequencyReduced => "CPU frequency reduced",
+            Self::StorageHealth => "Storage health concern",
+            Self::BatteryDegraded => "Battery degraded",
+            Self::WifiWeakSignal => "Weak Wi-Fi signal",
         }
     }
 
@@ -55,6 +71,11 @@ impl SystemSignalKind {
             Self::AppHighCpu => "medium",
             Self::AppHighMemory => "medium",
             Self::MemoryGrowth => "high",
+            Self::CpuThermalPressure => "high",
+            Self::CpuFrequencyReduced => "medium",
+            Self::StorageHealth => "high",
+            Self::BatteryDegraded => "medium",
+            Self::WifiWeakSignal => "low",
         }
     }
 }
@@ -111,7 +132,8 @@ pub fn analyze_system(
         limitations: vec![
             "Thresholds are heuristic defaults from the health and diagnostics configuration; they are not guarantees of a problem.".to_string(),
             "CPU percentages are relative to total system CPU capacity across all logical processors; 100% means every core is fully busy, and a single busy core on an N-core machine reports 100/N percent.".to_string(),
-            "Memory growth is sampled over a short window (~1 s) and may miss slower trends; network and service stability are not part of this diagnosis.".to_string(),
+            "Memory growth is sampled over a short window (~1 s) and may miss slower trends.".to_string(),
+            "Thermal, storage-health, battery, and Wi-Fi evidence is a single point-in-time sample; ATA S.M.A.R.T. health may be unavailable without elevation.".to_string(),
         ],
         agent_guidance: agent_guidance.to_string(),
     };
@@ -213,6 +235,120 @@ fn system_measurements(data: &SystemDiagnosticData) -> Vec<Measurement> {
                 scope: "application".into(),
                 subject: Some(g.display_name.clone()),
                 detail: "Aggregate process CPU time over total system CPU time; 100% = all logical processors fully busy.".into(),
+            });
+        }
+    }
+    if let Some(t) = &data.thermal {
+        out.push(Measurement {
+            metric: "cpu_thermal_pressure".into(),
+            value: t.cpu_thermal_pressure.clone(),
+            value_number: None,
+            unit: "enum".into(),
+            scope: "system".into(),
+            subject: Some("cpu_package".into()),
+            detail: "Interpreted thermal state: low, elevated, high, or unknown.".into(),
+        });
+        out.push(Measurement {
+            metric: "cpu_throttling".into(),
+            value: t.cpu_throttling.clone(),
+            value_number: None,
+            unit: "enum".into(),
+            scope: "system".into(),
+            subject: Some("cpu_package".into()),
+            detail: "Interpreted throttling state: likely, not_observed, or unknown.".into(),
+        });
+        if let Some(c) = t.cpu_temperature_c {
+            out.push(Measurement {
+                metric: "cpu_temperature_c".into(),
+                value: format!("{c:.1} C"),
+                value_number: Some(c),
+                unit: "celsius".into(),
+                scope: "system".into(),
+                subject: Some("cpu_package".into()),
+                detail: "Highest readable CPU temperature sensor.".into(),
+            });
+        }
+        if let Some(r) = t.cpu_frequency_reduced {
+            out.push(Measurement {
+                metric: "cpu_frequency_reduced".into(),
+                value: r.to_string(),
+                value_number: Some(if r { 1.0 } else { 0.0 }),
+                unit: "boolean".into(),
+                scope: "system".into(),
+                subject: Some("cpu_package".into()),
+                detail: "Current clock below base clock, when the frequency sensor exists.".into(),
+            });
+        }
+    }
+    for d in &data.storage_health {
+        if let Some(s) = &d.health_status {
+            out.push(Measurement {
+                metric: "drive_health_status".into(),
+                value: s.clone(),
+                value_number: None,
+                unit: "enum".into(),
+                scope: "system".into(),
+                subject: Some(d.device.clone()),
+                detail: "Reported S.M.A.R.T. health status.".into(),
+            });
+        }
+        if let Some(c) = d.temperature_c {
+            out.push(Measurement {
+                metric: "drive_temperature_c".into(),
+                value: format!("{c:.1} C"),
+                value_number: Some(c),
+                unit: "celsius".into(),
+                scope: "system".into(),
+                subject: Some(d.device.clone()),
+                detail: "Device temperature when the interface reports it.".into(),
+            });
+        }
+        if let Some(p) = d.percentage_used {
+            out.push(Measurement {
+                metric: "nvme_percentage_used".into(),
+                value: format!("{p}%"),
+                value_number: Some(p as f64),
+                unit: "percent".into(),
+                scope: "system".into(),
+                subject: Some(d.device.clone()),
+                detail: "NVMe percentage of endurance used.".into(),
+            });
+        }
+    }
+    if let Some(b) = &data.battery {
+        if let Some(h) = b.health_percent {
+            out.push(Measurement {
+                metric: "battery_health_percent".into(),
+                value: format!("{h:.1}%"),
+                value_number: Some(h),
+                unit: "percent".into(),
+                scope: "system".into(),
+                subject: Some("battery".into()),
+                detail: "Full-charge capacity as a percentage of design capacity.".into(),
+            });
+        }
+        if let Some(p) = b.percent {
+            out.push(Measurement {
+                metric: "battery_percent".into(),
+                value: format!("{p}%"),
+                value_number: Some(p as f64),
+                unit: "percent".into(),
+                scope: "system".into(),
+                subject: Some("battery".into()),
+                detail: "Current charge level.".into(),
+            });
+        }
+    }
+    for w in &data.wifi {
+        if let Some(s) = w.signal_percent {
+            out.push(Measurement {
+                metric: "wifi_signal_percent".into(),
+                value: format!("{s}%"),
+                value_number: Some(s as f64),
+                unit: "percent".into(),
+                scope: "system".into(),
+                subject: Some(w.description.clone()),
+                detail: "OS-reported Wi-Fi signal quality.".into(),
             });
         }
     }
@@ -464,6 +600,248 @@ fn system_signals_and_findings(
         }
     }
 
+    if let Some(t) = &data.thermal {
+        let pressure_score = thermal_pressure_score(&t.cpu_thermal_pressure);
+        if pressure_score > 0 {
+            let (severity, confidence) = score_bands(pressure_score);
+            signals.push(DiagnosticSignal {
+                kind: SystemSignalKind::CpuThermalPressure.as_str().into(),
+                label: SystemSignalKind::CpuThermalPressure.label().into(),
+                severity: SystemSignalKind::CpuThermalPressure.severity().into(),
+                evidence: vec![EvidencePoint {
+                    metric: "cpu_thermal_pressure".into(),
+                    value: t.cpu_thermal_pressure.to_string(),
+                    detail: format!(
+                        "threshold: >= {:.0} C package temperature",
+                        diagnostics.high_cpu_temperature_c
+                    ),
+                }],
+            });
+            findings.push(RankedFinding {
+                rank: 0,
+                title: "CPU thermal pressure".into(),
+                category: "thermal".into(),
+                severity: severity.into(),
+                confidence: confidence.into(),
+                score: pressure_score,
+                subject: "cpu_package".into(),
+                evidence: vec![
+                    EvidencePoint {
+                        metric: "cpu_thermal_pressure".into(),
+                        value: t.cpu_thermal_pressure.clone(),
+                        detail: "interpreted from measured temperatures".into(),
+                    },
+                    EvidencePoint {
+                        metric: "cpu_temperature_c".into(),
+                        value: t
+                            .cpu_temperature_c
+                            .map(|c| format!("{c:.1} C"))
+                            .unwrap_or_else(|| "unavailable".into()),
+                        detail: "highest readable CPU temperature".into(),
+                    },
+                ],
+                detail: format!(
+                    "CPU thermal pressure is '{}'; the highest readable CPU temperature was {}. Sustained heat can trigger frequency reduction.",
+                    t.cpu_thermal_pressure,
+                    t.cpu_temperature_c
+                        .map(|c| format!("{c:.1} C"))
+                        .unwrap_or_else(|| "unavailable".into())
+                ),
+            });
+        }
+
+        let freq_score = frequency_reduction_score(&t.cpu_throttling, t.cpu_frequency_reduced);
+        if freq_score > 0 {
+            let (severity, confidence) = score_bands(freq_score);
+            let reduced_label = t
+                .cpu_frequency_reduced
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| "unknown".into());
+            signals.push(DiagnosticSignal {
+                kind: SystemSignalKind::CpuFrequencyReduced.as_str().into(),
+                label: SystemSignalKind::CpuFrequencyReduced.label().into(),
+                severity: SystemSignalKind::CpuFrequencyReduced.severity().into(),
+                evidence: vec![
+                    EvidencePoint {
+                        metric: "cpu_throttling".into(),
+                        value: t.cpu_throttling.clone(),
+                        detail: "interpreted from thermal state".into(),
+                    },
+                    EvidencePoint {
+                        metric: "cpu_frequency_reduced".into(),
+                        value: reduced_label.clone(),
+                        detail: "current clock below base clock".into(),
+                    },
+                ],
+            });
+            findings.push(RankedFinding {
+                rank: 0,
+                title: "CPU frequency reduced".into(),
+                category: "frequency".into(),
+                severity: severity.into(),
+                confidence: confidence.into(),
+                score: freq_score,
+                subject: "cpu_package".into(),
+                evidence: vec![EvidencePoint {
+                    metric: "cpu_frequency_reduced".into(),
+                    value: reduced_label.clone(),
+                    detail: "current/base clock ratio".into(),
+                }],
+                detail: format!(
+                    "CPU throttling is '{}' with frequency_reduced={reduced_label}; the CPU is likely running below its base clock.",
+                    t.cpu_throttling
+                ),
+            });
+        }
+    }
+
+    for d in &data.storage_health {
+        let score = storage_health_score(
+            d.health_status.as_deref(),
+            d.percentage_used,
+            diagnostics.storage_used_warning_percent,
+        );
+        if score == 0 {
+            continue;
+        }
+        let (severity, confidence) = score_bands(score);
+        let status = d.health_status.clone().unwrap_or_else(|| "unknown".into());
+        signals.push(DiagnosticSignal {
+            kind: SystemSignalKind::StorageHealth.as_str().into(),
+            label: SystemSignalKind::StorageHealth.label().into(),
+            severity: SystemSignalKind::StorageHealth.severity().into(),
+            evidence: vec![EvidencePoint {
+                metric: "drive_health_status".into(),
+                value: status.clone(),
+                detail: format!(
+                    "threshold: warning at >= {:.0}% used",
+                    diagnostics.storage_used_warning_percent
+                ),
+            }],
+        });
+        findings.push(RankedFinding {
+            rank: 0,
+            title: format!("{} health concern", d.device),
+            category: "storage_health".into(),
+            severity: severity.into(),
+            confidence: confidence.into(),
+            score,
+            subject: d.device.clone(),
+            evidence: vec![
+                EvidencePoint {
+                    metric: "drive_health_status".into(),
+                    value: status,
+                    detail: "reported S.M.A.R.T. status".into(),
+                },
+                EvidencePoint {
+                    metric: "drive_temperature_c".into(),
+                    value: d
+                        .temperature_c
+                        .map(|c| format!("{c:.1} C"))
+                        .unwrap_or_else(|| "unavailable".into()),
+                    detail: "device temperature".into(),
+                },
+            ],
+            detail: format!(
+                "{} ({} interface) reports health '{}'{}.",
+                d.device,
+                d.interface,
+                d.health_status.as_deref().unwrap_or("unknown"),
+                d.percentage_used
+                    .map(|p| format!(" with {p}% of NVMe endurance used"))
+                    .unwrap_or_default()
+            ),
+        });
+    }
+
+    if let Some(b) = &data.battery {
+        if let Some(h) = b.health_percent {
+            let score = battery_health_score(h, diagnostics.low_battery_health_percent);
+            if score > 0 {
+                let (severity, confidence) = score_bands(score);
+                signals.push(DiagnosticSignal {
+                    kind: SystemSignalKind::BatteryDegraded.as_str().into(),
+                    label: SystemSignalKind::BatteryDegraded.label().into(),
+                    severity: SystemSignalKind::BatteryDegraded.severity().into(),
+                    evidence: vec![EvidencePoint {
+                        metric: "battery_health_percent".into(),
+                        value: format!("{h:.1}%"),
+                        detail: format!(
+                            "threshold: <= {:.0}% of design capacity",
+                            diagnostics.low_battery_health_percent
+                        ),
+                    }],
+                });
+                findings.push(RankedFinding {
+                    rank: 0,
+                    title: "Battery degraded".into(),
+                    category: "battery".into(),
+                    severity: severity.into(),
+                    confidence: confidence.into(),
+                    score,
+                    subject: "battery".into(),
+                    evidence: vec![
+                        EvidencePoint {
+                            metric: "battery_health_percent".into(),
+                            value: format!("{h:.1}%"),
+                            detail: "full-charge capacity vs design capacity".into(),
+                        },
+                        EvidencePoint {
+                            metric: "battery_percent".into(),
+                            value: b.percent.map(|p| format!("{p}%")).unwrap_or_else(|| "unknown".into()),
+                            detail: "current charge level".into(),
+                        },
+                    ],
+                    detail: format!(
+                        "Battery health is {h:.1}% of design capacity, at or below the {:.0}% degraded threshold.",
+                        diagnostics.low_battery_health_percent
+                    ),
+                });
+            }
+        }
+    }
+
+    for w in &data.wifi {
+        if let Some(signal) = w.signal_percent {
+            let score = wifi_signal_score(signal, diagnostics.weak_wifi_signal_percent);
+            if score == 0 {
+                continue;
+            }
+            let (severity, confidence) = score_bands(score);
+            signals.push(DiagnosticSignal {
+                kind: SystemSignalKind::WifiWeakSignal.as_str().into(),
+                label: SystemSignalKind::WifiWeakSignal.label().into(),
+                severity: SystemSignalKind::WifiWeakSignal.severity().into(),
+                evidence: vec![EvidencePoint {
+                    metric: "wifi_signal_percent".into(),
+                    value: format!("{signal}%"),
+                    detail: format!(
+                        "threshold: <= {:.0}% signal",
+                        diagnostics.weak_wifi_signal_percent
+                    ),
+                }],
+            });
+            findings.push(RankedFinding {
+                rank: 0,
+                title: format!("Weak Wi-Fi signal on {}", w.description),
+                category: "wifi".into(),
+                severity: severity.into(),
+                confidence: confidence.into(),
+                score,
+                subject: w.description.clone(),
+                evidence: vec![EvidencePoint {
+                    metric: "wifi_signal_percent".into(),
+                    value: format!("{signal}%"),
+                    detail: "OS-reported signal quality".into(),
+                }],
+                detail: format!(
+                    "Wi-Fi adapter '{}' reports {signal}% signal, at or below the {:.0}% weak-signal threshold.",
+                    w.description, diagnostics.weak_wifi_signal_percent
+                ),
+            });
+        }
+    }
+
     (signals, findings)
 }
 
@@ -487,6 +865,27 @@ fn checked_clean(data: &SystemDiagnosticData, signals: &[DiagnosticSignal]) -> V
     if data.memory_growth_bytes_per_second.is_some() && !kinds.contains(&"memory_growth") {
         clean.push("runaway memory growth".to_string());
     }
+    if data.thermal.is_some()
+        && !kinds.contains(&"cpu_thermal_pressure")
+        && !kinds.contains(&"cpu_frequency_reduced")
+    {
+        clean.push("CPU thermal state".to_string());
+    }
+    if !data.storage_health.is_empty() && !kinds.contains(&"storage_health") {
+        clean.push("storage health".to_string());
+    }
+    if data
+        .battery
+        .as_ref()
+        .and_then(|b| b.health_percent)
+        .is_some()
+        && !kinds.contains(&"battery_degraded")
+    {
+        clean.push("battery health".to_string());
+    }
+    if !data.wifi.is_empty() && !kinds.contains(&"wifi_weak_signal") {
+        clean.push("Wi-Fi signal strength".to_string());
+    }
     clean
 }
 
@@ -498,6 +897,11 @@ fn finding_as_possible_cause(f: &RankedFinding) -> PossibleCause {
         "memory_pressure" => "memory_pressure",
         "app_cpu" => "app_high_cpu",
         "app_memory" => "app_high_memory",
+        "thermal" => "cpu_thermal_pressure",
+        "frequency" => "cpu_frequency_reduced",
+        "storage_health" => "storage_health",
+        "battery" => "battery_degraded",
+        "wifi" => "wifi_weak_signal",
         _ => "memory_growth",
     };
     PossibleCause {
@@ -551,6 +955,7 @@ mod tests {
                     cpu_percent: Some(2.0),
                 },
             ],
+            ..SystemDiagnosticData::default()
         }
     }
 
@@ -626,6 +1031,7 @@ mod tests {
                 working_set_bytes: 100_000_000,
                 cpu_percent: Some(1.0),
             }],
+            ..SystemDiagnosticData::default()
         };
         let diagnosis = analyze_system(
             &data,
@@ -697,5 +1103,125 @@ mod tests {
         assert!(diagnosis
             .checked_clean
             .contains(&"runaway memory growth".to_string()));
+    }
+
+    #[test]
+    fn hardware_evidence_produces_cross_domain_findings() {
+        let data = SystemDiagnosticData {
+            thermal: Some(crate::models::SystemThermalEvidence {
+                cpu_thermal_pressure: "high".into(),
+                cpu_throttling: "likely".into(),
+                cpu_frequency_reduced: Some(true),
+                cpu_temperature_c: Some(96.0),
+                gpu_thermal_pressure: "low".into(),
+            }),
+            storage_health: vec![crate::models::SystemStorageHealthEvidence {
+                device: "PhysicalDrive0".into(),
+                interface: "nvme".into(),
+                health_status: Some("warning".into()),
+                temperature_c: Some(58.0),
+                percentage_used: Some(85),
+            }],
+            battery: Some(crate::models::SystemBatteryEvidence {
+                present: true,
+                percent: Some(80),
+                ac_online: Some(true),
+                charging: Some(true),
+                battery_state: Some("charging".into()),
+                health_percent: Some(40.0),
+            }),
+            wifi: vec![crate::models::SystemWifiEvidence {
+                description: "Intel Wi-Fi 6E".into(),
+                state: "connected".into(),
+                signal_percent: Some(15),
+                link_speed_mbps: Some(1200.0),
+            }],
+            ..SystemDiagnosticData::default()
+        };
+        let diagnosis = analyze_system(
+            &data,
+            &DiagnosticsConfig::default(),
+            &HealthConfig::default(),
+        );
+        let kinds: Vec<&str> = diagnosis
+            .report
+            .signals
+            .iter()
+            .map(|s| s.kind.as_str())
+            .collect();
+        assert!(kinds.contains(&"cpu_thermal_pressure"));
+        assert!(kinds.contains(&"cpu_frequency_reduced"));
+        assert!(kinds.contains(&"storage_health"));
+        assert!(kinds.contains(&"battery_degraded"));
+        assert!(kinds.contains(&"wifi_weak_signal"));
+        // Thermal pressure (90) outranks the frequency reduction (85), and
+        // every finding's evidence has a backing measurement.
+        assert_eq!(diagnosis.findings[0].category, "thermal");
+        for f in &diagnosis.findings {
+            for e in &f.evidence {
+                assert!(
+                    diagnosis
+                        .report
+                        .measurements
+                        .iter()
+                        .any(|m| m.metric == e.metric),
+                    "finding evidence '{}' has no matching measurement",
+                    e.metric
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn healthy_hardware_evidence_reports_checked_clean() {
+        let data = SystemDiagnosticData {
+            thermal: Some(crate::models::SystemThermalEvidence {
+                cpu_thermal_pressure: "low".into(),
+                cpu_throttling: "not_observed".into(),
+                cpu_frequency_reduced: Some(false),
+                cpu_temperature_c: Some(52.0),
+                gpu_thermal_pressure: "low".into(),
+            }),
+            storage_health: vec![crate::models::SystemStorageHealthEvidence {
+                device: "PhysicalDrive0".into(),
+                interface: "nvme".into(),
+                health_status: Some("healthy".into()),
+                temperature_c: Some(42.0),
+                percentage_used: Some(30),
+            }],
+            battery: Some(crate::models::SystemBatteryEvidence {
+                present: true,
+                percent: Some(90),
+                ac_online: Some(true),
+                charging: Some(true),
+                battery_state: Some("charging".into()),
+                health_percent: Some(95.0),
+            }),
+            wifi: vec![crate::models::SystemWifiEvidence {
+                description: "Intel Wi-Fi 6E".into(),
+                state: "connected".into(),
+                signal_percent: Some(85),
+                link_speed_mbps: Some(1200.0),
+            }],
+            ..SystemDiagnosticData::default()
+        };
+        let diagnosis = analyze_system(
+            &data,
+            &DiagnosticsConfig::default(),
+            &HealthConfig::default(),
+        );
+        assert!(diagnosis.findings.is_empty());
+        assert!(diagnosis
+            .checked_clean
+            .contains(&"CPU thermal state".to_string()));
+        assert!(diagnosis
+            .checked_clean
+            .contains(&"storage health".to_string()));
+        assert!(diagnosis
+            .checked_clean
+            .contains(&"battery health".to_string()));
+        assert!(diagnosis
+            .checked_clean
+            .contains(&"Wi-Fi signal strength".to_string()));
     }
 }

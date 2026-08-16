@@ -3189,5 +3189,41 @@ mod tests {
         fn dev_environment(&self) -> Result<crate::models::DevEnvironment, WinkitError> {
             self.inner.dev_environment()
         }
+        fn hardware_snapshot(&self) -> Result<crate::models::HardwareSnapshot, WinkitError> {
+            self.inner.hardware_snapshot()
+        }
+        fn thermal_snapshot(&self) -> Result<crate::models::ThermalSnapshot, WinkitError> {
+            self.inner.thermal_snapshot()
+        }
+        fn battery_status(&self) -> Result<crate::models::BatteryStatus, WinkitError> {
+            self.inner.battery_status()
+        }
+        fn power_status(&self) -> Result<crate::models::PowerStatus, WinkitError> {
+            self.inner.power_status()
+        }
+        fn disk_health(&self) -> Result<crate::models::DiskHealthReport, WinkitError> {
+            self.inner.disk_health()
+        }
+        fn storage_activity(
+            &self,
+            sample_window_ms: u64,
+        ) -> Result<crate::models::StorageActivity, WinkitError> {
+            self.inner.storage_activity(sample_window_ms)
+        }
+        fn network_snapshot(&self) -> Result<crate::models::NetworkSnapshot, WinkitError> {
+            self.inner.network_snapshot()
+        }
+        fn wifi_status(&self) -> Result<Vec<crate::models::WifiAdapterStatus>, WinkitError> {
+            self.inner.wifi_status()
+        }
+        fn wifi_scan(&self) -> Result<crate::models::WifiScan, WinkitError> {
+            self.inner.wifi_scan()
+        }
+        fn network_diagnose(
+            &self,
+            sample_window_ms: u64,
+        ) -> Result<crate::models::NetworkDiagnosis, WinkitError> {
+            self.inner.network_diagnose(sample_window_ms)
+        }
     }
 }

@@ -33,7 +33,7 @@ cargo test
 cargo test --features mocks
 ```
 
-The suite has 351 tests with the feature (345 without), split across:
+The suite has 363 tests with the feature (357 without), split across:
 
 - Lib unit tests (282; 288 with the `mocks` feature) — diagnostics
   engine, permission policy, config
@@ -45,7 +45,7 @@ The suite has 351 tests with the feature (345 without), split across:
   and profile removal, cleanup-failure reporting, single-run cleanup,
   unrelated-profile safety, bounded redacted stderr diagnostics, max
   sessions, stop/cleanup, cleanup refusal, owned-tree reaping).
-- `tests/eval` (18) — the deterministic, fixture-backed evaluation suite:
+- `tests/eval` (19) — the deterministic, fixture-backed evaluation suite:
   healthy machine, memory pressure, low disk, heavy processes, workspace
   metadata and nested-project detection, dev-server discovery, port
   ownership, connection refused, HTTP 4xx/5xx, slow servers, browser
@@ -70,6 +70,18 @@ None of the tests touch the real machine: no process snapshots, no registry,
 no Chrome. Chrome adapter behavior is covered at the unit/mock level. The npm
 launcher and packages are validated separately with Node (see below).
 
+## Live validation
+
+The hardware tools are additionally validated against a real Windows machine
+by driving the release binary over MCP stdio (`initialize`,
+`notifications/initialized`, then one `tools/call` per tool per process).
+Run every hardware tool and `system_diagnose`/`snapshot`; each must exit 0,
+return a structured envelope, and report unreadable hardware as explicitly
+`unavailable` with a reason rather than failing. This step caught two real
+bugs the mock suite cannot: `WmiSession` releasing the WMI proxy after
+`CoUninitialize` (an access violation) and the missing `CoSetProxyBlanket`
+that made every `ExecQuery` fail with `WBEM_E_ACCESS_DENIED`.
+
 ## Project layout
 
 ```text
@@ -87,7 +99,7 @@ src/
   diagnostics/     measurements → signals → ranked findings
   utils/           logging, time, limits, http probe, string helpers
 tests/
-  eval/            deterministic fixture-backed evaluation suite (17 scenarios)
+  eval/            deterministic fixture-backed evaluation suite (18 scenarios)
   fixtures/        JSON fixtures for model/tool tests
   mcp_protocol.rs  protocol integration tests
   tools_mock.rs    mock-backed tool tests

@@ -160,6 +160,58 @@ pub struct SystemAppEvidence {
     pub cpu_percent: Option<f64>,
 }
 
+/// Thermal evidence for a machine-wide diagnosis (from `thermal_snapshot`).
+#[derive(Debug, Clone, Default)]
+pub struct SystemThermalEvidence {
+    /// `low`, `elevated`, `high`, or `unknown`.
+    pub cpu_thermal_pressure: String,
+    /// `likely`, `not_observed`, or `unknown`.
+    pub cpu_throttling: String,
+    /// True when the CPU is running well below its base clock, when known.
+    pub cpu_frequency_reduced: Option<bool>,
+    /// Highest readable CPU temperature (C), when any CPU sensor exists.
+    pub cpu_temperature_c: Option<f64>,
+    /// `low`, `elevated`, `high`, or `unknown`.
+    pub gpu_thermal_pressure: String,
+}
+
+/// One physical disk's health evidence for a machine-wide diagnosis.
+#[derive(Debug, Clone, Default)]
+pub struct SystemStorageHealthEvidence {
+    /// Device name, e.g. `PhysicalDrive0`.
+    pub device: String,
+    /// `nvme`, `sata`, `usb`, or `unknown`.
+    pub interface: String,
+    /// `healthy`, `warning`, `critical`, or `unknown`.
+    pub health_status: Option<String>,
+    pub temperature_c: Option<f64>,
+    /// NVMe percentage used (0-100).
+    pub percentage_used: Option<u8>,
+}
+
+/// Battery evidence for a machine-wide diagnosis.
+#[derive(Debug, Clone, Default)]
+pub struct SystemBatteryEvidence {
+    pub present: bool,
+    pub percent: Option<u8>,
+    pub ac_online: Option<bool>,
+    pub charging: Option<bool>,
+    /// `charging`, `discharging`, `critical`, `low`, or `unknown`.
+    pub battery_state: Option<String>,
+    /// full_charge / design capacity as a percentage.
+    pub health_percent: Option<f64>,
+}
+
+/// One Wi-Fi adapter's evidence for a machine-wide diagnosis.
+#[derive(Debug, Clone, Default)]
+pub struct SystemWifiEvidence {
+    pub description: String,
+    /// `connected`, `disconnected`, or `not_available`.
+    pub state: String,
+    pub signal_percent: Option<u8>,
+    pub link_speed_mbps: Option<f64>,
+}
+
 /// Evidence inputs for a machine-wide diagnosis.
 #[derive(Debug, Clone, Default)]
 pub struct SystemDiagnosticData {
@@ -171,6 +223,10 @@ pub struct SystemDiagnosticData {
     pub memory_growth_bytes_per_second: Option<i64>,
     pub drives: Vec<SystemDriveEvidence>,
     pub app_groups: Vec<SystemAppEvidence>,
+    pub thermal: Option<SystemThermalEvidence>,
+    pub storage_health: Vec<SystemStorageHealthEvidence>,
+    pub battery: Option<SystemBatteryEvidence>,
+    pub wifi: Vec<SystemWifiEvidence>,
 }
 
 /// One deterministically ranked finding (§77).

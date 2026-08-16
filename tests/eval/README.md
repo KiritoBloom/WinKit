@@ -32,6 +32,7 @@ output, permission behavior, redaction, and the absence of root-cause claims.
 | 16 | Redaction / privacy boundary | `workspace_snapshot`, `privacy_info`, `diagnose_local_webapp` | `.env` secret, userinfo URL, external URL, safe mode |
 | 17 | Registry integrity under eval state | registry | Full tool registry |
 | 18 | Fixture-concurrency regression | helper-level | 64 fixtures created on concurrent threads |
+| 19 | Hardware evidence feeds `system_diagnose` | `hardware_snapshot`, `thermal_snapshot`, `disk_health`, `battery_status`, `wifi_status`, `system_diagnose` | Degraded thermal / storage / battery / Wi-Fi fixtures |
 
 ## Running the suite
 

@@ -132,6 +132,19 @@ Thresholds for the machine-wide health tools (`system_health` and
 | `high_memory_load_percent` | float | 85.0 | System memory load at/above this is `memory_pressure`. |
 | `max_groups` | integer | 20 | Maximum application groups returned, by total working set. |
 
+### `[hardware]`
+
+Switches and budgets for the hardware telemetry tools (`hardware_snapshot`,
+`thermal_snapshot`, `battery_status`, `power_status`, `disk_health`,
+`disk_performance`, `wifi_status`, `wifi_scan`).
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `sensors_enabled` | bool | `true` | Master switch for hardware sensor collection (thermal zones, CPU frequency, battery health, storage health). Every reading is still reported as explicitly unavailable when the platform has no supported path for it. |
+| `wifi_scan_enabled` | bool | `false` | Master switch for Wi-Fi scanning (`wifi_scan`). Scanning enumerates nearby networks; when disabled the tool returns `unavailable` with a reason instead of an empty list. |
+| `ata_smart_enabled` | bool | `false` | Whether storage-health probes may issue ATA S.M.A.R.T. pass-through IOCTLs. NVMe log-page reads are always allowed; ATA pass-through is historically more variable across drivers, so it defaults off. |
+| `probe_timeout_ms` | integer | 3000 | Timeout for one hardware provider probe, in milliseconds. Each probe is individually bounded so a stalled driver cannot hang a snapshot. |
+
 ## Validation behavior
 
 - `deny_unknown_fields` is set on every section: a typo (`log_level` vs

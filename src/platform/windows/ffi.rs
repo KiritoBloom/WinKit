@@ -10,6 +10,54 @@
 
 use windows_sys::Win32::Foundation::HANDLE;
 
+/// A `BSTR` string (oleaut32). `BSTR` is a length-prefixed wide string; the
+/// pointer points at the first character and the 4-byte length prefix (in
+/// bytes, excluding the trailing NUL) sits just before it.
+pub type Bstr = *const u16;
+
+#[link(name = "oleaut32")]
+unsafe extern "system" {
+    /// Allocate a `BSTR` from a null-terminated wide string.
+    pub fn SysAllocString(psz: *const u16) -> *const u16;
+    /// Free a `BSTR`.
+    pub fn SysFreeString(bstr: *const u16);
+}
+
+/// Allocate a `BSTR` from a Rust string. Returns null on allocation failure.
+pub fn to_bstr(s: &str) -> Bstr {
+    unsafe { SysAllocString(crate::utils::to_wide(s).as_ptr()) }
+}
+
+/// Free a `BSTR` previously allocated with [`to_bstr`] or returned by a COM
+/// call. Null is a no-op.
+///
+/// # Safety
+///
+/// `b` must be null or a live `BSTR` that was allocated by `SysAllocString`
+/// (directly or via a COM API) and not yet freed.
+pub unsafe fn free_bstr_raw(b: Bstr) {
+    if !b.is_null() {
+        SysFreeString(b);
+    }
+}
+
+/// Character length of a `BSTR` (reads its length prefix). Null returns 0.
+///
+/// # Safety
+///
+/// `b` must be null or a valid live `BSTR` whose 4-byte length prefix is
+/// readable.
+pub unsafe fn bstr_len(b: Bstr) -> usize {
+    if b.is_null() {
+        return 0;
+    }
+    // The length prefix is 4 bytes before the first character; `b` is a
+    // `*const u16`, so a raw byte offset is needed, not `sub(1)` (which
+    // would back up only 2 bytes).
+    let len_bytes = *((b as usize - 4) as *const u32) as usize;
+    len_bytes / 2
+}
+
 /// Size of an `OSVERSIONINFOW` in bytes.
 pub const OSVERSIONINFOW_SIZE: u32 = std::mem::size_of::<RtlOsVersionInfoW>() as u32;
 

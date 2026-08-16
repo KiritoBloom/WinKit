@@ -80,6 +80,22 @@ pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Valu
         .list_listening_ports(cfg.limits.max_network_results)?;
     let interfaces = state.windows.list_network_interfaces()?;
 
+    // Bounded hardware evidence (§64): a failed probe degrades to `null`
+    // instead of failing the whole snapshot.
+    let budget = cfg.hardware.probe_timeout_ms;
+    let disk_health = crate::tools::hardware::probe(budget, || state.windows.disk_health())
+        .await
+        .ok();
+    let thermals = crate::tools::hardware::probe(budget, || state.windows.thermal_snapshot())
+        .await
+        .ok();
+    let power = crate::tools::hardware::probe(budget, || state.windows.power_status())
+        .await
+        .ok();
+    let wifi = crate::tools::hardware::probe(budget, || state.windows.wifi_status())
+        .await
+        .ok();
+
     Ok(json!({
         "system": {
             "os_name": system.os_name,
@@ -122,13 +138,43 @@ pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Valu
                 "foreground": w.foreground,
             })).collect::<Vec<_>>(),
         },
+        "storage_health": disk_health.map(|r| json!({
+            "status": r.status,
+            "devices": r.devices.iter().map(|d| json!({
+                "device": d.device,
+                "interface": d.interface,
+                "health_status": d.health_status,
+                "temperature_c": d.temperature_c,
+            })).collect::<Vec<_>>(),
+        })),
+        "wifi": wifi.map(|adapters| adapters.iter().map(|a| json!({
+            "description": a.description,
+            "state": a.state,
+            "ssid": a.ssid,
+            "signal_percent": a.signal_percent,
+            "link_speed_mbps": a.link_speed_mbps,
+        })).collect::<Vec<_>>()),
+        "thermals": thermals.map(|r| json!({
+            "status": r.status,
+            "cpu_thermal_pressure": r.thermal_state.cpu_thermal_pressure,
+            "cpu_throttling": r.thermal_state.cpu_throttling,
+            "cpu_frequency_reduced": r.thermal_state.cpu_frequency_reduced,
+            "gpu_thermal_pressure": r.thermal_state.gpu_thermal_pressure,
+        })),
+        "power": power.map(|r| json!({
+            "power_source": r.power_source,
+            "battery_present": r.battery_present,
+            "battery_percent": r.battery_percent,
+            "battery_state": r.battery_state,
+            "charging": r.charging,
+        })),
     }))
 }
 
 pub fn snapshot_definition(_config: &Config) -> ToolDefinition {
     ToolDefinition {
         name: "snapshot",
-        description: "A concise aggregate view of the machine: system, resources, top memory processes, drives, network ports, services, and windows.",
+        description: "A concise aggregate view of the machine: system, resources, top memory processes, drives, network ports, services, windows, and — when readable — storage health, Wi-Fi, thermals, and power summaries.",
         input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         capability: Some(Capability::SystemRead),
         timeout_ms: None,

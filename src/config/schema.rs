@@ -18,6 +18,7 @@ pub struct Config {
     pub web: WebConfig,
     pub limits: LimitsConfig,
     pub chrome: ChromeConfig,
+    pub hardware: HardwareConfig,
     pub trends: TrendsConfig,
     pub diagnostics: DiagnosticsConfig,
     pub health: HealthConfig,
@@ -62,8 +63,10 @@ pub struct ProvidersConfig {
 
 impl Default for ProvidersConfig {
     fn default() -> Self {
+        // Chrome is an optional integration: it is only loaded when enabled
+        // explicitly, so the default is the windows provider alone.
         Self {
-            enabled: vec!["windows".to_string(), "chrome".to_string()],
+            enabled: vec!["windows".to_string()],
         }
     }
 }
@@ -311,6 +314,40 @@ impl Default for ChromeManagedConfig {
     }
 }
 
+/// Hardware telemetry policy.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HardwareConfig {
+    /// Master switch for hardware sensor collection (thermal zones, CPU
+    /// frequency, battery health, storage health). Default `true`; every
+    /// reading is still reported as explicitly unavailable when the platform
+    /// has no supported path for it.
+    pub sensors_enabled: bool,
+    /// Master switch for Wi-Fi scanning (`wifi_scan`). Scanning enumerates
+    /// nearby networks and is disabled by default; when disabled the tool
+    /// returns `unavailable` with a reason instead of an empty list.
+    pub wifi_scan_enabled: bool,
+    /// Whether storage health probes may issue ATA S.M.A.R.T. pass-through
+    /// IOCTLs. NVMe log-page reads are always allowed; ATA pass-through is
+    /// historically more variable across drivers, so it defaults off.
+    pub ata_smart_enabled: bool,
+    /// Timeout for one hardware provider probe (thermal zone, NVMe SMART,
+    /// battery capacity), in milliseconds. Each probe is individually bounded
+    /// so a stalled driver cannot hang a snapshot.
+    pub probe_timeout_ms: u64,
+}
+
+impl Default for HardwareConfig {
+    fn default() -> Self {
+        Self {
+            sensors_enabled: true,
+            wifi_scan_enabled: false,
+            ata_smart_enabled: false,
+            probe_timeout_ms: 3_000,
+        }
+    }
+}
+
 /// Deterministic thresholds used by the diagnostic engine (§34).
 /// These are heuristics, documented in `docs/diagnostics.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -349,6 +386,31 @@ pub struct DiagnosticsConfig {
     /// System available-memory decrease (bytes/second) that counts as
     /// runaway memory growth in `system_diagnose`.
     pub system_memory_growth_bytes_per_second: u64,
+    /// CPU package temperature (C) that counts as thermal pressure.
+    pub high_cpu_temperature_c: f64,
+    /// CPU package temperature (C) at which throttling is considered likely.
+    pub throttle_cpu_temperature_c: f64,
+    /// GPU temperature (C) that counts as thermal pressure.
+    pub high_gpu_temperature_c: f64,
+    /// Current CPU frequency at or below this fraction of base clock suggests
+    /// clock reduction (throttling or power saving), 0.0-1.0.
+    pub cpu_frequency_reduction_ratio: f64,
+    /// Percent of time a physical disk is busy that counts as storage
+    /// contention.
+    pub high_storage_busy_percent: f64,
+    /// Average disk queue depth that counts as storage contention.
+    pub high_storage_queue_depth: f64,
+    /// NVMe/ATA device health is `warning` below this threshold.
+    pub storage_health_warning_percent: f64,
+    /// NVMe percentage used at or above this is `warning`.
+    pub storage_used_warning_percent: u8,
+    /// Wi-Fi signal at or below this percent is weak.
+    pub weak_wifi_signal_percent: u8,
+    /// Wi-Fi link speed at or below this (Mbps) is low.
+    pub low_wifi_link_speed_mbps: f64,
+    /// Battery health (full charge / design capacity) at or below this
+    /// percent is degraded.
+    pub low_battery_health_percent: f64,
 }
 
 impl Default for DiagnosticsConfig {
@@ -368,6 +430,17 @@ impl Default for DiagnosticsConfig {
             runtime_error_threshold: 5,
             high_dom_nodes: 50_000,
             system_memory_growth_bytes_per_second: 50 * 1024 * 1024,
+            high_cpu_temperature_c: 85.0,
+            throttle_cpu_temperature_c: 95.0,
+            high_gpu_temperature_c: 90.0,
+            cpu_frequency_reduction_ratio: 0.85,
+            high_storage_busy_percent: 85.0,
+            high_storage_queue_depth: 2.0,
+            storage_health_warning_percent: 80.0,
+            storage_used_warning_percent: 90,
+            weak_wifi_signal_percent: 40,
+            low_wifi_link_speed_mbps: 20.0,
+            low_battery_health_percent: 60.0,
         }
     }
 }
@@ -433,6 +506,10 @@ mod tests {
         // Managed Chrome is off by default.
         assert!(!c.chrome.managed.enabled);
         assert_eq!(c.chrome.managed.max_sessions, 2);
+        // Hardware telemetry is on, Wi-Fi scanning is off by default.
+        assert!(c.hardware.sensors_enabled);
+        assert!(!c.hardware.wifi_scan_enabled);
+        assert!(c.hardware.probe_timeout_ms > 0);
         // Web policy is loopback-only by default.
         assert!(!c.web.allow_external_urls);
         assert!(c.web.max_http_bytes > 0);
@@ -483,6 +560,22 @@ mod tests {
         assert_eq!(c.workspaces.deny_roots.len(), 1);
         assert_eq!(c.workspaces.max_depth, 5);
         assert_eq!(c.workspaces.max_files, 100);
+    }
+
+    #[test]
+    fn hardware_section_parses() {
+        let text = r#"
+            [hardware]
+            sensors_enabled = true
+            wifi_scan_enabled = true
+            ata_smart_enabled = true
+            probe_timeout_ms = 1500
+        "#;
+        let c: Config = toml::from_str(text).unwrap();
+        assert!(c.hardware.sensors_enabled);
+        assert!(c.hardware.wifi_scan_enabled);
+        assert!(c.hardware.ata_smart_enabled);
+        assert_eq!(c.hardware.probe_timeout_ms, 1_500);
     }
 
     #[test]

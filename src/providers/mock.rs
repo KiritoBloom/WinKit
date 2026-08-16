@@ -23,6 +23,7 @@ pub struct MockWindowsBackend {
     pub services: Vec<ServiceInfo>,
     pub events: Vec<EventInfo>,
     pub windows: Vec<WindowInfo>,
+    pub wifi: Vec<WifiAdapterStatus>,
 }
 
 impl MockWindowsBackend {
@@ -143,6 +144,21 @@ impl MockWindowsBackend {
                 minimized: false,
                 maximized: true,
                 foreground: true,
+            }],
+            wifi: vec![WifiAdapterStatus {
+                adapter_id: "{11111111-2222-3333-4444-555555555555}".into(),
+                description: "Intel(R) Wi-Fi 6 AX210".into(),
+                state: "connected".into(),
+                ssid: Some("HomeNet".into()),
+                signal_percent: Some(68),
+                rssi_dbm: Some(-55),
+                link_speed_mbps: Some(866.0),
+                channel: Some(36),
+                frequency_mhz: Some(5180),
+                band: Some("5ghz".into()),
+                authentication: Some("wpa2_psk".into()),
+                cipher: Some("ccmp".into()),
+                is_up: true,
             }],
         }
     }
@@ -368,7 +384,11 @@ impl WindowsBackend for MockWindowsBackend {
         Ok(out)
     }
 
-    fn list_windows(&self, limit: usize, visible_only: bool) -> Result<Vec<WindowInfo>, WinkitError> {
+    fn list_windows(
+        &self,
+        limit: usize,
+        visible_only: bool,
+    ) -> Result<Vec<WindowInfo>, WinkitError> {
         Ok(self
             .windows
             .iter()
@@ -464,6 +484,316 @@ impl WindowsBackend for MockWindowsBackend {
                 pid: Some(900),
                 process_name: Some("node.exe".into()),
             }],
+        })
+    }
+
+    fn hardware_snapshot(&self) -> Result<HardwareSnapshot, WinkitError> {
+        Ok(HardwareSnapshot {
+            status: "ok".into(),
+            timestamp: "2026-08-13T08:00:01.000Z".into(),
+            duration_ms: 42,
+            cpu: CpuHardwareInfo {
+                name: Some("Intel(R) Core(TM) i7-10700K".into()),
+                vendor: Some("GenuineIntel".into()),
+                family: Some(6),
+                model: Some(165),
+                stepping: Some(5),
+                cores: Some(8),
+                logical_processors: Some(16),
+                base_clock_mhz: Some(3800.0),
+                current_clock_mhz: Some(3800.0),
+                utilization_percent: Some(31.0),
+                package_temperature_c: Some(52.0),
+                temperature_source: Some("acpi_thermal_zone".into()),
+            },
+            gpus: vec![GpuHardwareInfo {
+                name: Some("NVIDIA GeForce RTX 3070".into()),
+                vendor: "nvidia".into(),
+                driver_version: Some("31.0.15.3644".into()),
+                video_memory_bytes: Some(8_589_934_592),
+                temperature_available: false,
+                temperature_c: None,
+                temperature_reason: Some(
+                    "no documented GPU temperature read path on Windows without a vendor SDK"
+                        .into(),
+                ),
+            }],
+            memory: MemoryHardwareInfo {
+                total_bytes: Some(16_000_000_000),
+                module_count: Some(2),
+            },
+            storage: vec![StorageDeviceInfo {
+                device: "PhysicalDrive0".into(),
+                model: Some("Samsung SSD 980 PRO 1TB".into()),
+                interface: "nvme".into(),
+                capacity_bytes: Some(1_000_204_886_016),
+                is_system: true,
+            }],
+            network_adapters: vec![NetworkAdapterInfo {
+                index: 1,
+                name: "Ethernet".into(),
+                description: "Intel(R) Ethernet Connection".into(),
+                mac_address: Some("00:11:22:33:44:55".into()),
+                is_wifi: false,
+                is_up: true,
+                ipv4_addresses: vec!["192.168.1.20".into()],
+                gateway: Some("192.168.1.1".into()),
+            }],
+            battery: Some(BatteryInfo {
+                present: true,
+                percent: Some(71),
+                ac_online: Some(false),
+                charging: Some(false),
+                estimated_time_remaining_seconds: Some(21_600),
+            }),
+            power_state: PowerStateInfo {
+                power_source: "battery".into(),
+                ac_online: Some(false),
+                battery_present: true,
+                battery_percent: Some(71),
+                battery_state: Some("discharging".into()),
+                charging: Some(false),
+                estimated_time_remaining_seconds: Some(21_600),
+            },
+            sensors: vec![
+                SensorReading::available(
+                    "cpu_frequency",
+                    "CPU current frequency",
+                    SensorClass::CpuPackage,
+                    SensorKind::ClockRate,
+                    "cpu_package",
+                    3800.0,
+                    "mhz",
+                    SensorSource::PerformanceCounter,
+                    SensorQuality::Medium,
+                    None,
+                    Some(3800.0),
+                ),
+                SensorReading::available(
+                    "thermal_zone-0",
+                    "Thermal zone 0",
+                    SensorClass::CpuPackage,
+                    SensorKind::Temperature,
+                    "0",
+                    52.0,
+                    "temperature_c",
+                    SensorSource::ThermalZone,
+                    SensorQuality::High,
+                    None,
+                    None,
+                ),
+            ],
+            completeness: "full".into(),
+            unavailable: Vec::new(),
+        })
+    }
+
+    fn thermal_snapshot(&self) -> Result<ThermalSnapshot, WinkitError> {
+        Ok(ThermalSnapshot {
+            status: "ok".into(),
+            timestamp: "2026-08-13T08:00:02.000Z".into(),
+            duration_ms: 15,
+            sensors: vec![SensorReading::available(
+                "thermal_zone-0",
+                "Thermal zone 0",
+                SensorClass::CpuPackage,
+                SensorKind::Temperature,
+                "0",
+                52.0,
+                "temperature_c",
+                SensorSource::ThermalZone,
+                SensorQuality::High,
+                None,
+                None,
+            )],
+            thermal_state: ThermalStateSummary {
+                cpu_throttling: "not_observed".into(),
+                gpu_throttling: "unknown".into(),
+                cpu_thermal_pressure: "low".into(),
+                gpu_thermal_pressure: "unknown".into(),
+                cpu_frequency_reduced: Some(false),
+                evidence: vec![EvidencePoint {
+                    metric: "cpu_temperature_c".into(),
+                    value: "52.0 C".into(),
+                    detail: "ACPI thermal zone temperature".into(),
+                }],
+                limitations: vec![
+                    "GPU temperature is not readable without a vendor SDK; GPU throttling is unknown"
+                        .into(),
+                ],
+            },
+            completeness: "full".into(),
+            unavailable: vec![UnavailableReading::new(
+                "gpu",
+                "temperature",
+                SensorAvailability::Unsupported,
+                "no documented Windows API exposes GPU temperature without a vendor SDK",
+            )],
+            warnings: Vec::new(),
+        })
+    }
+
+    fn battery_status(&self) -> Result<BatteryStatus, WinkitError> {
+        Ok(BatteryStatus {
+            status: "ok".into(),
+            timestamp: "2026-08-13T08:00:03.000Z".into(),
+            present: true,
+            percent: Some(71),
+            ac_online: Some(false),
+            charging: Some(false),
+            battery_state: Some("discharging".into()),
+            estimated_time_remaining_seconds: Some(21_600),
+            health: Some(BatteryHealth {
+                designed_capacity_mwh: Some(90_000),
+                full_charge_capacity_mwh: Some(72_000),
+                current_charge_mwh: Some(51_120),
+                cycle_count: None,
+                health_percent: Some(80.0),
+                temperature_c: None,
+                availability: SensorAvailability::Available,
+                reason: None,
+            }),
+            unavailable: Vec::new(),
+        })
+    }
+
+    fn power_status(&self) -> Result<PowerStatus, WinkitError> {
+        Ok(PowerStatus {
+            status: "ok".into(),
+            timestamp: "2026-08-13T08:00:04.000Z".into(),
+            power_source: "battery".into(),
+            ac_online: Some(false),
+            battery_present: true,
+            battery_percent: Some(71),
+            battery_state: Some("discharging".into()),
+            charging: Some(false),
+            estimated_time_remaining_seconds: Some(21_600),
+            unavailable: Vec::new(),
+        })
+    }
+
+    fn disk_health(&self) -> Result<DiskHealthReport, WinkitError> {
+        Ok(DiskHealthReport {
+            status: "healthy".into(),
+            timestamp: "2026-08-13T08:00:05.000Z".into(),
+            duration_ms: 20,
+            devices: vec![StorageHealthDevice {
+                device: "PhysicalDrive0".into(),
+                model: Some("Samsung SSD 980 PRO 1TB".into()),
+                interface: "nvme".into(),
+                health_status: Some("healthy".into()),
+                temperature_c: Some(38.0),
+                critical_warning: Vec::new(),
+                percentage_used: Some(12),
+                available_spare: Some(100),
+                available_spare_threshold: Some(10),
+                media_errors: Some(0),
+                power_on_hours: Some(1_234),
+                unsafe_shutdowns: Some(7),
+                data_units_read: Some(1_000_000),
+                data_units_written: Some(500_000),
+                reallocated_sectors: None,
+                availability: SensorAvailability::Available,
+                reason: None,
+            }],
+            completeness: "full".into(),
+            unavailable: Vec::new(),
+        })
+    }
+
+    fn storage_activity(&self, sample_window_ms: u64) -> Result<StorageActivity, WinkitError> {
+        Ok(StorageActivity {
+            status: "ok".into(),
+            timestamp: "2026-08-13T08:00:06.000Z".into(),
+            sample_window_ms,
+            disks: vec![DiskActivity {
+                device: "0".into(),
+                busy_percent: Some(4.2),
+                avg_queue_depth: Some(0.3),
+                read_bytes_per_second: Some(1_048_576.0),
+                write_bytes_per_second: Some(524_288.0),
+                read_per_second: Some(12.0),
+                write_per_second: Some(6.0),
+                availability: SensorAvailability::Available,
+                reason: None,
+            }],
+            completeness: "full".into(),
+            unavailable: Vec::new(),
+        })
+    }
+
+    fn network_snapshot(&self) -> Result<NetworkSnapshot, WinkitError> {
+        Ok(NetworkSnapshot {
+            status: "ok".into(),
+            timestamp: "2026-08-13T08:00:07.000Z".into(),
+            duration_ms: 30,
+            interfaces: self.interfaces.clone(),
+            wifi: self.wifi.clone(),
+            connections: self.connections.clone(),
+            listening_ports: self.ports.clone(),
+            completeness: "full".into(),
+            unavailable: Vec::new(),
+        })
+    }
+
+    fn wifi_status(&self) -> Result<Vec<WifiAdapterStatus>, WinkitError> {
+        Ok(self.wifi.clone())
+    }
+
+    fn wifi_scan(&self) -> Result<WifiScan, WinkitError> {
+        Ok(WifiScan {
+            status: "ok".into(),
+            timestamp: "2026-08-13T08:00:08.000Z".into(),
+            adapter_id: Some("{11111111-2222-3333-4444-555555555555}".into()),
+            networks: vec![
+                WifiNetwork {
+                    ssid: Some("HomeNet".into()),
+                    bssid: Some("AA:BB:CC:DD:EE:01".into()),
+                    signal_percent: Some(68),
+                    rssi_dbm: Some(-55),
+                    channel: Some(36),
+                    frequency_mhz: Some(5180),
+                    band: Some("5ghz".into()),
+                    security: None,
+                    link_quality: Some(68),
+                },
+                WifiNetwork {
+                    ssid: Some("NeighborNet".into()),
+                    bssid: Some("AA:BB:CC:DD:EE:02".into()),
+                    signal_percent: Some(22),
+                    rssi_dbm: Some(-82),
+                    channel: Some(6),
+                    frequency_mhz: Some(2437),
+                    band: Some("2.4ghz".into()),
+                    security: None,
+                    link_quality: Some(22),
+                },
+            ],
+            truncated: false,
+            unavailable: Vec::new(),
+        })
+    }
+
+    fn network_diagnose(&self, sample_window_ms: u64) -> Result<NetworkDiagnosis, WinkitError> {
+        Ok(NetworkDiagnosis {
+            status: "ok".into(),
+            timestamp: "2026-08-13T08:00:09.000Z".into(),
+            duration_ms: sample_window_ms.min(1_000),
+            summary: "no network issues detected".into(),
+            interfaces: vec![NetworkDiagnosticInterface {
+                description: "Intel(R) Ethernet Connection".into(),
+                is_wifi: false,
+                is_up: true,
+                gateway: Some("192.168.1.1".into()),
+                signal_percent: None,
+                rssi_dbm: None,
+                link_speed_mbps: Some(1000.0),
+                packet_loss_percent: Some(0.0),
+                gateway_latency_ms: Some(2.0),
+            }],
+            findings: Vec::new(),
+            completeness: "full".into(),
+            unavailable: Vec::new(),
         })
     }
 }

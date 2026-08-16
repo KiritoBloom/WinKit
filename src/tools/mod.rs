@@ -11,6 +11,7 @@ pub mod developer;
 pub mod diagnostics;
 pub mod diskscan;
 pub mod events;
+pub mod hardware;
 pub mod health;
 pub mod network;
 pub mod processes;
@@ -96,16 +97,16 @@ pub fn tool_profiles(name: &str) -> &'static [ToolProfile] {
         | "list_applications"
         | "get_application"
         | "system_diagnose"
-        | "chrome_info"
-        | "chrome_list_tabs"
-        | "chrome_get_tab"
-        | "chrome_get_active_tab"
-        | "chrome_get_tab_performance"
-        | "chrome_get_tab_memory"
-        | "chrome_get_tab_network"
-        | "chrome_get_tab_runtime"
-        | "chrome_diagnose_tab"
-        | "chrome_tab_trend" => &[Developer, Browser, Full],
+        | "hardware_snapshot"
+        | "thermal_snapshot"
+        | "battery_status"
+        | "power_status"
+        | "disk_health"
+        | "disk_performance"
+        | "network_snapshot"
+        | "network_diagnose"
+        | "wifi_status"
+        | "wifi_scan" => &[Developer, Browser, Full],
         // Developer-only workflow: the workspace/server/webapp tools are not
         // part of the managed-browser profile.
         "dev_environment"
@@ -118,8 +119,20 @@ pub fn tool_profiles(name: &str) -> &'static [ToolProfile] {
         | "correlate_recent_failures"
         | "system_health_trend" => &[Developer, Full],
         // Browser: discovery, managed-session status, lifecycle (gated),
-        // page summary, and screenshot.
-        "chrome_list_managed_sessions"
+        // page summary, screenshot, and the optional Chrome integration.
+        // Chrome observability is not part of the developer profile: it is
+        // an optional integration gated behind `providers.enabled`.
+        "chrome_info"
+        | "chrome_list_tabs"
+        | "chrome_get_tab"
+        | "chrome_get_active_tab"
+        | "chrome_get_tab_performance"
+        | "chrome_get_tab_memory"
+        | "chrome_get_tab_network"
+        | "chrome_get_tab_runtime"
+        | "chrome_diagnose_tab"
+        | "chrome_tab_trend"
+        | "chrome_list_managed_sessions"
         | "chrome_start_managed_session"
         | "chrome_navigate_managed_session"
         | "chrome_stop_managed_session"
@@ -196,6 +209,19 @@ impl ToolRegistry {
         registry.register(events::get_system_errors_definition());
         registry.register(windows::list_windows_definition());
         registry.register(developer::dev_environment_definition());
+
+        // Hardware telemetry: sensors, power, storage health/activity, Wi-Fi,
+        // and network diagnosis.
+        registry.register(hardware::hardware_snapshot_definition());
+        registry.register(hardware::thermal_snapshot_definition());
+        registry.register(hardware::battery_status_definition());
+        registry.register(hardware::power_status_definition());
+        registry.register(hardware::disk_health_definition());
+        registry.register(hardware::disk_performance_definition());
+        registry.register(hardware::network_snapshot_definition());
+        registry.register(hardware::network_diagnose_definition());
+        registry.register(hardware::wifi_status_definition());
+        registry.register(hardware::wifi_scan_definition());
 
         // Developer workflow: workspace snapshot, dev-server discovery, the
         // flagship diagnosis tools, bounded waits, failure correlation,
@@ -463,6 +489,7 @@ mod tests {
     /// The canonical v1 tool set (source of truth for "everything is
     /// registered").
     const EXPECTED_TOOLS: &[&str] = &[
+        "battery_status",
         "chrome_approve_managed_action",
         "chrome_capture_screenshot",
         "chrome_diagnose_tab",
@@ -484,6 +511,8 @@ mod tests {
         "dev_environment",
         "diagnose_local_webapp",
         "diagnose_workspace",
+        "disk_health",
+        "disk_performance",
         "disk_scan",
         "disk_scan_cancel",
         "disk_scan_find",
@@ -503,6 +532,7 @@ mod tests {
         "get_recent_events",
         "get_service",
         "get_system_errors",
+        "hardware_snapshot",
         "list_applications",
         "list_connections",
         "list_dev_servers",
@@ -512,15 +542,21 @@ mod tests {
         "list_processes",
         "list_services",
         "list_windows",
+        "network_diagnose",
+        "network_snapshot",
+        "power_status",
         "privacy_info",
         "snapshot",
         "system_diagnose",
         "system_health",
         "system_health_trend",
         "system_info",
+        "thermal_snapshot",
         "wait_for_http",
         "wait_for_port",
         "wait_for_process",
+        "wifi_scan",
+        "wifi_status",
         "workspace_snapshot",
     ];
 
@@ -597,8 +633,8 @@ mod tests {
         for (profile, expected) in [
             ("core", 5),
             ("developer", 52),
-            ("browser", 45),
-            ("full", 59),
+            ("browser", 55),
+            ("full", 69),
         ] {
             let mut cfg = Config::default();
             cfg.tools.profile = profile.to_string();

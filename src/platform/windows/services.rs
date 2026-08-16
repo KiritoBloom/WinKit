@@ -121,7 +121,7 @@ fn registry_display_name(service_name: &str) -> String {
         )
     };
     let out = if rc == 0 && len > 0 {
-        let mut buf = vec![0u16; (len as usize + 1) / 2];
+        let mut buf = vec![0u16; (len as usize).div_ceil(2)];
         let mut size = len;
         let rc = unsafe {
             RegQueryValueExW(

@@ -1,4 +1,4 @@
-//! The 16-scenario failure evaluation suite (see `tests/eval/README.md`).
+//! The 18-scenario failure evaluation suite (see `tests/eval/README.md`).
 //!
 //! Every scenario is deterministic and fixture-backed: the Windows layer is
 //! a mock backend, HTTP scenarios use loopback-only test servers, workspace
@@ -78,6 +78,7 @@ fn quiet_backend() -> ScenarioBackend {
             total_memory_bytes: Some(16_000_000_000),
             available_memory_bytes: Some(9_600_000_000),
         }),
+        ..ScenarioBackend::default()
     }
 }
 
@@ -117,6 +118,7 @@ fn low_disk_backend(root: &str) -> ScenarioBackend {
             total_memory_bytes: Some(16_000_000_000),
             available_memory_bytes: Some(8_000_000_000),
         }),
+        ..ScenarioBackend::default()
     }
 }
 
@@ -196,6 +198,7 @@ fn heavy_chrome_backend() -> ScenarioBackend {
             total_memory_bytes: Some(16_000_000_000),
             available_memory_bytes: Some(8_800_000_000),
         }),
+        ..ScenarioBackend::default()
     }
 }
 
@@ -1177,4 +1180,216 @@ async fn scenario_17_registry_integrity_under_eval_state() {
 #[allow(dead_code)]
 fn _unused_type_check(state: &Arc<AppState>) {
     let _: &Config = &state.config;
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 19 — hardware evidence drives system_diagnose
+// ---------------------------------------------------------------------------
+
+/// A backend whose hardware evidence is degraded across all four new domains:
+/// high CPU thermal pressure with likely throttling, critical NVMe health,
+/// a worn battery, and a weak Wi-Fi signal.
+fn degraded_hardware_backend() -> ScenarioBackend {
+    use winkit::models::{
+        BatteryHealth, BatteryStatus, DiskHealthReport, SensorAvailability, StorageHealthDevice,
+        ThermalSnapshot, ThermalStateSummary, UnavailableReading, WifiAdapterStatus,
+    };
+
+    let thermal = ThermalSnapshot {
+        status: "degraded".into(),
+        timestamp: "2026-08-13T08:00:02.000Z".into(),
+        duration_ms: 15,
+        sensors: vec![winkit::models::SensorReading::available(
+            "thermal_zone-0",
+            "Thermal zone 0",
+            winkit::models::SensorClass::CpuPackage,
+            winkit::models::SensorKind::Temperature,
+            "0",
+            96.0,
+            "temperature_c",
+            winkit::models::SensorSource::ThermalZone,
+            winkit::models::SensorQuality::High,
+            None,
+            None,
+        )],
+        thermal_state: ThermalStateSummary {
+            cpu_throttling: "likely".into(),
+            gpu_throttling: "unknown".into(),
+            cpu_thermal_pressure: "high".into(),
+            gpu_thermal_pressure: "unknown".into(),
+            cpu_frequency_reduced: Some(true),
+            evidence: vec![winkit::models::EvidencePoint {
+                metric: "cpu_temperature_c".into(),
+                value: "96.0 C".into(),
+                detail: "ACPI thermal zone temperature".into(),
+            }],
+            limitations: vec![],
+        },
+        completeness: "full".into(),
+        unavailable: vec![UnavailableReading::new(
+            "gpu",
+            "temperature",
+            SensorAvailability::Unsupported,
+            "no documented Windows API exposes GPU temperature without a vendor SDK",
+        )],
+        warnings: Vec::new(),
+    };
+
+    let disk_health = DiskHealthReport {
+        status: "critical".into(),
+        timestamp: "2026-08-13T08:00:05.000Z".into(),
+        duration_ms: 20,
+        devices: vec![StorageHealthDevice {
+            device: "PhysicalDrive0".into(),
+            model: Some("Samsung SSD 980 PRO 1TB".into()),
+            interface: "nvme".into(),
+            health_status: Some("critical".into()),
+            temperature_c: Some(41.0),
+            critical_warning: vec!["reliability_degraded".into()],
+            percentage_used: Some(96),
+            available_spare: Some(3),
+            available_spare_threshold: Some(10),
+            media_errors: Some(12),
+            power_on_hours: Some(9_800),
+            unsafe_shutdowns: Some(31),
+            data_units_read: Some(5_000_000),
+            data_units_written: Some(4_200_000),
+            reallocated_sectors: None,
+            availability: SensorAvailability::Available,
+            reason: None,
+        }],
+        completeness: "full".into(),
+        unavailable: Vec::new(),
+    };
+
+    let battery_status = BatteryStatus {
+        status: "ok".into(),
+        timestamp: "2026-08-13T08:00:03.000Z".into(),
+        present: true,
+        percent: Some(38),
+        ac_online: Some(false),
+        charging: Some(false),
+        battery_state: Some("discharging".into()),
+        estimated_time_remaining_seconds: Some(4_200),
+        health: Some(BatteryHealth {
+            designed_capacity_mwh: Some(90_000),
+            full_charge_capacity_mwh: Some(36_000),
+            current_charge_mwh: Some(13_680),
+            cycle_count: Some(820),
+            health_percent: Some(40.0),
+            temperature_c: None,
+            availability: SensorAvailability::Available,
+            reason: None,
+        }),
+        unavailable: Vec::new(),
+    };
+
+    let wifi = vec![WifiAdapterStatus {
+        adapter_id: "{11111111-2222-3333-4444-555555555555}".into(),
+        description: "Intel(R) Wi-Fi 6 AX210".into(),
+        state: "connected".into(),
+        ssid: Some("HomeNet".into()),
+        signal_percent: Some(12),
+        rssi_dbm: Some(-88),
+        link_speed_mbps: Some(24.0),
+        channel: Some(36),
+        frequency_mhz: Some(5180),
+        band: Some("5ghz".into()),
+        authentication: Some("wpa2_psk".into()),
+        cipher: Some("ccmp".into()),
+        is_up: true,
+    }];
+
+    let mut backend = ScenarioBackend::with_fixtures();
+    backend.thermal = Some(thermal);
+    backend.disk_health = Some(disk_health);
+    backend.battery_status = Some(battery_status);
+    backend.wifi_status_override = Some(wifi);
+    backend
+}
+
+#[tokio::test]
+async fn scenario_19_hardware_evidence_feeds_system_diagnose() {
+    let state = eval_state(default_config(), degraded_hardware_backend());
+
+    // The hardware tools themselves stay bounded and structured.
+    let hardware = call(&state, "hardware_snapshot", json!({})).await.unwrap();
+    assert_eq!(hardware["status"], "ok");
+    assert!(hardware["cpu"]["package_temperature_c"].is_number());
+    assert_no_root_cause_claims(&hardware);
+
+    let thermal = call(&state, "thermal_snapshot", json!({})).await.unwrap();
+    assert_eq!(thermal["thermal_state"]["cpu_thermal_pressure"], "high");
+    assert_eq!(thermal["thermal_state"]["cpu_throttling"], "likely");
+    assert_no_root_cause_claims(&thermal);
+
+    let disk = call(&state, "disk_health", json!({})).await.unwrap();
+    assert_eq!(disk["status"], "critical");
+    assert_eq!(disk["devices"][0]["health_status"], "critical");
+
+    let battery = call(&state, "battery_status", json!({})).await.unwrap();
+    assert_eq!(battery["health"]["health_percent"], 40.0);
+
+    let wifi = call(&state, "wifi_status", json!({})).await.unwrap();
+    assert_eq!(wifi["count"], 1);
+    assert_eq!(wifi["adapters"][0]["signal_percent"], 12);
+
+    // system_diagnose consumes the degraded hardware evidence and emits
+    // cross-domain findings instead of ignoring it.
+    let diagnose = call(&state, "system_diagnose", json!({})).await.unwrap();
+    assert_eq!(
+        diagnose["diagnosis"]["report"]["status"],
+        "signals_detected"
+    );
+    let findings = diagnose["diagnosis"]["findings"].as_array().unwrap();
+    let categories: Vec<&str> = findings
+        .iter()
+        .filter_map(|f| f["category"].as_str())
+        .collect();
+    for expected in ["thermal", "storage_health", "battery", "wifi"] {
+        assert!(
+            categories.contains(&expected),
+            "expected a '{expected}' finding, got {categories:?}"
+        );
+    }
+    // A measured, failing dimension is never listed as checked clean.
+    let clean = diagnose["diagnosis"]["checked_clean"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect::<Vec<_>>();
+    for dim in [
+        "CPU thermal state",
+        "storage health",
+        "battery health",
+        "Wi-Fi signal strength",
+    ] {
+        assert!(
+            !clean.contains(&dim),
+            "'{dim}' failed its threshold and must not be checked clean"
+        );
+    }
+    // Findings stay evidence-backed and bounded, and never overclaim.
+    let measurements = diagnose["diagnosis"]["report"]["measurements"]
+        .as_array()
+        .unwrap();
+    let metrics: Vec<&str> = measurements
+        .iter()
+        .filter_map(|m| m["metric"].as_str())
+        .collect();
+    for metric in [
+        "cpu_thermal_pressure",
+        "drive_health_status",
+        "battery_health_percent",
+        "wifi_signal_percent",
+    ] {
+        assert!(
+            metrics.contains(&metric),
+            "finding evidence must reference measurement '{metric}', got {metrics:?}"
+        );
+    }
+    let serialized = serde_json::to_string(&diagnose).unwrap();
+    assert!(serialized.len() <= 256 * 1024);
+    assert_no_root_cause_claims(&diagnose);
 }

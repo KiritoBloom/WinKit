@@ -1,6 +1,6 @@
 {
   "name": "@winkit/mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "WinKit MCP server — local Windows observability and diagnostics for AI agents, launched over stdio.",
   "license": "MIT",
   "bin": {
@@ -13,7 +13,7 @@
     "node": ">=18"
   },
   "optionalDependencies": {
-    "@winkit/win32-x64-msvc": "0.1.1"
+    "@winkit/win32-x64-msvc": "0.1.2"
   },
   "keywords": [
     "mcp",

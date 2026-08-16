@@ -31,13 +31,18 @@ pub static PORT_GUARD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(()
 // Scenario backend: the fixture mock with an overridable system snapshot
 // ---------------------------------------------------------------------------
 
-/// The fixture mock, with `resource_snapshot` (and nothing else) overridable
-/// per scenario so memory/CPU pressure is deterministic without touching the
+/// The fixture mock, with `resource_snapshot` and the hardware evidence
+/// providers overridable per scenario so memory/CPU pressure and thermal /
+/// storage / battery / Wi-Fi health are deterministic without touching the
 /// real machine.
 #[derive(Debug, Clone, Default)]
 pub struct ScenarioBackend {
     pub inner: MockWindowsBackend,
     pub snapshot: Option<ResourceSnapshot>,
+    pub thermal: Option<ThermalSnapshot>,
+    pub disk_health: Option<DiskHealthReport>,
+    pub battery_status: Option<BatteryStatus>,
+    pub wifi_status_override: Option<Vec<WifiAdapterStatus>>,
 }
 
 impl ScenarioBackend {
@@ -45,6 +50,10 @@ impl ScenarioBackend {
         Self {
             inner: MockWindowsBackend::with_fixtures(),
             snapshot: None,
+            thermal: None,
+            disk_health: None,
+            battery_status: None,
+            wifi_status_override: None,
         }
     }
 
@@ -63,6 +72,7 @@ impl ScenarioBackend {
                 total_memory_bytes: Some(total_memory_bytes),
                 available_memory_bytes: Some(available_memory_bytes),
             }),
+            ..Self::default()
         }
     }
 }
@@ -166,7 +176,11 @@ impl WindowsBackend for ScenarioBackend {
         self.inner.get_recent_events(query)
     }
 
-    fn list_windows(&self, limit: usize, visible_only: bool) -> Result<Vec<WindowInfo>, WinkitError> {
+    fn list_windows(
+        &self,
+        limit: usize,
+        visible_only: bool,
+    ) -> Result<Vec<WindowInfo>, WinkitError> {
         self.inner.list_windows(limit, visible_only)
     }
 
@@ -184,6 +198,58 @@ impl WindowsBackend for ScenarioBackend {
 
     fn dev_environment(&self) -> Result<DevEnvironment, WinkitError> {
         self.inner.dev_environment()
+    }
+
+    fn hardware_snapshot(&self) -> Result<HardwareSnapshot, WinkitError> {
+        self.inner.hardware_snapshot()
+    }
+
+    fn thermal_snapshot(&self) -> Result<ThermalSnapshot, WinkitError> {
+        match &self.thermal {
+            Some(t) => Ok(t.clone()),
+            None => self.inner.thermal_snapshot(),
+        }
+    }
+
+    fn battery_status(&self) -> Result<BatteryStatus, WinkitError> {
+        match &self.battery_status {
+            Some(b) => Ok(b.clone()),
+            None => self.inner.battery_status(),
+        }
+    }
+
+    fn power_status(&self) -> Result<PowerStatus, WinkitError> {
+        self.inner.power_status()
+    }
+
+    fn disk_health(&self) -> Result<DiskHealthReport, WinkitError> {
+        match &self.disk_health {
+            Some(d) => Ok(d.clone()),
+            None => self.inner.disk_health(),
+        }
+    }
+
+    fn storage_activity(&self, sample_window_ms: u64) -> Result<StorageActivity, WinkitError> {
+        self.inner.storage_activity(sample_window_ms)
+    }
+
+    fn network_snapshot(&self) -> Result<NetworkSnapshot, WinkitError> {
+        self.inner.network_snapshot()
+    }
+
+    fn wifi_status(&self) -> Result<Vec<WifiAdapterStatus>, WinkitError> {
+        match &self.wifi_status_override {
+            Some(w) => Ok(w.clone()),
+            None => self.inner.wifi_status(),
+        }
+    }
+
+    fn wifi_scan(&self) -> Result<WifiScan, WinkitError> {
+        self.inner.wifi_scan()
+    }
+
+    fn network_diagnose(&self, sample_window_ms: u64) -> Result<NetworkDiagnosis, WinkitError> {
+        self.inner.network_diagnose(sample_window_ms)
     }
 }
 

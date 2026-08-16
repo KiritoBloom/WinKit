@@ -159,6 +159,7 @@ mod tests {
                     cpu_percent: g.cpu_percent,
                 })
                 .collect(),
+            ..crate::models::SystemDiagnosticData::default()
         };
         let diagnosis = crate::diagnostics::system::analyze_system(
             &data,

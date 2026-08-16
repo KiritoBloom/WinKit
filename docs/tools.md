@@ -1,11 +1,12 @@
 # Tool Reference
 
-WinKit registers 59 MCP tools: read-only Windows diagnostics plus the
-approval-gated managed-browser lifecycle tools. The default `developer` tool
-profile exposes 52 of them; `core` exposes 5, `browser` exposes 45, and
-`full` exposes all 59. This reference lists every tool with its arguments and
-output shape. The JSON input schema is also available live via `tools/list`
-in any MCP client, filtered to the effective profile.
+WinKit registers 69 MCP tools: read-only Windows diagnostics (system,
+processes, network, storage, hardware, power) plus the approval-gated
+managed-browser lifecycle tools. The default `developer` tool profile exposes
+52 of them; `core` exposes 5, `browser` exposes 55, and `full` exposes all 69.
+This reference lists every tool with its arguments and output shape. The JSON
+input schema is also available live via `tools/list` in any MCP client,
+filtered to the effective profile.
 
 Argument conventions:
 
@@ -24,7 +25,45 @@ Arguments: none.
 ### `snapshot`
 
 A concise aggregate view of the machine: system, resources, top memory
-processes, drives, network ports, services, and windows.
+processes, drives, network ports, services, windows, and — when readable —
+storage health, Wi-Fi, thermals, and power summaries.
+
+Arguments: none.
+
+## Hardware
+
+### `hardware_snapshot`
+
+Complete hardware snapshot: CPU, GPU, memory, storage devices, network
+adapters, battery, power state, and every sensor that could be read. Each
+unavailable reading is reported explicitly with a reason — never silently
+omitted and never fabricated.
+
+Arguments: none.
+
+### `thermal_snapshot`
+
+Thermal state of the machine: every temperature sensor that could be read
+plus a deterministic interpretation (throttling, thermal pressure, frequency
+reduction). ACPI thermal zones are elevation-gated on some hosts and are then
+reported as `permission_denied` with an actionable reason; GPU temperature is
+reported unavailable unless a vendor SDK is present.
+
+Arguments: none.
+
+## Power
+
+### `battery_status`
+
+Battery state (percent, charging, estimated time remaining) plus battery
+health from design vs full-charge capacity when the OS exposes it.
+
+Arguments: none.
+
+### `power_status`
+
+Power source status: AC or battery, battery percent and state, estimated
+time remaining.
 
 Arguments: none.
 
@@ -88,6 +127,39 @@ List active TCP connections (IPv4) with owning process when resolvable.
 
 Arguments: `limit` (default: `max_network_results`).
 
+### `network_snapshot`
+
+Bounded composite network snapshot: interfaces, Wi-Fi adapter status, active
+TCP connections, and listening ports.
+
+Arguments: none.
+
+### `network_diagnose`
+
+Connectivity diagnosis per interface: gateway reachability and latency
+(ICMP), Wi-Fi signal and link speed, plus structured findings. Never
+conflates Wi-Fi weakness with an "Internet broken" conclusion — the report
+separates interface-level reachability from radio conditions.
+
+Arguments: `sample_window_ms` (default 1000, clamped to the operation
+timeout).
+
+### `wifi_status`
+
+Wi-Fi adapter status: state (connected/disconnected), SSID, signal, RSSI,
+link speed, channel and band. Returns `{ "adapters": [...], "count": n }`.
+Not a scan — no radio probing.
+
+Arguments: none.
+
+### `wifi_scan`
+
+Scan for nearby Wi-Fi networks (radio probe). Gated by configuration
+`hardware.wifi_scan_enabled`; when disabled, returns an explicit
+"unavailable" status instead of an empty list.
+
+Arguments: none.
+
 ## Storage
 
 ### `list_drives`
@@ -101,6 +173,24 @@ Arguments: none.
 Free/used space for the volume containing a path.
 
 Arguments: `path` (required).
+
+### `disk_health`
+
+Physical storage health: NVMe S.M.A.R.T. (critical warnings, spare, media
+errors, power-on hours) when readable, otherwise the OS storage-stack health
+status (`MSFT_PhysicalDisk.HealthStatus`, no elevation required), otherwise
+an explicit reason. ATA S.M.A.R.T. reads are gated by configuration
+`hardware.ata_smart_enabled`.
+
+Arguments: none.
+
+### `disk_performance`
+
+Storage activity sampled over a short window: busy percent, queue depth,
+read/write throughput and IOPS per physical disk.
+
+Arguments: `sample_window_ms` (default 1000, clamped to the operation
+timeout).
 
 ### `find_large_files`
 
@@ -401,9 +491,10 @@ working set; default and cap come from `health.max_groups`).
 
 ### `system_diagnose`
 
-One-call answer to "why is my computer unhealthy". Collects the same evidence
-as `system_health` (application groups, drives, memory) plus a system
-memory-growth rate from two samples ~1 s apart, and runs it through the
+One-call answer to "why is my computer unhealthy". Collects machine evidence
+(application groups, drives, memory, a system memory-growth rate from two
+samples ~1 s apart) plus hardware evidence (thermal pressure, throttling,
+storage health, battery health, Wi-Fi signal) and runs it through the
 diagnostic engine. Returns `diagnosis.findings` — ranked findings with
 deterministic scores, severities, and the measurements backing each one —
 plus `diagnosis.checked_clean`, the dimensions that were measured and found

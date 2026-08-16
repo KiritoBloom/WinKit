@@ -35,11 +35,11 @@ single heaviest tab, then whether it is getting worse.
 
 ## Highlights
 
-- **59 MCP tools** across system, process, network, storage, service, event,
-  window, developer-environment, application, Chrome, managed-browser, and
-  machine-health domains, organized into tool profiles (`core`,
-  `developer` [default], `browser`, `full`) so an agent only sees what it
-  needs.
+- **69 MCP tools** across system, process, network, storage, hardware, power,
+  service, event, window, developer-environment, application, Chrome,
+  managed-browser, and machine-health domains, organized into tool profiles
+  (`core`, `developer` [default], `browser`, `full`) so an agent only sees
+  what it needs.
 - **Developer workflow tools** — `diagnose_workspace`, `diagnose_local_webapp`,
   `list_dev_servers`, bounded `wait_for_*` tools, `correlate_recent_failures`,
   and `system_health_trend` solve complete problems (stale port, wrong port,
@@ -89,7 +89,7 @@ single heaviest tab, then whether it is getting worse.
   explain exactly what would be required.
 - **Provider architecture** — everything sits behind `WindowsBackend` /
   `ApplicationProvider` traits; the real Win32 layer is fully separable, and a
-  mock backend plus deterministic fixtures power a 351-test suite
+  mock backend plus deterministic fixtures power a 363-test suite
   (`cargo test --features mocks`) with no machine dependency.
 - **Hardened by construction** — bounded results, per-tool timeouts, payload
   caps, an 8 MiB transport frame cap, strict JSON schema validation, and
@@ -102,7 +102,7 @@ single heaviest tab, then whether it is getting worse.
   coding agents the question→tool routing, permission and profile
   selection, and the safe/read-only boundaries.
 - **Evaluation suite** — `tests/eval/` is a fixture-backed, deterministic
-  17-scenario suite that asserts status, evidence, finding IDs,
+  18-scenario suite that asserts status, evidence, finding IDs,
   supporting/contradicting evidence, redaction, bounded output, permission
   behavior, and no false root-cause claims for the failure modes WinKit
   is built to diagnose.
@@ -286,7 +286,7 @@ WinKit treats limits as first-class output, not bugs:
 ```powershell
 cargo check                 # compile checks
 cargo build                 # debug build
-cargo test --features mocks # full test suite (351 tests)
+cargo test --features mocks # full test suite (363 tests)
 cargo clippy --all-targets  # lint
 
 # evaluation suite (fixture-backed failure scenarios)
@@ -315,7 +315,7 @@ installation the project is not "release-ready" (see
 
 The integration tests exercise the MCP protocol, tool dispatch, permission
 enforcement, and fixture-backed mock providers without touching the real
-machine; the evaluation suite (`tests/eval/`) covers 17 deterministic
+machine; the evaluation suite (`tests/eval/`) covers 18 deterministic
 failure scenarios. See [docs/development.md](docs/development.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md).
 

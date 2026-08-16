@@ -50,7 +50,7 @@ deterministic fixtures; nothing in the test suite touches the real machine.
 ```text
 src/
   server/        MCP protocol, stdio transport, session lifecycle, tool dispatch, profiles
-  tools/         tool definitions, argument parsing, registry (59 tools)
+  tools/         tool definitions, argument parsing, registry (69 tools)
   providers/     WindowsBackend, ApplicationProvider traits, chrome adapter, mocks
   platform/      real Win32 implementations (windows-sys 0.59)
   permissions/   modes, capabilities, policy, approval surface
@@ -59,7 +59,7 @@ src/
   diagnostics/   threshold scoring + correlation rules
   utils/         logging, time, wide-string, HTTP probe helpers
 tests/           protocol, fixture, and mock-tool integration tests; tests/eval is
-                 the fixture-backed evaluation suite (17 scenarios)
+                 the fixture-backed evaluation suite (18 scenarios)
 npm/             @winkit/mcp launcher, @winkit/win32-x64-msvc native package,
                  Node tests, packaging scripts
 skills/          winkit-developer-debugging/SKILL.md (agent skill)

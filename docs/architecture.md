@@ -108,6 +108,30 @@ The Win32 layer (`windows-sys 0.59`), split by domain:
 - `events.rs` — Windows event log reads.
 - `windows.rs` — top-level window enumeration.
 - `system.rs` — OS version, uptime, resource snapshots, computer name.
+- `hardware.rs` — CPU/GPU/memory/storage/network device enumeration, battery
+  and AC state, and a thermal sensor survey (WMI `MSAcpi_ThermalZoneTemperature`,
+  PDH frequency counters) reduced to a deterministic throttle/pressure
+  interpretation. ACPI thermal zones are permission-checked per WMI class, so
+  hosts that gate them report `permission_denied` rather than guessing.
+- `storage_health.rs` — NVMe S.M.A.R.T. health-log reads (IOCTL
+  `IOCTL_STORAGE_QUERY_PROPERTY`) plus a non-elevated OS storage-stack health
+  status (`MSFT_PhysicalDisk` in `root\Microsoft\Windows\Storage`); ATA
+  S.M.A.R.T. reads are gated by config.
+- `power.rs` — battery/AC status via `GetSystemPowerStatus` and battery
+  capacity/health via WMI `Win32_Battery`.
+- `wifi.rs` — Wi-Fi adapter status and scan via the Wlan API
+  (`wlan_intf_opcode_current_connection`, scan lists).
+- `network_diag.rs` — per-interface gateway reachability via ICMP
+  (`IcmpSendEcho`) and latency, plus Wi-Fi signal/link-speed facts, reduced
+  to structured connectivity findings.
+- `pdh.rs` — PDH counter queries used for CPU frequency and per-disk storage
+  activity sampling.
+- `wmi.rs` — a hand-rolled COM/WMI client (no crate dependency) used by the
+  thermal, power, and network-disks diagnostics above. Each connection sets
+  the proxy security blanket (`CoSetProxyBlanket`) before querying, and the
+  `IWbemServices` proxy is released while the COM apartment is still alive.
+- `ffi.rs` — hand-declared ABI-stable FFI bindings absent from `windows-sys`
+  (oleaut32 BSTR helpers, ntdll version/process queries, iphlpapi, wevtapi).
 
 All unsafe blocks are confined to this layer.
 
@@ -136,7 +160,10 @@ The unified data model: `ProcessInfo`, `PortInfo`, `ConnectionInfo`,
 `DriveInfo`, `DiskUsage`, `FileEntry`, `ServiceInfo`, `EventInfo`,
 `WindowInfo`, `SystemInfo`, `ResourceSnapshot`, `DevEnvironment`, the
 browser models (`TabInfo`, `PerformanceMetrics`, `MemoryInfo`,
-`NetworkSummary`, `RuntimeInfo`, `ApplicationInfo`, ...), and the
+`NetworkSummary`, `RuntimeInfo`, `ApplicationInfo`, ...), the hardware
+models (`HardwareSnapshot`, `ThermalSnapshot`, `BatteryStatus`,
+`PowerStatus`, `DiskHealthReport`, `StorageActivity`, `NetworkSnapshot`,
+`NetworkDiagnosis`, `WifiAdapterStatus`, `WifiScanResult`, ...), and the
 diagnostics models (`Measurement`, `EvidencePoint`, `DiagnosticSignal`,
 `DiagnosticCorrelation`, `PossibleCause`, `DiagnosticReport`, `HealthIssue`,
 `RankedFinding`, `SystemDiagnosis`, ...). Everything WinKit

@@ -1,5 +1,12 @@
 # WinKit benchmark: end-to-end tool latency over MCP stdio.
 # Runs against the release binary; Chrome rows need a debug Chrome on 9222.
+# The full tool profile and the Chrome provider are required for the Chrome
+# rows: point $Env:WIN_KIT_CONFIG at a config containing
+#   [providers]
+#   enabled = ["windows", "chrome"]
+#   [tools]
+#   profile = "full"
+# which the binary honors at startup.
 param(
     [string]$Bin = ".\target\release\winkit.exe",
     [int]$Runs = 3,
@@ -78,6 +85,16 @@ Run-Tool "chrome_info" "{}" $Runs
 Run-Tool "chrome_list_tabs" "{}" $Runs
 Run-Tool "system_health" "{}" $Runs
 Run-Tool "system_diagnose" "{}" $Runs
+Run-Tool "power_status" "{}" $Runs
+Run-Tool "battery_status" "{}" $Runs
+Run-Tool "disk_health" "{}" $Runs
+Run-Tool "disk_performance" "{}" $Runs
+Run-Tool "thermal_snapshot" "{}" $Runs
+Run-Tool "hardware_snapshot" "{}" $Runs
+Run-Tool "network_snapshot" "{}" $Runs
+Run-Tool "network_diagnose" "{}" $Runs
+Run-Tool "wifi_status" "{}" $Runs
+Run-Tool "wifi_scan" "{}" $Runs
 
 if ($tabId) {
     $tabArgs = '{"tab_id":"' + $tabId + '"}'
