@@ -7,6 +7,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-17
+
+### Added
+
+- **Live per-process CPU percent** — `get_process` now samples a two-sample
+  CPU percent over a 300 ms window with an explicit `system_capacity_all_cores`
+  basis; `list_processes` stays cheap and reports `cpu_percent: null`.
+- **Disk scan progress** — `disk_scan_status` reports `progress_percent` and
+  `eta_seconds` (MFT-estimate up front, exact totals after enumeration).
+- **Battery state labels** — `battery_status` now distinguishes `full`,
+  `charging`, `not_charging`, and `discharging` using both charge state and AC
+  line status.
+- **Wi-Fi BSS detail** — connected-adapter `wifi_status` includes RSSI, channel,
+  frequency, and band from a live BSS query.
+
+### Changed
+
+- **Tree-inclusive application memory** — `ApplicationGroupInfo` now reports
+  `tree_process_count` and `own_working_set_bytes`, and
+  `total_working_set_bytes` is the whole process-tree footprint (Task
+  Manager-style), sorted accordingly. The machine diagnosis now pairs that
+  tree total with the tree process count in finding text, so it never claims
+  "Explorer holds 6.6 GB across 1 process" (the count was the executable's
+  own processes while the bytes were the whole tree).
+- **`system_info` CPU counts** — `cpu_cores` is now the physical core count
+  (via `GetLogicalProcessorInformationEx`) and a new `logical_processors`
+  field carries the thread count, matching `hardware_snapshot` instead of
+  mislabeling logical processors as cores.
+- **Event-log noise filtering** — `get_application_errors` and
+  `get_system_errors` drop `message: null` events by default (a flood of
+  null-message rows buries real crashes); the skipped count is reported as
+  `skipped_null_messages` and `skip_null_messages` can be set explicitly.
+- **Structured unavailable errors** — provider/application/feature/endpoint
+  unavailable errors map to distinct JSON-RPC server error codes
+  (`-32001`…`-32005`) instead of `-32603` internal error, so agents can tell
+  "Chrome is not enabled" from "something broke".
+- **`disk_performance` sample window** — `sample_window_ms` now reports the
+  requested window rather than the measured elapsed time.
+- **Windows event log messages** — messages are now rendered with
+  `EvtFormatMessage` plus a publisher-metadata handle (the same rendering
+  Event Viewer and `Get-WinEvent` use), so crash, WER, service, and DCOM
+  events carry their real text. The previous XML `<Message>` path never fired
+  because the XML render does not emit one; providers with no message table
+  still report `message: null` rather than a guess.
+- **`list_services` registry detail** — `start_type`, `binary_path`, and
+  `service_start_name` are read from the service registry key instead of being
+  null.
+- **Consistent RAM totals** — `hardware_snapshot` memory `total_bytes` now
+  matches `system_info` (`GlobalMemoryStatusEx`).
+- **Workspace paths** — reported `root`/`repo_root` no longer carry the
+  extended-length `\\?\` prefix.
+
+### Fixed
+
+- **`disk_performance` was unusable with default settings** — it opened a
+  fresh PDH query and slept the full window once per counter per disk (6
+  sleeps per disk), blowing the probe budget. All counters for all disks now
+  live in one query sampled twice, so the whole report costs a single sleep.
+- **`disk_performance` silently missed the real disk** — the PhysicalDisk
+  instance enumeration assumed a leading blank placeholder and skipped the
+  first entry; it now skips only empty names and `_Total`, so per-disk
+  activity (e.g. `0 C:`) is reported instead of only the aggregate.
+- **`network_diagnose` failed under the probe budget** — 4 sequential ICMP
+  pings at a 1 s timeout each (up to 4 s) could never fit a 3 s budget when
+  the router drops ICMP. Probing is now 2 pings at 750 ms, bounded inside the
+  budget.
+- **`dev_environment` version probes failed for npm/yarn/pnpm** — a bare,
+  extensionless Unix-style script on PATH shadowed the `.cmd` shim; the
+  PATH search now prefers an extension-bearing candidate in the same
+  directory over an extensionless file.
+- **`system_health_trend` reported a deadline limitation on every call** —
+  the final scheduled sample's target equals the window, so a wall-clock
+  deadline check always skipped it; the check is now target-based, and the
+  default call collects its full sample count without a spurious limitation.
+- **`disk_scan_largest_folders`/`largest_files`/`folder_size`/`find` omitted
+  `fast_path_unavailable`** — query diagnostics now carry the reason the
+  fast path was unavailable, matching `disk_scan`.
+- **Chrome profile-gate message inconsistency** — browser-gated tools now
+  explain that the Chrome integration is not enabled (consistent with
+  `get_application`'s "no application provider with id 'chrome'") instead of
+  reporting a bare profile error.
+- **`disk_health` overstated completeness** — a report whose devices carry
+  only OS storage-stack status (no S.M.A.R.T. attributes) is now `limited`,
+  not `full`.
+- Wi-Fi link speed was reported in kilobits; it is now `rate_mbps` in megabits
+  (54000 → 54.0).
+- `memory_pressure_score` now anchors on available memory, so high pressure is
+  still flagged when available memory is critically low at low utilization.
+- `system_health`/`system_diagnose`/hardware probes no longer block the async
+  runtime (spawn_blocking under the probe budget).
+- `find_process` no longer misses matches outside a top-N window (full snapshot
+  + name filter); `process_tree` is O(1) parent lookup.
+- `wmi_live_probe-*.exe` crash noise (external evaluation harness): not present
+  in this source tree; no in-repo fix applies.
+
 ## [0.1.2] - 2026-08-17
 
 ### Added

@@ -37,14 +37,30 @@ pub fn storage_score(free_percent: f64) -> u8 {
     score as u8
 }
 
-/// System memory pressure score: linear from 0 at the configured threshold
-/// to 100 at 100% load.
-pub fn memory_pressure_score(load_percent: f64, threshold_percent: f64) -> u8 {
+/// System memory pressure score: a sqrt ramp from 0 at the configured load
+/// threshold to 100 at 100% load, anchored on available memory so a machine
+/// with almost nothing free reads as a real problem even when load barely
+/// crossed the threshold.
+pub fn memory_pressure_score(
+    load_percent: f64,
+    threshold_percent: f64,
+    available_percent: Option<f64>,
+) -> u8 {
     let span = 100.0 - threshold_percent;
-    if span <= 0.0 {
-        return 100;
-    }
-    (((load_percent - threshold_percent) / span) * 100.0).clamp(0.0, 100.0) as u8
+    let ramp = if span <= 0.0 {
+        100.0
+    } else {
+        let frac = ((load_percent - threshold_percent) / span).clamp(0.0, 1.0);
+        frac.sqrt() * 100.0
+    };
+    let availability = match available_percent {
+        Some(p) if p <= 5.0 => 90.0,
+        Some(p) if p <= 10.0 => 80.0,
+        Some(p) if p <= 15.0 => 60.0,
+        Some(p) if p <= 20.0 => 40.0,
+        _ => 0.0,
+    };
+    ramp.max(availability) as u8
 }
 
 /// Application CPU score: the CPU value itself (already a percent of total
@@ -168,9 +184,11 @@ mod tests {
 
     #[test]
     fn memory_pressure_score_ramps_from_threshold_to_100() {
-        assert_eq!(memory_pressure_score(85.0, 85.0), 0);
-        assert_eq!(memory_pressure_score(92.5, 85.0), 50);
-        assert_eq!(memory_pressure_score(100.0, 85.0), 100);
+        assert_eq!(memory_pressure_score(85.0, 85.0, None), 0);
+        assert_eq!(memory_pressure_score(92.5, 85.0, None), 70);
+        assert_eq!(memory_pressure_score(100.0, 85.0, None), 100);
+        assert_eq!(memory_pressure_score(86.0, 85.0, Some(14.0)), 60);
+        assert_eq!(memory_pressure_score(95.0, 85.0, Some(30.0)), 81);
     }
 
     #[test]

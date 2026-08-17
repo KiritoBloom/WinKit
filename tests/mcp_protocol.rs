@@ -470,6 +470,31 @@ async fn approval_mode_embeds_request_id_and_grant_consumes_it() {
 }
 
 #[tokio::test]
+async fn provider_unavailable_maps_to_structured_server_error_not_internal() {
+    // In the full profile the chrome tools are exposed, but with only the
+    // windows provider registered the chrome provider is absent. That is a
+    // structured "provider unavailable" condition, not an internal error:
+    // it must map to a distinct server error code (-32001) with the stable
+    // winkit_code (3) so agents can tell "not enabled" from "broke".
+    let server = initialized_server(mock_state_with_profile("full")).await;
+    let out = request(
+        &server,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"chrome_info","arguments":{}}}"#,
+    )
+    .await;
+    assert_eq!(out["error"]["code"], -32001);
+    assert_eq!(out["error"]["data"]["winkit_code"], 3);
+    assert!(
+        out["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("chrome provider is not enabled"),
+        "message explains the condition: {}",
+        out["error"]["message"]
+    );
+}
+
+#[tokio::test]
 async fn oversized_payload_is_rejected_with_resource_limit_code() {
     let server = initialized_server(mock_state_with_payload_limit(64)).await;
     let out = request(

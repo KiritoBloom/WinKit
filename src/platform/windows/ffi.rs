@@ -203,4 +203,32 @@ unsafe extern "system" {
     ) -> i32;
     /// Close an event handle or result set.
     pub fn EvtClose(object: *mut std::ffi::c_void) -> i32;
+    /// Format an event's rendered message from the provider manifest (the same
+    /// rendering Event Viewer and `Get-WinEvent` use).
+    pub fn EvtFormatMessage(
+        publisher_metadata: *mut std::ffi::c_void,
+        event: *mut std::ffi::c_void,
+        message_id: u32,
+        value_count: u32,
+        values: *mut std::ffi::c_void,
+        flags: u32,
+        buffer_size: u32,
+        buffer: *mut std::ffi::c_void,
+        buffer_used: *mut u32,
+    ) -> i32;
+    /// Open the metadata (message tables) for a publisher. Required to format
+    /// messages for classic event sources (Service Control Manager,
+    /// Application Error, NetBT, ...); `EvtFormatMessage` with a null
+    /// metadata handle fails with `ERROR_EVT_MESSAGE_NOT_FOUND` for them.
+    pub fn EvtOpenPublisherMetadata(
+        session: *mut std::ffi::c_void,
+        publisher_id: *const u16,
+        log_file_path: *const u16,
+        locale: u32,
+        flags: u32,
+    ) -> *mut std::ffi::c_void;
 }
+
+/// `EvtFormatMessage` flag: format the full event message (parameter
+/// substitution included).
+pub const EVT_FORMAT_MESSAGE_EVENT: u32 = 1;

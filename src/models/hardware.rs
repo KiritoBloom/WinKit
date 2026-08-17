@@ -566,7 +566,9 @@ pub struct StorageActivity {
     /// `ok`, `degraded`, `limited`, or `unavailable`.
     pub status: String,
     pub timestamp: String,
-    /// Milliseconds the sample window covered.
+    /// Milliseconds the sample window was requested to cover (the actual
+    /// elapsed time may differ slightly; the requested window is reported so
+    /// callers can reason about the sampling period).
     pub sample_window_ms: u64,
     /// One entry per physical disk that reported counters.
     pub disks: Vec<DiskActivity>,
@@ -719,4 +721,11 @@ pub struct NetworkDiagnosis {
     /// `full` or `limited`.
     pub completeness: String,
     pub unavailable: Vec<UnavailableReading>,
+    /// External-connectivity cross-check (a DNS resolution through the
+    /// default resolver). `ok` = a well-known host resolved, `failed` = the
+    /// resolver returned an error, `unconfirmed` = the check could not finish
+    /// inside the probe budget, `not_probed` = no up gateway interface to
+    /// justify the check. Used to interpret gateway ICMP loss: modern routers
+    /// often filter ICMP, so loss alone is not an outage.
+    pub external_connectivity: String,
 }

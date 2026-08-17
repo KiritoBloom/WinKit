@@ -10,7 +10,7 @@ dispatch, and provider work. This is what a client actually experiences.
 
 - **Host**: DESKTOP-ES2M4J5, Windows 10 (build 19045), x64, 8 cores,
   16.9 GB RAM.
-- **Binary**: `cargo build --release` (LTO, stripped), v0.1.2.
+- **Binary**: `cargo build --release` (LTO, stripped), v0.1.3.
 - **Configuration**: full tool profile with the Chrome provider enabled
   (`scripts/bench.ps1` requires it), all 69 tools benchmarked.
 - **Chrome**: debug (headless) instance on port 9222 with a single active tab
@@ -80,8 +80,10 @@ event-log reads vary wildly with the machine).
   (≈94 ms) reads the non-elevated OS storage-stack health; `thermal_snapshot`
   (≈0.7 s) surveys ACPI thermal zones and PDH frequency; `hardware_snapshot`
   (≈1.2 s) enumerates CPU/GPU/memory/storage/battery devices. `disk_performance`
-  (≈6.4 s) samples per-disk activity over its default 5-second window, and
-  `network_diagnose` (≈4.0 s) round-trips each interface's gateway.
+  samples all disks in one PDH query, so it costs roughly its requested
+  window (default 1 s) regardless of how many counters or disks exist, and
+  `network_diagnose` bounds ICMP probing (2 pings × 750 ms) so it completes
+  well inside the probe budget even when the router drops ICMP.
 - **Sampling tools cost their window, not their scope.** `snapshot`
   (≈1.9 s) and `system_diagnose` (≈2.1 s) include a 1-second resource-sample
   window; `snapshot` additionally aggregates the hardware summaries, which is

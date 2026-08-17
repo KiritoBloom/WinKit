@@ -119,7 +119,16 @@ pub fn build_health_report(
         .unwrap_or(false);
     if pressure {
         let load = resources.memory_load_percent.unwrap_or(0.0);
-        let score = memory_pressure_score(load, config.high_memory_load_percent);
+        let available_percent = match (resources.available_memory_bytes, resources.total_memory_bytes)
+        {
+            (Some(avail), Some(total)) if total > 0 => Some(avail as f64 / total as f64 * 100.0),
+            _ => None,
+        };
+        let score = memory_pressure_score(
+            load,
+            config.high_memory_load_percent,
+            available_percent,
+        );
         let (severity, _) = score_bands(score);
         issues.push(HealthIssue {
             layer: "system".into(),
@@ -179,9 +188,21 @@ pub async fn system_health_handler(
         optional_usize(&args, "limit"),
         state.config.health.max_groups,
     );
-    let groups = state.windows.application_groups(limit)?;
-    let resources = state.windows.resource_snapshot(1_000)?;
-    let drives = state.windows.list_drives()?;
+    // `application_groups` samples CPU for 1 s and enumerates processes;
+    // `resource_snapshot(1_000)` sleeps 1 s. Run all three on worker threads
+    // so the stdio loop is never stalled by one slow health call.
+    let (groups, resources, drives) = {
+        let state = state.clone();
+        tokio::task::spawn_blocking(move || {
+            Ok::<_, WinkitError>((
+                state.windows.application_groups(limit)?,
+                state.windows.resource_snapshot(1_000)?,
+                state.windows.list_drives()?,
+            ))
+        })
+        .await
+        .map_err(|e| WinkitError::internal(format!("health collection failed: {e}")))?
+    }?;
     let report = build_health_report(groups, &resources, &drives, &state.config.health);
     Ok(serde_json::to_value(report)?)
 }
@@ -214,69 +235,89 @@ pub async fn system_diagnose_handler(
         state.config.health.max_groups,
     );
     // Evidence collection is best-effort per dimension: a failed collection
-    // yields a `limited` report instead of a failed tool call.
-    let groups = state.windows.application_groups(limit).unwrap_or_default();
-    let drives = state.windows.list_drives().unwrap_or_default();
+    // yields a `limited` report instead of a failed tool call. The
+    // application-group enumeration samples CPU for 1 s, so it runs on a
+    // worker thread to keep the stdio loop responsive.
+    let (groups, drives) = {
+        let state = state.clone();
+        tokio::task::spawn_blocking(move || {
+            (
+                state.windows.application_groups(limit).unwrap_or_default(),
+                state.windows.list_drives().unwrap_or_default(),
+            )
+        })
+        .await
+        .map_err(|e| WinkitError::internal(format!("health collection failed: {e}")))?
+    };
 
     // Bounded hardware evidence (§64, §77): each probe runs under the
     // configured budget and degrades to `None`/empty instead of failing.
     let budget = state.config.hardware.probe_timeout_ms;
-    let thermal = crate::tools::hardware::probe(budget, || state.windows.thermal_snapshot())
+    let thermal_state = state.clone();
+    let thermal = crate::tools::hardware::probe(budget, move || {
+        thermal_state.windows.thermal_snapshot()
+    })
+    .await
+    .ok()
+    .map(|r| {
+        let mut temps: Vec<f64> = r
+            .sensors
+            .iter()
+            .filter(|s| s.availability.is_available())
+            .filter(|s| {
+                matches!(
+                    s.class,
+                    crate::models::SensorClass::CpuPackage | crate::models::SensorClass::CpuCore
+                )
+            })
+            .filter_map(|s| s.value)
+            .collect();
+        temps.sort_by(|a, b| a.total_cmp(b));
+        SystemThermalEvidence {
+            cpu_thermal_pressure: r.thermal_state.cpu_thermal_pressure.clone(),
+            cpu_throttling: r.thermal_state.cpu_throttling.clone(),
+            cpu_frequency_reduced: r.thermal_state.cpu_frequency_reduced,
+            cpu_temperature_c: temps.last().copied(),
+            gpu_thermal_pressure: r.thermal_state.gpu_thermal_pressure.clone(),
+        }
+    });
+    let storage_state = state.clone();
+    let storage_health: Vec<SystemStorageHealthEvidence> =
+        crate::tools::hardware::probe(budget, move || {
+            storage_state.windows.disk_health()
+        })
         .await
         .ok()
         .map(|r| {
-            let mut temps: Vec<f64> = r
-                .sensors
-                .iter()
-                .filter(|s| s.availability.is_available())
-                .filter(|s| {
-                    matches!(
-                        s.class,
-                        crate::models::SensorClass::CpuPackage
-                            | crate::models::SensorClass::CpuCore
-                    )
+            r.devices
+                .into_iter()
+                .map(|d| SystemStorageHealthEvidence {
+                    device: d.device,
+                    interface: d.interface,
+                    health_status: d.health_status,
+                    temperature_c: d.temperature_c,
+                    percentage_used: d.percentage_used,
                 })
-                .filter_map(|s| s.value)
-                .collect();
-            temps.sort_by(|a, b| a.total_cmp(b));
-            SystemThermalEvidence {
-                cpu_thermal_pressure: r.thermal_state.cpu_thermal_pressure.clone(),
-                cpu_throttling: r.thermal_state.cpu_throttling.clone(),
-                cpu_frequency_reduced: r.thermal_state.cpu_frequency_reduced,
-                cpu_temperature_c: temps.last().copied(),
-                gpu_thermal_pressure: r.thermal_state.gpu_thermal_pressure.clone(),
-            }
-        });
-    let storage_health: Vec<SystemStorageHealthEvidence> =
-        crate::tools::hardware::probe(budget, || state.windows.disk_health())
-            .await
-            .ok()
-            .map(|r| {
-                r.devices
-                    .into_iter()
-                    .map(|d| SystemStorageHealthEvidence {
-                        device: d.device,
-                        interface: d.interface,
-                        health_status: d.health_status,
-                        temperature_c: d.temperature_c,
-                        percentage_used: d.percentage_used,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-    let battery = crate::tools::hardware::probe(budget, || state.windows.battery_status())
-        .await
-        .ok()
-        .map(|b| SystemBatteryEvidence {
-            present: b.present,
-            percent: b.percent,
-            ac_online: b.ac_online,
-            charging: b.charging,
-            battery_state: b.battery_state,
-            health_percent: b.health.as_ref().and_then(|h| h.health_percent),
-        });
+                .collect()
+        })
+        .unwrap_or_default();
+    let battery_state = state.clone();
+    let battery = crate::tools::hardware::probe(budget, move || {
+        battery_state.windows.battery_status()
+    })
+    .await
+    .ok()
+    .map(|b| SystemBatteryEvidence {
+        present: b.present,
+        percent: b.percent,
+        ac_online: b.ac_online,
+        charging: b.charging,
+        battery_state: b.battery_state,
+        health_percent: b.health.as_ref().and_then(|h| h.health_percent),
+    });
+    let wifi_state = state.clone();
     let wifi: Vec<SystemWifiEvidence> =
-        crate::tools::hardware::probe(budget, || state.windows.wifi_status())
+        crate::tools::hardware::probe(budget, move || wifi_state.windows.wifi_status())
             .await
             .ok()
             .map(|adapters| {
@@ -341,7 +382,9 @@ pub async fn system_diagnose_handler(
                 name: g.name.clone(),
                 display_name: g.display_name.clone(),
                 process_count: g.process_count,
+                tree_process_count: g.tree_process_count,
                 working_set_bytes: g.total_working_set_bytes,
+                own_working_set_bytes: g.own_working_set_bytes,
                 cpu_percent: g.cpu_percent,
             })
             .collect(),
@@ -390,7 +433,9 @@ mod tests {
             name: name.into(),
             display_name: name.into(),
             process_count: 1,
+            tree_process_count: 1,
             total_working_set_bytes: ws_mb * 1024 * 1024,
+            own_working_set_bytes: ws_mb * 1024 * 1024,
             cpu_percent: cpu,
             cpu_percent_basis: "system_capacity_all_cores".into(),
             cpu_percent_sample_ms: 300,
@@ -532,7 +577,9 @@ mod tests {
                 name: "chrome".into(),
                 display_name: "Google Chrome".into(),
                 process_count: 3,
+                tree_process_count: 8,
                 working_set_bytes: 3_500 * 1024 * 1024,
+                own_working_set_bytes: 1_200 * 1024 * 1024,
                 cpu_percent: Some(45.0),
             }],
             ..SystemDiagnosticData::default()

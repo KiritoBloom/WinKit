@@ -2263,7 +2263,17 @@ where
     let mut interval_overrun_reported = false;
 
     for i in 0..samples {
-        if Instant::now() >= deadline {
+        // The deadline prevents *starting* samples whose scheduled target is
+        // past the window. The final scheduled sample's target is exactly the
+        // window (the default budget is window/interval + 1), so a wall-clock
+        // check alone would always skip it (sleep overshoot puts `now` at or
+        // past the deadline) and report a limitation on every default call.
+        // Compare the scheduled target against the deadline instead: only a
+        // sample whose target has genuinely been left behind by a slow
+        // measurement stops the loop.
+        let target = started + std::time::Duration::from_millis((i as u64) * interval_ms);
+        let now = Instant::now();
+        if now >= deadline && target < deadline {
             limitations.push(
                 "requested sample count not reached before the absolute deadline".to_string(),
             );

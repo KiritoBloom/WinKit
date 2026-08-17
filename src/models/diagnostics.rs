@@ -153,9 +153,19 @@ pub struct SystemAppEvidence {
     pub name: String,
     /// Human-readable label, e.g. `Google Chrome`.
     pub display_name: String,
-    /// Number of running processes in this group.
+    /// Number of running processes of this executable only.
     pub process_count: usize,
+    /// Whole process-tree count (this executable plus descendants). Use this
+    /// when `working_set_bytes` is the tree-inclusive total so the finding
+    /// text never pairs a tree total with an own-process count.
+    pub tree_process_count: usize,
+    /// Tree-inclusive working set (this executable plus descendants), the
+    /// Task Manager-style footprint.
     pub working_set_bytes: u64,
+    /// Working set of this executable's own processes only, before any
+    /// descendants are rolled in. Lets a finding separate "the shell itself"
+    /// from "the tree rooted at the shell".
+    pub own_working_set_bytes: u64,
     /// Percent of total system CPU capacity (100% = all cores busy).
     pub cpu_percent: Option<f64>,
 }

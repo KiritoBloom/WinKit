@@ -47,15 +47,33 @@ fn system_power_status() -> Option<RawPowerStatus> {
     }
 }
 
-fn battery_state_label(present: bool, percent: Option<u8>, charging: bool) -> Option<String> {
+fn battery_state_label(
+    present: bool,
+    percent: Option<u8>,
+    charging: bool,
+    ac_online: Option<bool>,
+) -> Option<String> {
     if !present {
         return None;
     }
     match percent {
-        Some(p) if p <= 10 => Some("critical".into()),
-        Some(p) if p <= 25 => Some("low".into()),
-        _ => Some(if charging { "charging" } else { "discharging" }.into()),
+        Some(p) if p <= 10 => return Some("critical".into()),
+        Some(p) if p <= 25 => return Some("low".into()),
+        _ => {}
     }
+    if charging {
+        return Some("charging".into());
+    }
+    // Plugged in but not charging: full charge or paused charge. Only call a
+    // plugged-in battery "full" when it is at 99%+; otherwise it is
+    // "not_charging" (never "discharging" while on AC).
+    if ac_online == Some(true) {
+        return match percent {
+            Some(p) if p >= 99 => Some("full".into()),
+            _ => Some("not_charging".into()),
+        };
+    }
+    Some("discharging".into())
 }
 
 fn query_batteries() -> Result<Vec<WmiObject>, WinkitError> {
@@ -126,8 +144,12 @@ pub fn power_state() -> (PowerStateInfo, Vec<UnavailableReading>) {
                 if charging {
                     info.charging = Some(true);
                 }
-                info.battery_state =
-                    battery_state_label(true, info.battery_percent, info.charging.unwrap_or(false));
+                info.battery_state = battery_state_label(
+                    true,
+                    info.battery_percent,
+                    info.charging.unwrap_or(false),
+                    info.ac_online,
+                );
             } else {
                 info.battery_present = false;
                 info.battery_state = None;
@@ -245,7 +267,7 @@ pub fn battery_status() -> Result<BatteryStatus, WinkitError> {
         percent,
         ac_online,
         charging,
-        battery_state: battery_state_label(present, percent, charging.unwrap_or(false)),
+        battery_state: battery_state_label(present, percent, charging.unwrap_or(false), ac_online),
         estimated_time_remaining_seconds: raw.as_ref().and_then(|r| r.remaining_seconds),
         health,
         unavailable,
@@ -279,7 +301,7 @@ pub fn power_status() -> Result<PowerStatus, WinkitError> {
         ac_online,
         battery_present: present,
         battery_percent: percent,
-        battery_state: battery_state_label(present, percent, charging.unwrap_or(false)),
+        battery_state: battery_state_label(present, percent, charging.unwrap_or(false), ac_online),
         charging,
         estimated_time_remaining_seconds: raw.as_ref().and_then(|r| r.remaining_seconds),
         unavailable,
@@ -299,4 +321,49 @@ pub fn battery_present_summary() -> Option<BatterySummary> {
         info.charging.unwrap_or(false),
         info.estimated_time_remaining_seconds,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn label_not_present_is_none() {
+        assert_eq!(battery_state_label(false, Some(80), false, Some(true)), None);
+        assert_eq!(battery_state_label(false, None, false, None), None);
+    }
+
+    #[test]
+    fn label_critical_and_low_before_anything_else() {
+        assert_eq!(battery_state_label(true, Some(8), false, None), Some("critical".into()));
+        assert_eq!(battery_state_label(true, Some(10), false, Some(true)), Some("critical".into()));
+        assert_eq!(battery_state_label(true, Some(25), true, Some(true)), Some("low".into()));
+    }
+
+    #[test]
+    fn label_charging() {
+        assert_eq!(battery_state_label(true, Some(60), true, Some(true)), Some("charging".into()));
+        assert_eq!(battery_state_label(true, Some(77), true, Some(false)), Some("charging".into()));
+    }
+
+    #[test]
+    fn label_plugged_full_battery() {
+        assert_eq!(battery_state_label(true, Some(99), false, Some(true)), Some("full".into()));
+        assert_eq!(battery_state_label(true, Some(100), false, Some(true)), Some("full".into()));
+    }
+
+    #[test]
+    fn label_plugged_not_charging() {
+        assert_eq!(
+            battery_state_label(true, Some(77), false, Some(true)),
+            Some("not_charging".into())
+        );
+        assert_eq!(battery_state_label(true, None, false, Some(true)), Some("not_charging".into()));
+    }
+
+    #[test]
+    fn label_discharging_on_battery() {
+        assert_eq!(battery_state_label(true, Some(77), false, Some(false)), Some("discharging".into()));
+        assert_eq!(battery_state_label(true, Some(77), false, None), Some("discharging".into()));
+    }
 }

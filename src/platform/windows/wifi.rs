@@ -51,9 +51,9 @@ fn mac_string(mac: &[u8; 6]) -> String {
         .join(":")
 }
 
-/// Rate in units of 500 kbps -> Mbps.
-fn rate_mbps(rate_500k: u32) -> f64 {
-    rate_500k as f64 * 0.5
+/// Rate in kbps -> Mbps.
+fn rate_mbps(rate_kbps: u32) -> f64 {
+    rate_kbps as f64 / 1000.0
 }
 
 fn channel_from_freq(freq_mhz: u64) -> Option<u32> {
@@ -224,6 +224,19 @@ fn adapter_status(session: &WlanSession, info: &WLAN_INTERFACE_INFO) -> WifiAdap
             status.cipher = Some(cipher_string(
                 attrs.wlanSecurityAttributes.dot11CipherAlgorithm,
             ));
+            // The association carries the connected AP's BSSID; enrich the
+            // status with the matching BSS entry (RSSI, channel, band) when
+            // the scan is readable. Missing data stays `None` — never inferred.
+            let connected_bssid = &assoc.dot11Bssid;
+            if let Ok(entries) = bss_scan(session, &info.InterfaceGuid) {
+                if let Some(entry) = entries.iter().find(|e| &e.dot11Bssid == connected_bssid) {
+                    let freq_mhz = entry.ulChCenterFrequency as u64 / 1_000;
+                    status.rssi_dbm = Some(entry.lRssi);
+                    status.channel = channel_from_freq(freq_mhz);
+                    status.frequency_mhz = (freq_mhz > 0).then_some(freq_mhz);
+                    status.band = band_from_freq(freq_mhz);
+                }
+            }
         }
     }
     status

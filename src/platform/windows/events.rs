@@ -112,8 +112,85 @@ pub fn get_recent_events(q: &EventQuery) -> Result<Vec<EventInfo>, WinkitError> 
 }
 
 fn render_event(handle: *mut std::ffi::c_void) -> Option<EventInfo> {
-    let xml = render_event_xml(handle)?;
-    parse_event_xml(&xml)
+    let mut info = parse_event_xml(&render_event_xml(handle)?)?;
+    if info.message.is_none() {
+        // The XML render never carries a `<Message>` element; ask the provider
+        // manifest directly, exactly like Event Viewer / Get-WinEvent do.
+        if let Some(provider) = &info.provider {
+            info.message = format_message(provider, handle);
+        }
+    }
+    Some(info)
+}
+
+/// Render the provider-formatted message for an event handle (parameter
+/// substitution included). Returns `None` when the provider publishes no
+/// message template (its payload lives only in `EventData`).
+fn format_message(provider: &str, handle: *mut std::ffi::c_void) -> Option<String> {
+    // Classic sources (SCM, Application Error, NetBT, ...) are only
+    // resolvable through an explicit publisher-metadata handle; a null
+    // metadata handle fails with ERROR_EVT_MESSAGE_NOT_FOUND for them.
+    let provider_wide = to_wide(provider);
+    let metadata = unsafe {
+        ffi::EvtOpenPublisherMetadata(
+            null_mut(),
+            provider_wide.as_ptr(),
+            null_mut(),
+            0,
+            0,
+        )
+    };
+    if metadata.is_null() {
+        return None;
+    }
+    let result = format_message_with_metadata(metadata, handle);
+    unsafe { ffi::EvtClose(metadata) };
+    result
+}
+
+fn format_message_with_metadata(
+    metadata: *mut std::ffi::c_void,
+    handle: *mut std::ffi::c_void,
+) -> Option<String> {
+    let mut used: u32 = 0;
+    let probe = unsafe {
+        ffi::EvtFormatMessage(
+            metadata,
+            handle,
+            0,
+            0,
+            null_mut(),
+            ffi::EVT_FORMAT_MESSAGE_EVENT,
+            0,
+            null_mut(),
+            &mut used,
+        )
+    };
+    if probe == 0 {
+        let err = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        if err != ERROR_INSUFFICIENT_BUFFER || used == 0 {
+            return None;
+        }
+    }
+    let mut buf = vec![0u16; used as usize];
+    let mut written: u32 = 0;
+    let ok = unsafe {
+        ffi::EvtFormatMessage(
+            metadata,
+            handle,
+            0,
+            0,
+            null_mut(),
+            ffi::EVT_FORMAT_MESSAGE_EVENT,
+            buf.len() as u32,
+            buf.as_mut_ptr() as *mut std::ffi::c_void,
+            &mut written,
+        )
+    };
+    if ok == 0 {
+        return None;
+    }
+    Some(wide_to_string(&buf[..(written as usize).min(buf.len())]))
 }
 
 /// Render one event to its XML form.
@@ -182,6 +259,10 @@ fn parse_event_xml(xml: &str) -> Option<EventInfo> {
     let mut in_system = false;
     let mut in_rendering = false;
     let mut current_field: Option<String> = None;
+    // The rendered `Message` can arrive as several text chunks (surrounding
+    // whitespace, entity boundaries); accumulate and flush once so a trailing
+    // whitespace chunk can never blank an already-captured message.
+    let mut message_buf = String::new();
 
     loop {
         match reader.read_event_into(&mut buf) {
@@ -208,14 +289,14 @@ fn parse_event_xml(xml: &str) -> Option<EventInfo> {
             }
             Ok(Event::Text(t)) => {
                 if let Some(field) = &current_field {
-                    let text = t.unescape().unwrap_or_default().trim().to_string();
+                    let text = t.unescape().unwrap_or_default();
                     match field.as_str() {
-                        "Message" => info.message = Some(text),
-                        "EventID" => info.event_id = text.parse::<u32>().ok(),
-                        "Level" => info.level = EventLevel::from_u32(text.parse().unwrap_or(0)),
-                        "Channel" => info.channel = Some(text),
-                        "Computer" => info.computer = Some(text),
-                        "EventRecordID" => info.record_id = text.parse::<u64>().ok(),
+                        "Message" => message_buf.push_str(&text),
+                        "EventID" => info.event_id = text.trim().parse::<u32>().ok(),
+                        "Level" => info.level = EventLevel::from_u32(text.trim().parse().unwrap_or(0)),
+                        "Channel" => info.channel = Some(text.trim().to_string()),
+                        "Computer" => info.computer = Some(text.trim().to_string()),
+                        "EventRecordID" => info.record_id = text.trim().parse::<u64>().ok(),
                         _ => {}
                     }
                 }
@@ -228,6 +309,13 @@ fn parse_event_xml(xml: &str) -> Option<EventInfo> {
                     _ => {}
                 }
                 if current_field.as_deref() == Some(name.as_str()) {
+                    if name == "Message" {
+                        let message = message_buf.trim();
+                        if !message.is_empty() {
+                            info.message = Some(message.to_string());
+                        }
+                        message_buf.clear();
+                    }
                     current_field = None;
                 }
             }
@@ -287,4 +375,100 @@ pub fn system_error_query(max_results: usize, since_minutes: Option<u64>) -> Eve
 /// RFC3339 helper re-export for consistency.
 pub fn now_rfc3339() -> String {
     time::format_rfc3339(std::time::SystemTime::now())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A representative wevtapi rendered-event XML: `System` metadata plus a
+    /// `RenderingInfo` section with the formatted message.
+    fn rendered_event_xml() -> &'static str {
+        r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'>
+  <System>
+    <Provider Name='Application Error'/>
+    <EventID>1000</EventID>
+    <Level>2</Level>
+    <TimeCreated SystemTime='2026-08-15T19:27:00.000Z'/>
+    <EventRecordID>12345</EventRecordID>
+    <Execution ProcessID='1234' ThreadID='0'/>
+    <Channel>Application</Channel>
+    <Computer>HOST</Computer>
+  </System>
+  <EventData>
+    <Data Name='AppName'>chrome.exe</Data>
+  </EventData>
+  <RenderingInfo Culture='en-US'>
+    <Message>Faulting application name: chrome.exe &amp; helper, version: 126.0.6478.127, time stamp: 0x667b7e6c
+Faulting module name: chrome.dll, version: 126.0.6478.127, time stamp: 0x667b7d99
+Exception code: 0xc0000005
+  </Message>
+    <Level>Error</Level>
+    <Task>Application Crashing Events</Task>
+    <Opcode>Info</Opcode>
+    <Channel>Application</Channel>
+    <Provider>Application Error</Provider>
+  </RenderingInfo>
+</Event>"#
+    }
+
+    #[test]
+    fn parse_rendered_event_extracts_fields() {
+        let info = parse_event_xml(rendered_event_xml()).expect("representative event should parse");
+        let message = info.message.as_deref().unwrap_or("");
+        assert!(
+            message.contains("Faulting application name"),
+            "message should keep the faulting app line, got: {message:?}"
+        );
+        assert!(
+            message.contains("chrome.exe & helper"),
+            "message should decode XML entities, got: {message:?}"
+        );
+        assert_eq!(info.process_id, Some(1234));
+        assert_eq!(info.event_id, Some(1000));
+        assert_eq!(info.provider.as_deref(), Some("Application Error"));
+        assert_eq!(info.channel.as_deref(), Some("Application"));
+        assert_eq!(info.record_id, Some(12345));
+        assert_eq!(info.level, EventLevel::Error);
+        assert!(
+            info.time_created.as_deref().unwrap_or("").starts_with("2026-08-15"),
+            "time_created was {:?}",
+            info.time_created
+        );
+    }
+
+    #[test]
+    fn parse_without_rendering_info_leaves_message_none() {
+        let xml = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'>
+  <System>
+    <Provider Name='Application Error'/>
+    <EventID>1000</EventID>
+    <Level>2</Level>
+    <TimeCreated SystemTime='2026-08-15T19:27:00.000Z'/>
+    <EventRecordID>12345</EventRecordID>
+    <Execution ProcessID='1234' ThreadID='0'/>
+    <Channel>Application</Channel>
+    <Computer>HOST</Computer>
+  </System>
+  <EventData>
+    <Data Name='AppName'>chrome.exe</Data>
+  </EventData>
+</Event>"#;
+        let info = parse_event_xml(xml).expect("raw event should parse");
+        assert_eq!(info.message, None, "no RenderingInfo means no fabricated message");
+        assert_eq!(info.process_id, Some(1234));
+        assert_eq!(info.event_id, Some(1000));
+        assert_eq!(info.provider.as_deref(), Some("Application Error"));
+        assert_eq!(info.record_id, Some(12345));
+    }
+
+    #[test]
+    fn whitespace_only_message_stays_none() {
+        let xml = "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'>\
+            <System><Provider Name='P'/><EventID>1000</EventID></System>\
+            <RenderingInfo Culture='en-US'><Message>  </Message></RenderingInfo>\
+            </Event>";
+        let info = parse_event_xml(xml).expect("event should parse");
+        assert_eq!(info.message, None, "whitespace-only Message must not become an empty string");
+    }
 }

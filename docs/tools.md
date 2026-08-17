@@ -325,19 +325,25 @@ Application log at information level.
 
 Arguments: `log` (default `Application`), `level` (`critical`/`error`/
 `warning`/`info`/`verbose`, default `info`), `since_minutes`, `provider`,
-`event_id`, `max_results`.
+`event_id`, `max_results`, `skip_null_messages` (default `false`).
 
 ### `get_application_errors`
 
 Recent errors from the Application event log.
 
 Arguments: same as `get_recent_events`, with `level` defaulting to `error`.
+`skip_null_messages` defaults to `true` here (and for `get_system_errors`)
+unless a `provider` or `event_id` filter is given: events whose provider
+publishes no message text (e.g. repeated null-message entries that bury real
+crashes) are dropped and the skipped count is reported as
+`skipped_null_messages`. Set `skip_null_messages: false` to see them.
 
 ### `get_system_errors`
 
 Recent errors from the System event log.
 
-Arguments: same as `get_recent_events`, with `level` defaulting to `error`.
+Arguments: same as `get_recent_events`, with `level` defaulting to `error`,
+and the same `skip_null_messages` default as `get_application_errors`.
 
 ## Windows
 
@@ -539,12 +545,15 @@ and `port`. Returns `metric`, `classification` (`flat`, `sustained`,
 Samples are scheduled on absolute times from the start of the observation:
 sample *i* targets `i * interval_ms`, so a slow measurement delays later
 samples but never compounds drift. Every `elapsed_ms` is the real time at
-which that measurement finished; the first sample is not stamped at 0 ms.
-Sampling stops at the absolute `window_ms` deadline and never busy-waits — if
-a target has already passed, the next sample is taken immediately and the
-overrun is reported once. A measurement already in flight when the deadline
-expires is allowed to finish and is recorded with its real elapsed time; the
-deadline only prevents *starting* further samples.
+which that measurement finished (a fast measurement may therefore be stamped
+near 0 ms — the value is honest, not a fixed schedule offset). Sampling stops
+at the absolute `window_ms` deadline and never busy-waits — if a target has
+already passed, the next sample is taken immediately and the overrun is
+reported once. A measurement already in flight when the deadline expires is
+allowed to finish and is recorded with its real elapsed time; the deadline
+only prevents *starting* further samples. The final scheduled sample (whose
+target is exactly the window) is always allowed to start, so a default call
+never reports a spurious deadline limitation.
 
 The window is clamped to `[200, max_window_ms]` (default 120 s), the interval
 to `[200, window_ms]`, and the sample count to `[2, max_samples]` (default

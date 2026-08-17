@@ -64,7 +64,9 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_FLAG_BACKUP_SEMANTICS, FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
     FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
-use windows_sys::Win32::System::Ioctl::{FSCTL_ENUM_USN_DATA, MFT_ENUM_DATA_V0};
+use windows_sys::Win32::System::Ioctl::{
+    FSCTL_ENUM_USN_DATA, FSCTL_GET_NTFS_VOLUME_DATA, MFT_ENUM_DATA_V0, NTFS_VOLUME_DATA_BUFFER,
+};
 use windows_sys::Win32::System::IO::DeviceIoControl;
 
 /// Large output buffer: one `DeviceIoControl` call returns many records.
@@ -187,6 +189,41 @@ pub fn open_volume(root: &str) -> Result<HANDLE, WinkitError> {
         return Err(last_error(&format!("CreateFileW('{device}')")));
     }
     Ok(handle)
+}
+
+/// Estimate the total number of MFT file records on the volume, used as the
+/// denominator for live scan progress. Reads `FSCTL_GET_NTFS_VOLUME_DATA`
+/// through the same volume handle the enumerator uses; the valid MFT byte
+/// count divided by the bytes per file-record segment approximates how many
+/// records `FSCTL_ENUM_USN_DATA` will stream. Returns `None` when the FSCTL
+/// fails or the data is unusable — progress then simply has no total (never
+/// a guessed percent).
+pub fn mft_total_records(volume_root: &str) -> Option<u64> {
+    let handle = open_volume(volume_root).ok()?;
+    let mut data: NTFS_VOLUME_DATA_BUFFER = unsafe { std::mem::zeroed() };
+    let mut returned: u32 = 0;
+    let ok = unsafe {
+        DeviceIoControl(
+            handle,
+            FSCTL_GET_NTFS_VOLUME_DATA,
+            std::ptr::null(),
+            0,
+            &mut data as *mut NTFS_VOLUME_DATA_BUFFER as *mut std::ffi::c_void,
+            std::mem::size_of::<NTFS_VOLUME_DATA_BUFFER>() as u32,
+            &mut returned,
+            std::ptr::null_mut(),
+        )
+    };
+    unsafe { CloseHandle(handle) };
+    if ok == 0 {
+        return None;
+    }
+    let valid_bytes = data.MftValidDataLength;
+    let bytes_per_record = data.BytesPerFileRecordSegment;
+    if valid_bytes <= 0 || bytes_per_record == 0 {
+        return None;
+    }
+    Some(valid_bytes as u64 / bytes_per_record as u64)
 }
 
 /// Read the filesystem name for a volume root (e.g. `NTFS`, `FAT32`).

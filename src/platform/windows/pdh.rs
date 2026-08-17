@@ -5,8 +5,10 @@
 //! close. A counter that does not exist (`PDH_CSTATUS_NO_OBJECT`) is
 //! reported as `None`/unavailable rather than an error, because Windows
 //! hides some counters when the corresponding hardware is absent.
-
-use std::time::Instant;
+//!
+//! `disk_activity` deliberately keeps *all* counters for *all* disks in one
+//! PDH query so the two samples cost a single sleep, not one sleep per
+//! counter per disk.
 
 use windows_sys::Win32::System::Performance::{
     PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhEnumObjectItemsW,
@@ -22,6 +24,16 @@ use crate::models::{DiskActivity, SensorAvailability, StorageActivity, Unavailab
 
 const PHYSICAL_DISK_OBJECT: &str = "PhysicalDisk";
 const PROCESSOR_INFORMATION_OBJECT: &str = "Processor Information";
+
+/// Per-disk activity counters, in the order `DiskActivity` fields expect.
+const DISK_COUNTERS: [&str; 6] = [
+    "% Disk Time",
+    "Current Disk Queue Length",
+    "Disk Read Bytes/sec",
+    "Disk Write Bytes/sec",
+    "Disk Reads/sec",
+    "Disk Writes/sec",
+];
 
 /// Build a counter path with `PdhMakeCounterPathW`, which handles instance
 /// name escaping correctly.
@@ -56,6 +68,7 @@ fn counter_path(object: &str, instance: Option<&str>, counter: &str) -> Option<S
     }
 }
 
+/// A single-counter PDH query (used by the CPU-frequency probe).
 struct PdhCounter {
     query: isize,
     counter: isize,
@@ -97,23 +110,7 @@ impl PdhCounter {
             if PdhCollectQueryData(self.query) != PDH_CSTATUS_VALID_DATA {
                 return None;
             }
-            let mut value: PDH_FMT_COUNTERVALUE = std::mem::zeroed();
-            let mut counter_type: u32 = 0;
-            let status = PdhGetFormattedCounterValue(
-                self.counter,
-                PDH_FMT_DOUBLE as PDH_FMT,
-                &mut counter_type,
-                &mut value,
-            );
-            if status != PDH_CSTATUS_VALID_DATA || value.CStatus != PDH_CSTATUS_VALID_DATA {
-                return None;
-            }
-            let v = value.Anonymous.doubleValue;
-            if v.is_finite() {
-                Some(v)
-            } else {
-                None
-            }
+            read_double(self.counter)
         }
     }
 }
@@ -121,6 +118,27 @@ impl PdhCounter {
 impl Drop for PdhCounter {
     fn drop(&mut self) {
         unsafe { PdhCloseQuery(self.query) };
+    }
+}
+
+/// Read the formatted double value of one counter already in a query.
+unsafe fn read_double(counter: isize) -> Option<f64> {
+    let mut value: PDH_FMT_COUNTERVALUE = std::mem::zeroed();
+    let mut counter_type: u32 = 0;
+    let status = PdhGetFormattedCounterValue(
+        counter,
+        PDH_FMT_DOUBLE as PDH_FMT,
+        &mut counter_type,
+        &mut value,
+    );
+    if status != PDH_CSTATUS_VALID_DATA || value.CStatus != PDH_CSTATUS_VALID_DATA {
+        return None;
+    }
+    let v = value.Anonymous.doubleValue;
+    if v.is_finite() {
+        Some(v)
+    } else {
+        None
     }
 }
 
@@ -143,6 +161,12 @@ pub fn cpu_performance_percent() -> Option<f64> {
 }
 
 /// Enumerate `PhysicalDisk` instances (e.g. `0`, `1 C:`, `NVMe`).
+///
+/// The instance list is a double-NUL-terminated sequence of wide strings.
+/// Early PDH documentation claimed the list opens with a blank placeholder
+/// instance, but in practice the first entry can be a real disk, so we skip
+/// only empty strings and the aggregate `_Total` instance — never a fixed
+/// first position (which would silently drop the first physical disk).
 fn physical_disk_instances() -> Vec<String> {
     unsafe {
         let object = crate::utils::to_wide(PHYSICAL_DISK_OBJECT);
@@ -178,37 +202,33 @@ fn physical_disk_instances() -> Vec<String> {
         if status != PDH_CSTATUS_VALID_DATA {
             return Vec::new();
         }
-        // The instance list is a double-NUL-terminated sequence of wide
-        // strings, starting with a "blank" instance name.
         let mut out = Vec::new();
         let mut i = 0usize;
-        let mut first = true;
         while i < instance_buf.len() && instance_buf[i] != 0 {
             let mut end = i;
             while end < instance_buf.len() && instance_buf[end] != 0 {
                 end += 1;
             }
-            if !first {
-                out.push(crate::utils::wide_to_string(&instance_buf[i..end]));
+            let name = crate::utils::wide_to_string(&instance_buf[i..end]);
+            if !name.is_empty() && !name.eq_ignore_ascii_case("_total") {
+                out.push(name);
             }
-            first = false;
             i = end + 1;
         }
         out
     }
 }
 
-fn disk_counter(instance: &str, counter: &str, gap_ms: u64) -> Option<f64> {
-    let path = counter_path(PHYSICAL_DISK_OBJECT, Some(instance), counter)?;
-    let c = PdhCounter::new(&path)?;
-    c.sample_double(gap_ms)
-}
-
 /// Sample per-disk activity over a window. `% Disk Time` and
 /// `Current Disk Queue Length` are read as instantaneous averages across the
 /// window; transfer counters as rates.
+///
+/// All counters for all disks live in one PDH query, so the two samples
+/// (`PdhCollectQueryData`, sleep `gap_ms`, `PdhCollectQueryData`) run once
+/// for the whole report — the total cost is one gap, not one gap per counter
+/// per disk. `sample_window_ms` in the result is the requested window, not
+/// the measured elapsed time.
 pub fn disk_activity(sample_window_ms: u64) -> Result<StorageActivity, WinkitError> {
-    let started = Instant::now();
     let gap_ms = sample_window_ms.min(1_000);
 
     let instances = physical_disk_instances();
@@ -228,33 +248,84 @@ pub fn disk_activity(sample_window_ms: u64) -> Result<StorageActivity, WinkitErr
         });
     }
 
+    let mut query: isize = 0;
+    let opened = unsafe { PdhOpenQueryW(std::ptr::null(), 0, &mut query) } == PDH_CSTATUS_VALID_DATA;
+    if !opened {
+        return Ok(StorageActivity {
+            status: "unavailable".into(),
+            timestamp: crate::utils::time::format_rfc3339(std::time::SystemTime::now()),
+            sample_window_ms,
+            disks: Vec::new(),
+            completeness: "limited".into(),
+            unavailable: vec![UnavailableReading::new(
+                "physical_disk",
+                "activity",
+                SensorAvailability::Unavailable,
+                "a PDH query for the PhysicalDisk object could not be opened",
+            )],
+        });
+    }
+
+    // `handles[disk][counter]` — `None` when that counter does not exist.
+    let mut handles: Vec<Vec<Option<isize>>> =
+        vec![vec![None; DISK_COUNTERS.len()]; instances.len()];
+    for (di, instance) in instances.iter().enumerate() {
+        for (ci, counter) in DISK_COUNTERS.iter().enumerate() {
+            if let Some(path) = counter_path(PHYSICAL_DISK_OBJECT, Some(instance), counter) {
+                let mut h: isize = 0;
+                let status = unsafe {
+                    PdhAddEnglishCounterW(query, crate::utils::to_wide(&path).as_ptr(), 0, &mut h)
+                };
+                if status == PDH_CSTATUS_VALID_DATA {
+                    handles[di][ci] = Some(h);
+                }
+            }
+        }
+    }
+
+    // Two samples for the whole query: first immediately, second after the
+    // gap. Both must succeed for any rate to be readable.
+    let first_ok =
+        unsafe { PdhCollectQueryData(query) } == PDH_CSTATUS_VALID_DATA;
+    unsafe { Sleep(gap_ms as u32) };
+    let second_ok =
+        unsafe { PdhCollectQueryData(query) } == PDH_CSTATUS_VALID_DATA;
+    let samples_ok = first_ok && second_ok;
+
     let mut disks = Vec::with_capacity(instances.len());
-    for instance in &instances {
+    for (di, instance) in instances.iter().enumerate() {
         let mut disk = DiskActivity {
             device: instance.clone(),
             ..Default::default()
         };
-        disk.busy_percent = disk_counter(instance, "% Disk Time", gap_ms);
-        disk.avg_queue_depth = disk_counter(instance, "Current Disk Queue Length", gap_ms);
-        disk.read_bytes_per_second = disk_counter(instance, "Disk Read Bytes/sec", gap_ms);
-        disk.write_bytes_per_second = disk_counter(instance, "Disk Write Bytes/sec", gap_ms);
-        disk.read_per_second = disk_counter(instance, "Disk Reads/sec", gap_ms);
-        disk.write_per_second = disk_counter(instance, "Disk Writes/sec", gap_ms);
+        if samples_ok {
+            disk.busy_percent = handles[di][0].and_then(|h| unsafe { read_double(h) });
+            disk.avg_queue_depth = handles[di][1].and_then(|h| unsafe { read_double(h) });
+            disk.read_bytes_per_second = handles[di][2].and_then(|h| unsafe { read_double(h) });
+            disk.write_bytes_per_second = handles[di][3].and_then(|h| unsafe { read_double(h) });
+            disk.read_per_second = handles[di][4].and_then(|h| unsafe { read_double(h) });
+            disk.write_per_second = handles[di][5].and_then(|h| unsafe { read_double(h) });
+        }
         disk.availability = if disk.busy_percent.is_some() || disk.avg_queue_depth.is_some() {
             SensorAvailability::Available
         } else {
             SensorAvailability::Unavailable
         };
         if disk.availability != SensorAvailability::Available {
-            disk.reason = Some("no usable counters for this disk".into());
+            disk.reason = Some(if samples_ok {
+                "no usable counters for this disk".into()
+            } else {
+                "the PDH samples could not be collected for this disk".into()
+            });
         }
         disks.push(disk);
     }
+    unsafe { PdhCloseQuery(query) };
 
     Ok(StorageActivity {
         status: "ok".into(),
         timestamp: crate::utils::time::format_rfc3339(std::time::SystemTime::now()),
-        sample_window_ms: started.elapsed().as_millis() as u64,
+        sample_window_ms,
         disks,
         completeness: "full".into(),
         unavailable: Vec::new(),

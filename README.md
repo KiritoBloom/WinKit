@@ -89,7 +89,7 @@ single heaviest tab, then whether it is getting worse.
   explain exactly what would be required.
 - **Provider architecture** — everything sits behind `WindowsBackend` /
   `ApplicationProvider` traits; the real Win32 layer is fully separable, and a
-  mock backend plus deterministic fixtures power a 363-test suite
+  mock backend plus deterministic fixtures power a 381-test suite
   (`cargo test --features mocks`) with no machine dependency.
 - **Hardened by construction** — bounded results, per-tool timeouts, payload
   caps, an 8 MiB transport frame cap, strict JSON schema validation, and
@@ -263,11 +263,12 @@ the Windows layer is testable through a mock backend
 
 WinKit treats limits as first-class output, not bugs:
 
-- **Per-process CPU percent is intentionally not reported.** The naive
-  system-ratio calculation is misleading on multi-core machines. WinKit
-  reports CPU *time* per process and CPU *percent* only at the aggregate level
-  (`ApplicationGroupInfo`), where the basis (`system_capacity_all_cores`) is
-  explicit.
+- **Per-process CPU percent is a live sample, not a cumulative measure.** The
+  naive system-ratio calculation is misleading on multi-core machines, so
+  `list_processes` (a cheap full snapshot) reports `cpu_percent: null`. To spot
+  a runaway process, `get_process` samples a live two-sample CPU percent over a
+  300 ms window with an explicit basis (`system_capacity_all_cores`); the
+  aggregate view (`ApplicationGroupInfo`) does the same with a 1 s sample.
 - **Chrome can't always map a tab to a PID** — the adapter reports
   `process_mapping: "none"` and continues with pure CDP evidence rather than
   failing or guessing.
@@ -286,7 +287,7 @@ WinKit treats limits as first-class output, not bugs:
 ```powershell
 cargo check                 # compile checks
 cargo build                 # debug build
-cargo test --features mocks # full test suite (363 tests)
+cargo test --features mocks # full test suite (381 tests)
 cargo clippy --all-targets  # lint
 
 # evaluation suite (fixture-backed failure scenarios)

@@ -295,6 +295,12 @@ impl Default for ScanOptions {
 /// the caller can produce a `limited` report.
 pub fn scan_workspace(root: &Path, options: &ScanOptions) -> WorkspaceScan {
     let started = std::time::Instant::now();
+    // Windows canonicalization yields the extended-length `\\?\` prefix; strip it
+    // so reported paths match what the user sees in Explorer and terminals.
+    let clean_root = PathBuf::from(
+        root.to_string_lossy().trim_start_matches("\\\\?\\"),
+    );
+    let root = clean_root.as_path();
     let mut scan = WorkspaceScan {
         root: root.to_string_lossy().into_owned(),
         display_name: root
@@ -1072,11 +1078,13 @@ mod tests {
 
         let resolved = canonicalize_workspace(&ws.to_string_lossy(), &[], &[]).unwrap();
         let scan = scan_workspace(&resolved, &ScanOptions::default());
-        let repo_canonical = repo.canonicalize().unwrap();
-        assert_eq!(
-            scan.repo_root.as_deref(),
-            Some(repo_canonical.to_string_lossy().as_ref())
-        );
+        let repo_canonical = repo
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .trim_start_matches("\\\\?\\")
+            .to_owned();
+        assert_eq!(scan.repo_root.as_deref(), Some(repo_canonical.as_str()));
         assert_eq!(scan.repository.branch.as_deref(), Some("develop"));
         assert_eq!(scan.scripts, vec!["build".to_string(), "dev".to_string()]);
         let _ = std::fs::remove_dir_all(&parent);
@@ -1100,6 +1108,31 @@ mod tests {
         let scan = scan_workspace(&dir, &options);
         assert!(scan.entries_scanned <= 25);
         assert!(scan.truncated);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn strips_extended_length_prefix_from_reported_root() {
+        let dir = temp_dir("prefix");
+        std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
+        let input = if cfg!(windows) {
+            // Canonicalization on Windows produces this extended-length form.
+            PathBuf::from(format!("\\\\?\\{}", dir.display()))
+        } else {
+            dir.clone()
+        };
+        let scan = scan_workspace(&input, &ScanOptions::default());
+        assert_eq!(scan.root, dir.display().to_string());
+        assert_eq!(
+            scan.display_name,
+            dir.file_name().unwrap().to_string_lossy().into_owned()
+        );
+        let cargo = scan
+            .manifests
+            .iter()
+            .find(|m| m.kind == ManifestKind::Cargo)
+            .expect("manifest still detected with prefixed root");
+        assert_eq!(cargo.name.as_deref(), Some("x"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

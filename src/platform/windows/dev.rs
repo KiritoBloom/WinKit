@@ -74,6 +74,13 @@ fn candidate_names(name: &str, windows: bool, extensions: &[String]) -> Vec<Stri
 
 /// Search `dirs` (PATH entries) for `name`, honoring `extensions`.
 /// Pure and injectable so tests can control the PATH and PATHEXT.
+///
+/// On Windows an extensionless file must not shadow a conventional shim:
+/// `C:\Program Files\nodejs\npm` can be a Unix-style shell script that
+/// `Command::new` cannot execute (error 193), while `npm.cmd` next to it
+/// works. When the bare name resolves to an extensionless file in a
+/// directory, the extension-bearing candidate in the *same* directory wins;
+/// the extensionless file is only used when nothing else exists there.
 fn find_in_path_for(
     name: &str,
     dirs: &[PathBuf],
@@ -82,11 +89,25 @@ fn find_in_path_for(
 ) -> Option<PathBuf> {
     let candidates = candidate_names(name, windows, extensions);
     for dir in dirs {
+        let mut extensionless: Option<PathBuf> = None;
         for candidate in &candidates {
-            let candidate = dir.join(candidate);
-            if candidate.is_file() {
-                return Some(candidate);
+            let path = dir.join(candidate);
+            if !path.is_file() {
+                continue;
             }
+            if Path::new(candidate).extension().is_some() {
+                // A conventional executable/shim beats an extensionless file
+                // in the same directory.
+                return Some(path);
+            }
+            if extensionless.is_none() {
+                extensionless = Some(path);
+            }
+        }
+        // No extension-bearing candidate in this directory: fall back to the
+        // extensionless file (still before later PATH directories).
+        if let Some(p) = extensionless {
+            return Some(p);
         }
     }
     None

@@ -571,16 +571,15 @@ fn collect_memory(opts: &HardwareOptions) -> (MemoryHardwareInfo, Vec<Unavailabl
         ));
         return (info, unavailable);
     }
+    // `total_bytes` mirrors `system_info.total_memory_bytes`: usable physical
+    // memory from `GlobalMemoryStatusEx`, so both tools report the same value.
+    info.total_bytes =
+        crate::platform::windows::system::memory_status().map(|(_, total, _)| total);
+    // The module count is only known from WMI (`Win32_PhysicalMemory`); when
+    // the query fails the count stays `None` while the total still stands.
     match query_cimv2("SELECT Capacity FROM Win32_PhysicalMemory") {
         Ok(objs) => {
             info.module_count = Some(objs.len() as u32);
-            let total: u64 = objs
-                .iter()
-                .filter_map(|o| o.get("Capacity").and_then(WmiValue::as_u64))
-                .sum();
-            if total > 0 {
-                info.total_bytes = Some(total);
-            }
         }
         Err(e) => {
             unavailable.push(UnavailableReading::new(

@@ -9,7 +9,7 @@ use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, HANDLE,
 };
 use windows_sys::Win32::System::Registry::{
-    RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE, KEY_READ,
+    RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE, KEY_READ, REG_DWORD,
 };
 use windows_sys::Win32::System::Services::{
     EnumServicesStatusExW, OpenSCManagerW, OpenServiceW, QueryServiceConfigW, QueryServiceStatusEx,
@@ -145,7 +145,117 @@ fn registry_display_name(service_name: &str) -> String {
     out
 }
 
+/// Config values WinKit reads from a service's registry key; missing values
+/// stay `None` (never fabricated).
+struct RegistryServiceConfig {
+    start_type: Option<String>,
+    binary_path: Option<String>,
+    service_start_name: Option<String>,
+}
+
+/// Read a `REG_DWORD` value from an open registry key.
+fn read_reg_dword(key: HANDLE, value_name: &str) -> Option<u32> {
+    let value_wide = crate::utils::to_wide(value_name);
+    let mut buf = [0u8; 4];
+    let mut ty = 0u32;
+    let mut size = 4u32;
+    let rc = unsafe {
+        RegQueryValueExW(
+            key,
+            value_wide.as_ptr(),
+            null_mut(),
+            &mut ty,
+            buf.as_mut_ptr(),
+            &mut size,
+        )
+    };
+    if rc == 0 && ty == REG_DWORD && size == 4 {
+        Some(u32::from_le_bytes(buf))
+    } else {
+        None
+    }
+}
+
+/// Read a `REG_SZ`/`REG_EXPAND_SZ` value from an open registry key.
+fn read_reg_string(key: HANDLE, value_name: &str) -> Option<String> {
+    let value_wide = crate::utils::to_wide(value_name);
+    let mut len: u32 = 0;
+    let rc = unsafe {
+        RegQueryValueExW(
+            key,
+            value_wide.as_ptr(),
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            &mut len,
+        )
+    };
+    if rc != 0 || len == 0 {
+        return None;
+    }
+    let mut buf = vec![0u16; (len as usize).div_ceil(2)];
+    let mut size = len;
+    let rc = unsafe {
+        RegQueryValueExW(
+            key,
+            value_wide.as_ptr(),
+            null_mut(),
+            null_mut(),
+            buf.as_mut_ptr() as *mut u8,
+            &mut size,
+        )
+    };
+    if rc != 0 {
+        return None;
+    }
+    let value = wide_to_string(&buf[..(size as usize).min(buf.len() * 2) / 2]);
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+/// Read a service's start type (`Start`), binary path (`ImagePath`), and
+/// account (`ObjectName`) from `SYSTEM\CurrentControlSet\Services\<name>`,
+/// mirroring the `registry_display_name` pattern. The SCM keeps these values
+/// in the registry, so listing avoids a per-service `QueryServiceConfigW`.
+fn registry_service_config(service_name: &str) -> RegistryServiceConfig {
+    let subkey = format!("SYSTEM\\CurrentControlSet\\Services\\{service_name}");
+    let subkey_wide = crate::utils::to_wide(&subkey);
+    let mut key = null_mut();
+    let rc = unsafe {
+        RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            subkey_wide.as_ptr(),
+            0,
+            KEY_READ,
+            &mut key,
+        )
+    };
+    if rc != 0 || key.is_null() {
+        return RegistryServiceConfig {
+            start_type: None,
+            binary_path: None,
+            service_start_name: None,
+        };
+    }
+    let start_type = read_reg_dword(key, "Start").map(|t| start_type_name(t).to_string());
+    let binary_path = read_reg_string(key, "ImagePath");
+    let service_start_name = read_reg_string(key, "ObjectName");
+    unsafe { RegCloseKey(key) };
+    RegistryServiceConfig {
+        start_type,
+        binary_path,
+        service_start_name,
+    }
+}
+
 /// List services, bounded by `limit`.
+///
+/// Start type, binary path, and the service account are read from each
+/// service's registry key (`SYSTEM\CurrentControlSet\Services\<name>`); a
+/// value that cannot be read is left `None`.
 pub fn list_services(limit: usize) -> Result<Vec<ServiceInfo>, WinkitError> {
     let scm = open_scm()?;
     let mut needed: u32 = 0;
@@ -200,16 +310,18 @@ pub fn list_services(limit: usize) -> Result<Vec<ServiceInfo>, WinkitError> {
     let mut out = Vec::with_capacity(count);
     for e in entries {
         let status = &e.ServiceStatusProcess;
+        let name = pwstr_in_buffer(e.lpServiceName, buf_start, buf_len);
+        let config = registry_service_config(&name);
         out.push(ServiceInfo {
-            name: pwstr_in_buffer(e.lpServiceName, buf_start, buf_len),
+            name,
             display_name: pwstr_in_buffer(e.lpDisplayName, buf_start, buf_len),
             state: state_name(status.dwCurrentState).to_string(),
             service_type: service_type_name(status.dwServiceType),
             process_id: (status.dwProcessId != 0).then_some(status.dwProcessId),
             win32_exit_code: (status.dwWin32ExitCode != 0).then_some(status.dwWin32ExitCode),
-            start_type: None,
-            binary_path: None,
-            service_start_name: None,
+            start_type: config.start_type,
+            binary_path: config.binary_path,
+            service_start_name: config.service_start_name,
         });
     }
     unsafe { CloseHandle(scm) };
@@ -306,5 +418,21 @@ pub fn service_summary() -> (usize, usize) {
             (running, list.len())
         }
         Err(_) => (0, 0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_type_name_maps_registry_values() {
+        // Registry `Start` values: 0=boot, 1=system, 2=auto, 3=manual, 4=disabled.
+        assert_eq!(start_type_name(0), "boot");
+        assert_eq!(start_type_name(1), "system");
+        assert_eq!(start_type_name(2), "auto");
+        assert_eq!(start_type_name(3), "manual");
+        assert_eq!(start_type_name(4), "disabled");
+        assert_eq!(start_type_name(99), "unknown");
     }
 }

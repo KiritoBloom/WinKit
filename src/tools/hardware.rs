@@ -14,19 +14,26 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Run a blocking provider call under the configured probe budget.
+/// Run a blocking provider call under the configured probe budget on a
+/// worker thread, so a WMI/battery/thermal call that runs long cannot block
+/// the async runtime (and the timeout can actually preempt it).
 pub(crate) async fn probe<T>(
     budget_ms: u64,
-    f: impl FnOnce() -> Result<T, WinkitError>,
-) -> Result<T, WinkitError> {
+    f: impl FnOnce() -> Result<T, WinkitError> + Send + 'static,
+) -> Result<T, WinkitError>
+where
+    T: Send + 'static,
+{
     let budget = Duration::from_millis(budget_ms.max(1));
-    tokio::time::timeout(budget, async { f() })
+    let task = tokio::task::spawn_blocking(f);
+    tokio::time::timeout(budget, task)
         .await
         .map_err(|_| {
             WinkitError::timeout(format!(
                 "hardware probe exceeded the {budget_ms} ms probe budget"
             ))
         })?
+        .map_err(|e| WinkitError::internal(format!("hardware probe task failed: {e}")))?
 }
 
 /// Clamp a requested sample window into `1..=max`.
@@ -39,7 +46,7 @@ pub async fn hardware_snapshot_handler(
     _args: Value,
 ) -> Result<Value, WinkitError> {
     let budget = state.config.hardware.probe_timeout_ms;
-    let snapshot = probe(budget, || state.windows.hardware_snapshot()).await?;
+    let snapshot = probe(budget, move || state.windows.hardware_snapshot()).await?;
     Ok(serde_json::to_value(snapshot)?)
 }
 
@@ -60,7 +67,7 @@ pub async fn thermal_snapshot_handler(
     _args: Value,
 ) -> Result<Value, WinkitError> {
     let budget = state.config.hardware.probe_timeout_ms;
-    let snapshot = probe(budget, || state.windows.thermal_snapshot()).await?;
+    let snapshot = probe(budget, move || state.windows.thermal_snapshot()).await?;
     Ok(serde_json::to_value(snapshot)?)
 }
 
@@ -81,7 +88,7 @@ pub async fn battery_status_handler(
     _args: Value,
 ) -> Result<Value, WinkitError> {
     let budget = state.config.hardware.probe_timeout_ms;
-    let status = probe(budget, || state.windows.battery_status()).await?;
+    let status = probe(budget, move || state.windows.battery_status()).await?;
     Ok(serde_json::to_value(status)?)
 }
 
@@ -102,7 +109,7 @@ pub async fn power_status_handler(
     _args: Value,
 ) -> Result<Value, WinkitError> {
     let budget = state.config.hardware.probe_timeout_ms;
-    let status = probe(budget, || state.windows.power_status()).await?;
+    let status = probe(budget, move || state.windows.power_status()).await?;
     Ok(serde_json::to_value(status)?)
 }
 
@@ -120,7 +127,7 @@ pub fn power_status_definition() -> ToolDefinition {
 
 pub async fn disk_health_handler(state: Arc<AppState>, _args: Value) -> Result<Value, WinkitError> {
     let budget = state.config.hardware.probe_timeout_ms;
-    let report = probe(budget, || state.windows.disk_health()).await?;
+    let report = probe(budget, move || state.windows.disk_health()).await?;
     Ok(serde_json::to_value(report)?)
 }
 
@@ -145,7 +152,7 @@ pub async fn disk_performance_handler(
     let window = sample_window(optional_u64(&args, "sample_window_ms"), max_window);
     // The sample window itself must fit inside the probe budget.
     let probe_budget = budget.max(window.saturating_add(1000));
-    let activity = probe(probe_budget, || state.windows.storage_activity(window)).await?;
+    let activity = probe(probe_budget, move || state.windows.storage_activity(window)).await?;
     Ok(serde_json::to_value(activity)?)
 }
 
@@ -172,7 +179,7 @@ pub async fn network_snapshot_handler(
     _args: Value,
 ) -> Result<Value, WinkitError> {
     let budget = state.config.hardware.probe_timeout_ms;
-    let snapshot = probe(budget, || state.windows.network_snapshot()).await?;
+    let snapshot = probe(budget, move || state.windows.network_snapshot()).await?;
     Ok(serde_json::to_value(snapshot)?)
 }
 
@@ -196,7 +203,7 @@ pub async fn network_diagnose_handler(
     let max_window = state.config.limits.operation_timeout_ms;
     let window = sample_window(optional_u64(&args, "sample_window_ms"), max_window);
     let probe_budget = budget.max(window.saturating_add(1000));
-    let diagnosis = probe(probe_budget, || state.windows.network_diagnose(window)).await?;
+    let diagnosis = probe(probe_budget, move || state.windows.network_diagnose(window)).await?;
     Ok(serde_json::to_value(diagnosis)?)
 }
 
@@ -220,7 +227,7 @@ pub fn network_diagnose_definition() -> ToolDefinition {
 
 pub async fn wifi_status_handler(state: Arc<AppState>, _args: Value) -> Result<Value, WinkitError> {
     let budget = state.config.hardware.probe_timeout_ms;
-    let adapters = probe(budget, || state.windows.wifi_status()).await?;
+    let adapters = probe(budget, move || state.windows.wifi_status()).await?;
     let count = adapters.len();
     Ok(json!({ "adapters": adapters, "count": count }))
 }
@@ -239,7 +246,7 @@ pub fn wifi_status_definition() -> ToolDefinition {
 
 pub async fn wifi_scan_handler(state: Arc<AppState>, _args: Value) -> Result<Value, WinkitError> {
     let budget = state.config.hardware.probe_timeout_ms;
-    let scan = probe(budget, || state.windows.wifi_scan()).await?;
+    let scan = probe(budget, move || state.windows.wifi_scan()).await?;
     Ok(serde_json::to_value(scan)?)
 }
 

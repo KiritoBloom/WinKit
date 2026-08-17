@@ -33,6 +33,7 @@ async fn system_info_returns_mock_os_data() {
     let out = call(&state, "system_info", json!({})).await.unwrap();
     assert_eq!(out["system"]["hostname"], "mock-host");
     assert_eq!(out["system"]["cpu_cores"], 8);
+    assert_eq!(out["system"]["logical_processors"], 16);
     assert!(out["permissions"]["mode"] == "read_only");
     let provider_ids: Vec<&str> = out["providers"]
         .as_array()

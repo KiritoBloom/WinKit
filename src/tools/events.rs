@@ -8,8 +8,8 @@ use crate::models::EventQuery;
 use crate::permissions::Capability;
 use crate::server::AppState;
 use crate::tools::{
-    clamp_limit, level_to_min, optional_string, optional_u32, optional_u64, optional_usize, wrap,
-    ToolDefinition,
+    clamp_limit, level_to_min, optional_bool, optional_string, optional_u32, optional_u64,
+    optional_usize, wrap, ToolDefinition,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -45,14 +45,36 @@ fn query_from_args(
     })
 }
 
+/// Run a query and project the response.
+///
+/// `skip_null_default` is the default for `skip_null_messages`: error tools
+/// drop events whose provider publishes no message template by default,
+/// because a flood of `message: null` entries (e.g. 148 identical Spotify
+/// Event 100 rows) buries the real crashes an agent is looking for. Targeted
+/// queries (`provider` or `event_id` given) keep every match.
 async fn run_event_query(
     state: Arc<AppState>,
     args: Value,
     default_log: &str,
     default_min_level: u32,
+    skip_null_default: bool,
 ) -> Result<Value, WinkitError> {
     let query = query_from_args(&args, &state, default_log, default_min_level)?;
-    let events = state.windows.get_recent_events(&query)?;
+    let mut events = state.windows.get_recent_events(&query)?;
+    let skip_nulls = optional_bool(&args, "skip_null_messages")
+        .unwrap_or(skip_null_default && query.provider.is_none() && query.event_id.is_none());
+    if skip_nulls {
+        let dropped = events.iter().filter(|e| e.message.is_none()).count();
+        events.retain(|e| e.message.is_some());
+        let count = events.len();
+        return Ok(json!({
+            "log": query.log,
+            "events": events,
+            "count": count,
+            "truncated": count == query.max_results,
+            "skipped_null_messages": dropped,
+        }));
+    }
     let count = events.len();
     Ok(json!({
         "log": query.log,
@@ -66,21 +88,21 @@ pub async fn get_recent_events_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    run_event_query(state, args, "Application", 4).await
+    run_event_query(state, args, "Application", 4, false).await
 }
 
 pub async fn get_application_errors_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    run_event_query(state, args, "Application", 2).await
+    run_event_query(state, args, "Application", 2, true).await
 }
 
 pub async fn get_system_errors_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    run_event_query(state, args, "System", 2).await
+    run_event_query(state, args, "System", 2, true).await
 }
 
 fn event_schema() -> Value {
@@ -93,6 +115,7 @@ fn event_schema() -> Value {
             "event_id": { "type": "integer", "description": "Restrict to one event ID." },
             "since_minutes": { "type": "integer", "minimum": 1, "description": "Only events newer than this many minutes." },
             "max_results": { "type": "integer", "minimum": 1, "description": "Maximum results (defaults to the configured limit)." },
+            "skip_null_messages": { "type": "boolean", "description": "Drop events whose provider publishes no message text. Defaults to true for get_application_errors/get_system_errors unless provider or event_id filters are given; false for get_recent_events." },
         },
         "additionalProperties": false,
     })
@@ -112,7 +135,7 @@ pub fn get_recent_events_definition() -> ToolDefinition {
 pub fn get_application_errors_definition() -> ToolDefinition {
     ToolDefinition {
         name: "get_application_errors",
-        description: "Recent errors from the Application event log.",
+        description: "Recent errors from the Application event log. By default events whose provider publishes no message text are skipped (they are noise — e.g. repeated null-message entries that bury real crashes); pass skip_null_messages=false or filter by provider/event_id to see them.",
         input_schema: event_schema(),
         capability: Some(Capability::EventRead),
         timeout_ms: None,
@@ -123,7 +146,7 @@ pub fn get_application_errors_definition() -> ToolDefinition {
 pub fn get_system_errors_definition() -> ToolDefinition {
     ToolDefinition {
         name: "get_system_errors",
-        description: "Recent errors from the System event log.",
+        description: "Recent errors from the System event log. By default events whose provider publishes no message text are skipped (noise); pass skip_null_messages=false or filter by provider/event_id to see them.",
         input_schema: event_schema(),
         capability: Some(Capability::EventRead),
         timeout_ms: None,

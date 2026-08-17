@@ -224,7 +224,28 @@ fn system_measurements(data: &SystemDiagnosticData) -> Vec<Measurement> {
             unit: "bytes".into(),
             scope: "application".into(),
             subject: Some(g.display_name.clone()),
-            detail: "Sum of working set across all processes of this executable.".into(),
+            detail: format!(
+                "Tree-inclusive working set across {} processes ({} own + descendants).",
+                g.tree_process_count, g.process_count
+            ),
+        });
+        out.push(Measurement {
+            metric: "own_working_set_bytes".into(),
+            value: format!("{:.1} GB", g.own_working_set_bytes as f64 / 1e9),
+            value_number: Some(g.own_working_set_bytes as f64),
+            unit: "bytes".into(),
+            scope: "application".into(),
+            subject: Some(g.display_name.clone()),
+            detail: "Working set of this executable's own processes only (excludes descendants).".into(),
+        });
+        out.push(Measurement {
+            metric: "tree_process_count".into(),
+            value: g.tree_process_count.to_string(),
+            value_number: Some(g.tree_process_count as f64),
+            unit: "processes".into(),
+            scope: "application".into(),
+            subject: Some(g.display_name.clone()),
+            detail: "Processes in the tree, including descendants.".into(),
         });
         if let Some(v) = g.cpu_percent {
             out.push(Measurement {
@@ -426,7 +447,15 @@ fn system_signals_and_findings(
 
     if let Some(load) = data.memory_load_percent {
         if load >= health.high_memory_load_percent {
-            let score = memory_pressure_score(load, health.high_memory_load_percent);
+            let available_percent = match (data.memory_available_bytes, data.memory_total_bytes) {
+                (Some(avail), Some(total)) if total > 0 => Some(avail as f64 / total as f64 * 100.0),
+                _ => None,
+            };
+            let score = memory_pressure_score(
+                load,
+                health.high_memory_load_percent,
+                available_percent,
+            );
             let (severity, confidence) = score_bands(score);
             let available = data.memory_available_bytes.unwrap_or(0);
             signals.push(DiagnosticSignal {
@@ -506,9 +535,9 @@ fn system_signals_and_findings(
                     detail: "100% = all logical processors fully busy".into(),
                 }],
                 detail: format!(
-                    "{} used {cpu:.1}% of system CPU capacity across {} processes, above the {:.0}% threshold.",
+                    "{} used {cpu:.1}% of system CPU capacity across {} processes (including descendants), above the {:.0}% threshold.",
                     g.display_name,
-                    g.process_count,
+                    g.tree_process_count,
                     health.high_cpu_percent
                 ),
             });
@@ -541,16 +570,29 @@ fn system_signals_and_findings(
                 confidence: confidence.into(),
                 score,
                 subject: g.display_name.clone(),
-                evidence: vec![EvidencePoint {
-                    metric: "working_set_bytes".into(),
-                    value: format!("{:.1} GB", g.working_set_bytes as f64 / 1e9),
-                    detail: "total working set across all processes of this executable".into(),
-                }],
+                evidence: vec![
+                    EvidencePoint {
+                        metric: "working_set_bytes".into(),
+                        value: format!("{:.1} GB", g.working_set_bytes as f64 / 1e9),
+                        detail: "total working set across the process tree (this executable plus descendants)".into(),
+                    },
+                    EvidencePoint {
+                        metric: "own_working_set_bytes".into(),
+                        value: format!("{:.1} GB", g.own_working_set_bytes as f64 / 1e9),
+                        detail: "working set of this executable's own processes only".into(),
+                    },
+                    EvidencePoint {
+                        metric: "tree_process_count".into(),
+                        value: g.tree_process_count.to_string(),
+                        detail: "processes in the tree (including descendants)".into(),
+                    },
+                ],
                 detail: format!(
-                    "{} holds {:.1} GB of working set across {} processes, above the {:.0} GB threshold.",
+                    "{} holds {:.1} GB of working set across {} processes (including descendants; the executable's own processes use {:.0} MB). Above the {:.0} GB threshold.",
                     g.display_name,
                     g.working_set_bytes as f64 / 1e9,
-                    g.process_count,
+                    g.tree_process_count,
+                    g.own_working_set_bytes as f64 / (1024.0 * 1024.0),
                     health.high_memory_bytes as f64 / 1e9
                 ),
             });
@@ -944,14 +986,18 @@ mod tests {
                     name: "chrome".into(),
                     display_name: "Google Chrome".into(),
                     process_count: 12,
+                    tree_process_count: 27,
                     working_set_bytes: 4_600_000_000,
+                    own_working_set_bytes: 1_400_000_000,
                     cpu_percent: Some(57.0),
                 },
                 crate::models::SystemAppEvidence {
                     name: "node".into(),
                     display_name: "Node.js".into(),
                     process_count: 1,
+                    tree_process_count: 1,
                     working_set_bytes: 2_100_000_000,
+                    own_working_set_bytes: 2_100_000_000,
                     cpu_percent: Some(2.0),
                 },
             ],
@@ -1028,7 +1074,9 @@ mod tests {
                 name: "node".into(),
                 display_name: "Node.js".into(),
                 process_count: 1,
+                tree_process_count: 1,
                 working_set_bytes: 100_000_000,
+                own_working_set_bytes: 100_000_000,
                 cpu_percent: Some(1.0),
             }],
             ..SystemDiagnosticData::default()
@@ -1085,7 +1133,9 @@ mod tests {
                 name: "node".into(),
                 display_name: "Node.js".into(),
                 process_count: 1,
+                tree_process_count: 1,
                 working_set_bytes: 100_000_000,
+                own_working_set_bytes: 100_000_000,
                 cpu_percent: None,
             }],
             ..SystemDiagnosticData::default()

@@ -413,6 +413,29 @@ pub fn disk_health(opts: &HardwareOptions) -> Result<DiskHealthReport, WinkitErr
         .any(|d| d.health_status.as_deref() == Some("warning"));
     let any_unknown = devices.iter().any(|d| d.health_status.is_none());
 
+    // `full` only when every device carries real S.M.A.R.T.-derived
+    // attributes. A device whose health came from the OS storage stack
+    // (`MSFT_PhysicalDisk`) has a status but no attribute data, so the
+    // report is `limited` — it must not claim the S.M.A.R.T. completeness
+    // it does not have.
+    let smart_complete = !devices.is_empty()
+        && devices.iter().all(|d| {
+            d.percentage_used.is_some()
+                || d.available_spare.is_some()
+                || d.media_errors.is_some()
+                || d.power_on_hours.is_some()
+                || d.unsafe_shutdowns.is_some()
+                || d.data_units_read.is_some()
+                || d.data_units_written.is_some()
+                || d.reallocated_sectors.is_some()
+                || d.temperature_c.is_some()
+        });
+    let completeness = if unavailable.is_empty() && (devices.is_empty() || smart_complete) {
+        "full"
+    } else {
+        "limited"
+    };
+
     Ok(DiskHealthReport {
         status: if any_critical {
             "critical".into()
@@ -428,12 +451,7 @@ pub fn disk_health(opts: &HardwareOptions) -> Result<DiskHealthReport, WinkitErr
         timestamp: crate::utils::time::format_rfc3339(std::time::SystemTime::now()),
         duration_ms: started.elapsed().as_millis() as u64,
         devices,
-        completeness: if unavailable.is_empty() {
-            "full"
-        } else {
-            "limited"
-        }
-        .into(),
+        completeness: completeness.into(),
         unavailable,
     })
 }

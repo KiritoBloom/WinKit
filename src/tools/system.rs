@@ -83,16 +83,24 @@ pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Valu
     // Bounded hardware evidence (§64): a failed probe degrades to `null`
     // instead of failing the whole snapshot.
     let budget = cfg.hardware.probe_timeout_ms;
-    let disk_health = crate::tools::hardware::probe(budget, || state.windows.disk_health())
+    let disk_state = state.clone();
+    let disk_health = crate::tools::hardware::probe(budget, move || {
+        disk_state.windows.disk_health()
+    })
+    .await
+    .ok();
+    let thermal_state = state.clone();
+    let thermals = crate::tools::hardware::probe(budget, move || {
+        thermal_state.windows.thermal_snapshot()
+    })
+    .await
+    .ok();
+    let power_state = state.clone();
+    let power = crate::tools::hardware::probe(budget, move || power_state.windows.power_status())
         .await
         .ok();
-    let thermals = crate::tools::hardware::probe(budget, || state.windows.thermal_snapshot())
-        .await
-        .ok();
-    let power = crate::tools::hardware::probe(budget, || state.windows.power_status())
-        .await
-        .ok();
-    let wifi = crate::tools::hardware::probe(budget, || state.windows.wifi_status())
+    let wifi_state = state.clone();
+    let wifi = crate::tools::hardware::probe(budget, move || wifi_state.windows.wifi_status())
         .await
         .ok();
 
@@ -105,6 +113,7 @@ pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Valu
             "uptime_seconds": system.uptime_seconds,
             "hostname": system.hostname,
             "cpu_cores": system.cpu_cores,
+            "logical_processors": system.logical_processors,
         },
         "resources": resources,
         "processes": {

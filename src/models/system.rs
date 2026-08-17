@@ -15,7 +15,11 @@ pub struct SystemInfo {
     /// RFC3339 boot time, when derivable.
     pub boot_time: Option<String>,
     pub hostname: Option<String>,
+    /// Physical processor core count (matches `hardware_snapshot.cores`).
     pub cpu_cores: u32,
+    /// Logical processors (threads), from `GetSystemInfo` — this is what
+    /// was previously mislabeled as `cpu_cores`.
+    pub logical_processors: u32,
     pub total_memory_bytes: Option<u64>,
 }
 

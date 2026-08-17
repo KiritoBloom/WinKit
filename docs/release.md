@@ -27,7 +27,7 @@ tests exercise.
 
 Releases are cut from `main` with a version bump, a changelog entry, and a
 tagged build, per [CONTRIBUTING](../CONTRIBUTING.md). The current version is
-`0.1.2` (`Cargo.toml` and both `npm/*/package.json` files); the examples
+`0.1.3` (`Cargo.toml` and both `npm/*/package.json` files); the examples
 below use `vX.Y.Z` and `YYYY-MM-DD` placeholders wherever the actual value is
 decided at release time.
 
@@ -44,7 +44,7 @@ local run is a good proxy for a green tag build.
   clean (the `--features mocks` form additionally compiles the
   mocks-gated test surface).
 - [ ] **Tests** — `cargo test` (no features) and
-`cargo test --features mocks` pass: 363 tests with the feature (357
+`cargo test --features mocks` pass: 381 tests with the feature (375
   without), split across lib unit tests, the fixture-backed evaluation
   suite (`tests/eval`), protocol, fixture, and mock-tool integration
   tests. No test touches the real machine. The evaluation suite is
@@ -67,7 +67,7 @@ local run is a good proxy for a green tag build.
   exit-code propagation, and missing-runtime behavior through the installed
   launcher.
 - [ ] **Docs consistency** — README states 69 tools and the current test
-  count (363 with `--features mocks`, 357 without); the tool count matches the registry
+  count (381 with `--features mocks`, 375 without); the tool count matches the registry
   in `src/tools/` and the test count matches the `cargo test` output. Every
   link in the README docs list points to an existing file — write any
   missing doc or drop the link before release.
@@ -164,7 +164,7 @@ carries the name.
 
 Publishing is a **separate, explicit, credentialed step** — pull-request CI
 never publishes, and nothing is published automatically. The package version
-must match the crate version (`0.1.2` today). Requirements:
+must match the crate version (`0.1.3` today). Requirements:
 
 1. Both packages have been staged and validated locally (the checklist above
    covers pack dry-runs, package-content validation, and the packed-package
@@ -190,7 +190,7 @@ final `npm pack --dry-run` and the packed-package smoke test right before
 publishing. After publishing, verify from a clean directory:
 
 ```bash
-npx --yes @winkit/mcp@0.1.2 doctor
+npx --yes @winkit/mcp@0.1.3 doctor
 ```
 
 ## GitHub release notes

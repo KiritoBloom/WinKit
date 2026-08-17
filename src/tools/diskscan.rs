@@ -34,6 +34,7 @@ where
 fn diagnostics_json(
     volume: &str,
     scanner: &str,
+    fast_path_unavailable: &Option<String>,
     cached: bool,
     snapshot_age_ms: Option<u64>,
 ) -> Value {
@@ -42,6 +43,7 @@ fn diagnostics_json(
         "scanner": scanner,
         "cached": cached,
         "snapshot_age_ms": snapshot_age_ms,
+        "fast_path_unavailable": fast_path_unavailable,
     })
 }
 
@@ -66,7 +68,7 @@ pub async fn disk_scan_handler(state: Arc<AppState>, args: Value) -> Result<Valu
 pub fn disk_scan_definition() -> ToolDefinition {
     ToolDefinition {
         name: "disk_scan",
-        description: "Scan the volume containing a path and return a compact storage summary: capacity, indexed counts, largest files, and largest folders. Uses a fast NTFS MFT metadata scan when possible; when the fast path is unavailable (e.g. volume access denied without an elevated token) it falls back to a recursive scan of the requested directory and reports scanner='recursive_fallback' with the reason in fast_path_unavailable. Results are cached per scope, so repeated calls are instant. Use refresh=true to force a rescan.",
+        description: "Scan the volume containing a path and return a compact storage summary: capacity, indexed counts, largest files, and largest folders. Uses a fast NTFS MFT metadata scan when possible; when the fast path is unavailable (e.g. volume access denied without an elevated token) it falls back to a recursive scan of the requested directory and reports scanner='recursive_fallback' with the reason in fast_path_unavailable. On a full volume the first scan can take several minutes; for live progress (percent complete and ETA) use disk_scan_start and poll disk_scan_status instead. Results are cached per scope, so repeated calls are instant. Use refresh=true to force a rescan.",
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -209,6 +211,7 @@ pub async fn disk_scan_largest_files_handler(
             entries,
             volume,
             scanner,
+            fast_path_unavailable,
             cached,
             snapshot_age_ms,
         } => {
@@ -217,7 +220,13 @@ pub async fn disk_scan_largest_files_handler(
                 "files": entries,
                 "count": count,
                 "truncated": count == limit,
-                "diagnostics": diagnostics_json(&volume, &scanner, cached, snapshot_age_ms),
+                "diagnostics": diagnostics_json(
+                    &volume,
+                    &scanner,
+                    &fast_path_unavailable,
+                    cached,
+                    snapshot_age_ms,
+                ),
             }))
         }
         _ => Err(WinkitError::internal("unexpected query result kind")),
@@ -267,6 +276,7 @@ pub async fn disk_scan_largest_folders_handler(
             entries,
             volume,
             scanner,
+            fast_path_unavailable,
             cached,
             snapshot_age_ms,
         } => {
@@ -275,7 +285,13 @@ pub async fn disk_scan_largest_folders_handler(
                 "folders": entries,
                 "count": count,
                 "truncated": count == limit,
-                "diagnostics": diagnostics_json(&volume, &scanner, cached, snapshot_age_ms),
+                "diagnostics": diagnostics_json(
+                    &volume,
+                    &scanner,
+                    &fast_path_unavailable,
+                    cached,
+                    snapshot_age_ms,
+                ),
             }))
         }
         _ => Err(WinkitError::internal("unexpected query result kind")),
@@ -319,11 +335,18 @@ pub async fn disk_scan_folder_size_handler(
             folder,
             volume,
             scanner,
+            fast_path_unavailable,
             cached,
             snapshot_age_ms,
         } => Ok(json!({
             "folder": folder,
-            "diagnostics": diagnostics_json(&volume, &scanner, cached, snapshot_age_ms),
+            "diagnostics": diagnostics_json(
+                &volume,
+                &scanner,
+                &fast_path_unavailable,
+                cached,
+                snapshot_age_ms,
+            ),
         })),
         _ => Err(WinkitError::internal("unexpected query result kind")),
     }
@@ -375,6 +398,7 @@ pub async fn disk_scan_find_handler(
             truncated,
             volume,
             scanner,
+            fast_path_unavailable,
             cached,
             snapshot_age_ms,
         } => {
@@ -383,7 +407,13 @@ pub async fn disk_scan_find_handler(
                 "files": entries,
                 "count": count,
                 "truncated": truncated,
-                "diagnostics": diagnostics_json(&volume, &scanner, cached, snapshot_age_ms),
+                "diagnostics": diagnostics_json(
+                    &volume,
+                    &scanner,
+                    &fast_path_unavailable,
+                    cached,
+                    snapshot_age_ms,
+                ),
             }))
         }
         _ => Err(WinkitError::internal("unexpected query result kind")),

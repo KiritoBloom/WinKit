@@ -112,6 +112,12 @@ pub struct DiskScanStatusInfo {
     pub files_so_far: u64,
     pub directories_so_far: u64,
     pub elapsed_ms: u64,
+    /// 0-100 percent complete when a total can be estimated; None otherwise
+    /// (e.g. a recursive fallback walk with no known total).
+    pub progress_percent: Option<f64>,
+    /// Estimated seconds remaining when progress is known and < 100; None
+    /// otherwise.
+    pub eta_seconds: Option<u64>,
     pub done: bool,
     pub cancelled: bool,
     pub error: Option<String>,
@@ -146,6 +152,10 @@ pub enum DiskQueryResult {
         /// Diagnostics: how the answer was produced.
         volume: String,
         scanner: String,
+        /// Set when the fast path was unavailable and the scan fell back;
+        /// carried verbatim from the snapshot so query tools name the exact
+        /// reason like `disk_scan` does.
+        fast_path_unavailable: Option<String>,
         cached: bool,
         snapshot_age_ms: Option<u64>,
     },
@@ -153,6 +163,7 @@ pub enum DiskQueryResult {
         entries: Vec<ScanFolderEntry>,
         volume: String,
         scanner: String,
+        fast_path_unavailable: Option<String>,
         cached: bool,
         snapshot_age_ms: Option<u64>,
     },
@@ -160,6 +171,7 @@ pub enum DiskQueryResult {
         folder: ScanFolderSize,
         volume: String,
         scanner: String,
+        fast_path_unavailable: Option<String>,
         cached: bool,
         snapshot_age_ms: Option<u64>,
     },
@@ -168,6 +180,7 @@ pub enum DiskQueryResult {
         truncated: bool,
         volume: String,
         scanner: String,
+        fast_path_unavailable: Option<String>,
         cached: bool,
         snapshot_age_ms: Option<u64>,
     },

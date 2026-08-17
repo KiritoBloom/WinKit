@@ -33,9 +33,9 @@ cargo test
 cargo test --features mocks
 ```
 
-The suite has 363 tests with the feature (357 without), split across:
+The suite has 381 tests with the feature (375 without), split across:
 
-- Lib unit tests (282; 288 with the `mocks` feature) — diagnostics
+- Lib unit tests (310; 316 with the `mocks` feature) — diagnostics
   engine, permission policy, config
   strictness, tool helpers, and the managed-Chrome lifecycle
   (construction, containment, loopback, readiness handshake, timeout,
@@ -57,7 +57,7 @@ The suite has 363 tests with the feature (357 without), split across:
   asserts status, evidence, finding IDs, supporting vs contradicting
   evidence, redaction, bounded output, permission behavior, and no false
   root-cause claims. See `tests/eval/README.md`.
-- `tests/mcp_protocol.rs` (21) — protocol behavior: initialize negotiation,
+- `tests/mcp_protocol.rs` (22) — protocol behavior: initialize negotiation,
   pre-initialize rejection, tools/list, tools/call, parse errors, unknown
   methods, notifications, ping.
 - `tests/tools_mock.rs` (15) — tool dispatch against the mock backend:

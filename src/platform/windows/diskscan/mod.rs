@@ -243,6 +243,9 @@ pub struct ScanProgress {
     records: AtomicU64,
     files: AtomicU64,
     dirs: AtomicU64,
+    /// Denominator for percent progress: 0 means no total is known and
+    /// progress must stay `None` (honest — never a guess).
+    total_records: AtomicU64,
 }
 
 impl Default for ScanProgress {
@@ -258,6 +261,7 @@ impl ScanProgress {
             records: AtomicU64::new(0),
             files: AtomicU64::new(0),
             dirs: AtomicU64::new(0),
+            total_records: AtomicU64::new(0),
         }
     }
     pub fn set_phase(&self, phase: &str) {
@@ -283,6 +287,32 @@ impl ScanProgress {
     }
     pub fn dirs(&self) -> u64 {
         self.dirs.load(Ordering::Relaxed)
+    }
+    pub fn set_total_records(&self, n: u64) {
+        self.total_records.store(n, Ordering::Relaxed);
+    }
+    pub fn total_records(&self) -> u64 {
+        self.total_records.load(Ordering::Relaxed)
+    }
+    /// 0-100 percent complete when a total is known; `None` when the total
+    /// is unknown (e.g. a recursive fallback walk). Never a guess.
+    pub fn progress_percent(&self) -> Option<f64> {
+        let total = self.total_records();
+        if total == 0 {
+            return None;
+        }
+        let records = self.records();
+        Some((records as f64 / total as f64 * 100.0).clamp(0.0, 100.0))
+    }
+    /// Estimated seconds remaining at the current rate, given the elapsed
+    /// time. `None` while progress is zero or unknown; `Some(0)` at 100%.
+    pub fn eta_seconds(&self, elapsed_ms: u64) -> Option<u64> {
+        let pct = self.progress_percent()?;
+        if pct <= 0.0 {
+            return None;
+        }
+        let remaining = (100.0 - pct) / pct * elapsed_ms as f64 / 1000.0;
+        Some(remaining.ceil() as u64)
     }
 }
 
@@ -744,6 +774,11 @@ fn scan_ntfs(
 ) -> Result<DiskSnapshot, WinkitError> {
     let t0 = Instant::now();
     if let Some(p) = progress {
+        // Denominator for the enumeration phase: total MFT records, when the
+        // volume reports them. Unavailable → no percent (honest, never a guess).
+        if let Some(total) = ntfs::mft_total_records(&plan.volume_root) {
+            p.set_total_records(total);
+        }
         p.set_phase("enumeration");
     }
     let (mut records, names, root_frn, _raw) =
@@ -756,6 +791,10 @@ fn scan_ntfs(
     let (orphans, duplicates, extra_links) = postprocess(&mut records, root_frn);
 
     if let Some(p) = progress {
+        // From here the enumerated record count is the exact denominator.
+        // The records counter already sits at the enumeration total, so the
+        // size pass and indexing phases report 100% of the enumeration.
+        p.set_total_records(records.len() as u64);
         p.set_phase("size_pass");
     }
     let t1 = Instant::now();
@@ -1086,6 +1125,13 @@ struct CompletedScan {
 
 impl CompletedScan {
     fn to_status(&self) -> DiskScanStatusInfo {
+        // A completed scan either reached 100% (phase "done") or never
+        // finished (cancelled/failed) — only "done" claims completion.
+        let (progress_percent, eta_seconds) = if self.phase == "done" {
+            (Some(100.0), Some(0))
+        } else {
+            (None, None)
+        };
         DiskScanStatusInfo {
             scan_id: self.scan_id.clone(),
             volume: self.volume_root.clone(),
@@ -1094,6 +1140,8 @@ impl CompletedScan {
             files_so_far: self.files_so_far,
             directories_so_far: self.directories_so_far,
             elapsed_ms: self.elapsed_ms,
+            progress_percent,
+            eta_seconds,
             done: true,
             cancelled: self.phase == "cancelled",
             error: self.error.clone(),
@@ -1354,6 +1402,16 @@ impl DiskScanService {
         } else {
             None
         };
+        // Only a scan that actually reached "done" claims 100%; cancelled and
+        // failed scans never report a completion percent.
+        let (progress_percent, eta_seconds) = if phase == "done" {
+            (Some(100.0), Some(0))
+        } else {
+            (
+                rs.progress.progress_percent(),
+                rs.progress.eta_seconds(elapsed),
+            )
+        };
         DiskScanStatusInfo {
             scan_id: rs.scan_id.clone(),
             volume: rs.volume_root.clone(),
@@ -1362,6 +1420,8 @@ impl DiskScanService {
             files_so_far: rs.progress.files(),
             directories_so_far: rs.progress.dirs(),
             elapsed_ms: elapsed,
+            progress_percent,
+            eta_seconds,
             done,
             cancelled: phase == "cancelled",
             error,
@@ -1423,6 +1483,7 @@ impl DiskScanService {
         let snap = self.ensure_snapshot(&request.path)?;
         let age = snap.scanned_at.elapsed().ok().map(|d| d.as_millis() as u64);
         let scanner = snap.scanner.as_str().to_string();
+        let fast_path_unavailable = snap.fast_path_unavailable.clone();
         let volume = snap.volume_root.clone();
         let root_idx = snap.root_index();
         let idx = snap.resolve_path(&request.path)?;
@@ -1440,6 +1501,7 @@ impl DiskScanService {
                     entries,
                     volume,
                     scanner,
+                    fast_path_unavailable: fast_path_unavailable.clone(),
                     cached: true,
                     snapshot_age_ms: age,
                 }
@@ -1450,6 +1512,7 @@ impl DiskScanService {
                     entries,
                     volume,
                     scanner,
+                    fast_path_unavailable: fast_path_unavailable.clone(),
                     cached: true,
                     snapshot_age_ms: age,
                 }
@@ -1460,6 +1523,7 @@ impl DiskScanService {
                     folder,
                     volume,
                     scanner,
+                    fast_path_unavailable: fast_path_unavailable.clone(),
                     cached: true,
                     snapshot_age_ms: age,
                 }
@@ -1477,6 +1541,7 @@ impl DiskScanService {
                     truncated,
                     volume,
                     scanner,
+                    fast_path_unavailable: fast_path_unavailable.clone(),
                     cached: true,
                     snapshot_age_ms: age,
                 }
@@ -1820,6 +1885,35 @@ mod tests {
         assert_eq!(p.records(), 1000);
         assert_eq!(p.files(), 900);
         assert_eq!(p.dirs(), 100);
+    }
+
+    #[test]
+    fn progress_percent_and_eta_are_honest_and_deterministic() {
+        let p = ScanProgress::new();
+        // No total: percent is None, never a guess.
+        p.set_records(1000);
+        assert_eq!(p.progress_percent(), None);
+        assert_eq!(p.eta_seconds(10_000), None);
+
+        p.set_total_records(200);
+        p.set_records(50);
+        assert_eq!(p.progress_percent(), Some(25.0));
+        p.set_records(100);
+        assert_eq!(p.progress_percent(), Some(50.0));
+
+        // pct = 25, elapsed 10_000 ms → (75/25) * 10_000 / 1000 = 30 s.
+        p.set_records(50);
+        assert_eq!(p.eta_seconds(10_000), Some(30));
+
+        // Numerator above the total clamps to 100.
+        p.set_records(250);
+        assert_eq!(p.progress_percent(), Some(100.0));
+        assert_eq!(p.eta_seconds(10_000), Some(0));
+
+        // Zero progress gives no ETA.
+        p.set_records(0);
+        assert_eq!(p.progress_percent(), Some(0.0));
+        assert_eq!(p.eta_seconds(10_000), None);
     }
 
     #[test]

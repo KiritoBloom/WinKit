@@ -15,6 +15,7 @@ use crate::utils::wide_to_string;
 use std::collections::HashMap;
 use std::mem::size_of;
 use std::ptr::null_mut;
+use std::time::Duration;
 use windows_sys::Win32::Foundation::{CloseHandle, FILETIME, HANDLE};
 use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -27,6 +28,9 @@ use windows_sys::Win32::System::Threading::{
     GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_INFORMATION,
     PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
 };
+
+/// Sampling window for the two-sample CPU percent in `get_process`.
+const CPU_SAMPLE_MS: u64 = 300;
 
 /// A lightweight process entry from the Toolhelp snapshot.
 #[derive(Debug, Clone)]
@@ -227,38 +231,35 @@ unsafe fn read_process_command_line(handle: HANDLE) -> Option<String> {
     }
 }
 
-/// Full details for a single PID.
+/// Full details for a single PID, including a live two-sample CPU percent
+/// (basis `system_capacity_all_cores`) when the process is openable.
 pub fn get_process(pid: u32) -> Result<Option<ProcessInfo>, WinkitError> {
     let entries = snapshot_processes()?;
     let entry = entries.iter().find(|e| e.pid == pid);
-    let handle = open_process(pid, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ);
-    let result = handle.map(|h| {
-        let detail = build_process_info(entry, pid, &h);
+    if let Some(h) = open_process(pid, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ) {
+        let mut detail = build_process_info(entry, pid, &h, true);
+        detail.cpu_percent = sample_cpu_percent(pid);
         unsafe { CloseHandle(h) };
-        detail
-    });
-    Ok(result.or_else(|| {
-        entry.map(|e| ProcessInfo {
-            pid,
-            name: e.name.clone(),
-            parent_pid: e.ppid,
-            executable_path: None,
-            command_line: None,
-            working_set_bytes: None,
-            private_bytes: None,
-            threads: Some(e.threads),
-            start_time: None,
-            cpu_time_ms: None,
-            cpu_percent: None,
-        })
-    }))
+        Ok(Some(detail))
+    } else {
+        Ok(entry.map(|e| entry_only_info(e.clone())))
+    }
 }
 
-fn build_process_info(entry: Option<&ProcessEntry>, pid: u32, handle: &HANDLE) -> ProcessInfo {
+fn build_process_info(
+    entry: Option<&ProcessEntry>,
+    pid: u32,
+    handle: &HANDLE,
+    include_command_line: bool,
+) -> ProcessInfo {
     let mem = memory_counters(*handle);
     let (cpu_ms, start) = unsafe { process_times(*handle) }.unwrap_or((0, String::new()));
     let path = executable_path(*handle);
-    let cmdline = unsafe { read_process_command_line(*handle) };
+    let cmdline = if include_command_line {
+        unsafe { read_process_command_line(*handle) }
+    } else {
+        None
+    };
     ProcessInfo {
         pid,
         name: entry.map(|e| e.name.clone()).unwrap_or_else(|| {
@@ -278,6 +279,80 @@ fn build_process_info(entry: Option<&ProcessEntry>, pid: u32, handle: &HANDLE) -
     }
 }
 
+/// Toolhelp snapshot view for a process whose handle could not be opened.
+fn entry_only_info(e: ProcessEntry) -> ProcessInfo {
+    ProcessInfo {
+        pid: e.pid,
+        name: e.name,
+        parent_pid: e.ppid,
+        executable_path: None,
+        command_line: None,
+        working_set_bytes: None,
+        private_bytes: None,
+        threads: Some(e.threads),
+        start_time: None,
+        cpu_time_ms: None,
+        cpu_percent: None,
+    }
+}
+
+/// Skeleton for a PID with no Toolhelp entry (PID-enumeration fallback).
+fn pid_only_info(pid: u32) -> ProcessInfo {
+    ProcessInfo {
+        pid,
+        name: String::new(),
+        parent_pid: None,
+        executable_path: None,
+        command_line: None,
+        working_set_bytes: None,
+        private_bytes: None,
+        threads: None,
+        start_time: None,
+        cpu_time_ms: None,
+        cpu_percent: None,
+    }
+}
+
+/// Enrich a single Toolhelp entry into a `ProcessInfo`. Access-denied
+/// processes keep the snapshot view (null counters). When
+/// `include_command_line` is false the expensive PEB walk is skipped.
+fn enrich_entry(entry: ProcessEntry, include_command_line: bool) -> ProcessInfo {
+    let handle = open_process(entry.pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ);
+    if let Some(h) = handle {
+        let mut info = build_process_info(Some(&entry), entry.pid, &h, include_command_line);
+        info.name = if info.name.is_empty() {
+            entry.name.clone()
+        } else {
+            info.name
+        };
+        unsafe { CloseHandle(h) };
+        info
+    } else {
+        entry_only_info(entry)
+    }
+}
+
+/// Two-sample CPU percent for one PID over `CPU_SAMPLE_MS`, on the same
+/// basis as `application_groups` (`system_capacity_all_cores`). Returns
+/// `None` when the process cannot be opened or either sample fails.
+fn sample_cpu_percent(pid: u32) -> Option<f64> {
+    let first = cpu_time_pair(pid).ok()??;
+    let sys_first = crate::platform::windows::system::cpu_snapshot().ok()?;
+    std::thread::sleep(Duration::from_millis(CPU_SAMPLE_MS));
+    let sys_second = crate::platform::windows::system::cpu_snapshot().ok()?;
+    let second = cpu_time_pair(pid).ok()??;
+    let proc_delta = second.process_ms.saturating_sub(first.process_ms);
+    let sys_delta = sys_second
+        .kernel_ms
+        .saturating_sub(sys_first.kernel_ms)
+        .saturating_add(sys_second.user_ms.saturating_sub(sys_first.user_ms));
+    if sys_delta > 0 {
+        Some(proc_delta as f64 / sys_delta as f64 * 100.0)
+    } else {
+        None
+    }
+}
+
 /// Order a process listing: processes with a readable working set first,
 /// sorted by memory descending; the rest follow in PID order. This keeps
 /// the interesting (enriched) processes at the top of truncated listings
@@ -293,15 +368,17 @@ fn order_process_listing(mut processes: Vec<ProcessInfo>) -> Vec<ProcessInfo> {
     processes
 }
 
-/// List processes up to `limit`, with memory and CPU-time details. CPU
-/// *percentages* are intentionally not computed here (they require two
-/// samples per process); use `get_process` for that.
+/// Shared listing body for `list_processes` and `list_processes_minimal`.
 ///
 /// Every process is enriched before truncation, and the result is ordered
 /// by working-set memory with readable processes first, so a small
 /// `limit` still surfaces the heaviest processes rather than a run of
-/// protected system entries with unreadable counters.
-pub fn list_processes(limit: usize) -> Result<Vec<ProcessInfo>, WinkitError> {
+/// protected system entries with unreadable counters. When
+/// `include_command_line` is false the expensive PEB walk is skipped.
+fn list_processes_impl(
+    limit: usize,
+    include_command_line: bool,
+) -> Result<Vec<ProcessInfo>, WinkitError> {
     let entries = snapshot_processes()?;
     let mut pids: Vec<u32> = entries.iter().map(|e| e.pid).collect();
     if pids.is_empty() {
@@ -309,53 +386,31 @@ pub fn list_processes(limit: usize) -> Result<Vec<ProcessInfo>, WinkitError> {
         // to the PID enumeration so the tool still returns real data.
         pids = enum_pids()?;
     }
+    let by_pid: HashMap<u32, ProcessEntry> = entries.into_iter().map(|e| (e.pid, e)).collect();
     let mut out = Vec::with_capacity(pids.len());
     for pid in pids {
-        let entry = entries.iter().find(|e| e.pid == pid).cloned();
-        let handle = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ);
-        if let Some(h) = handle {
-            let mut info = build_process_info(entry.as_ref(), pid, &h);
-            info.name = if info.name.is_empty() {
-                entry.as_ref().map(|e| e.name.clone()).unwrap_or_default()
-            } else {
-                info.name
-            };
-            unsafe { CloseHandle(h) };
-            out.push(info);
-        } else if let Some(e) = entry {
-            // Access denied: still report the Toolhelp view.
-            out.push(ProcessInfo {
-                pid,
-                name: e.name,
-                parent_pid: e.ppid,
-                executable_path: None,
-                command_line: None,
-                working_set_bytes: None,
-                private_bytes: None,
-                threads: Some(e.threads),
-                start_time: None,
-                cpu_time_ms: None,
-                cpu_percent: None,
-            });
-        } else {
-            // No Toolhelp entry either (PID-enumeration fallback): report
-            // the PID alone rather than dropping the process silently.
-            out.push(ProcessInfo {
-                pid,
-                name: String::new(),
-                parent_pid: None,
-                executable_path: None,
-                command_line: None,
-                working_set_bytes: None,
-                private_bytes: None,
-                threads: None,
-                start_time: None,
-                cpu_time_ms: None,
-                cpu_percent: None,
-            });
+        match by_pid.get(&pid) {
+            Some(entry) => out.push(enrich_entry(entry.clone(), include_command_line)),
+            // No Toolhelp entry (PID-enumeration fallback): report the PID
+            // alone rather than dropping the process silently.
+            None => out.push(pid_only_info(pid)),
         }
     }
     Ok(order_process_listing(out).into_iter().take(limit).collect())
+}
+
+/// List processes up to `limit`, with memory and CPU-time details. CPU
+/// *percentages* are intentionally not computed here (they require two
+/// samples per process); use `get_process` for that.
+pub fn list_processes(limit: usize) -> Result<Vec<ProcessInfo>, WinkitError> {
+    list_processes_impl(limit, true)
+}
+
+/// Like `list_processes`, but skips the expensive PEB command-line walk:
+/// every process reports `command_line: None`. Intended for health
+/// aggregation, which does not need command lines.
+pub fn list_processes_minimal(limit: usize) -> Result<Vec<ProcessInfo>, WinkitError> {
+    list_processes_impl(limit, false)
 }
 
 /// Build a process tree rooted at `pid`, bounded by depth and node count.
@@ -374,8 +429,11 @@ pub fn process_tree(
             by_parent.entry(ppid).or_default().push(e.clone());
         }
     }
+    // PID -> entry index so each node resolves itself in O(1) instead of a
+    // linear scan of every entry (the old implementation was O(n²) overall).
+    let index: HashMap<u32, &ProcessEntry> = entries.iter().map(|e| (e.pid, e)).collect();
     let mut budget = max_nodes;
-    let root = build_node(pid, 0, max_depth, &by_parent, &mut budget);
+    let root = build_node(pid, 0, max_depth, &by_parent, &index, &mut budget);
     Ok(Some(root))
 }
 
@@ -384,6 +442,7 @@ fn build_node(
     depth: u32,
     max_depth: u32,
     by_parent: &HashMap<u32, Vec<ProcessEntry>>,
+    index: &HashMap<u32, &ProcessEntry>,
     budget: &mut usize,
 ) -> ProcessTreeNode {
     if *budget == 0 {
@@ -399,7 +458,7 @@ fn build_node(
         };
     }
     *budget -= 1;
-    let entry = by_parent.values().flatten().find(|e| e.pid == pid).cloned();
+    let entry = index.get(&pid).copied().cloned();
     let mut children = Vec::new();
     if depth < max_depth {
         if let Some(kids) = by_parent.get(&pid) {
@@ -407,7 +466,7 @@ fn build_node(
                 if *budget == 0 {
                     break;
                 }
-                children.push(build_node(kid.pid, depth + 1, max_depth, by_parent, budget));
+                children.push(build_node(kid.pid, depth + 1, max_depth, by_parent, index, budget));
             }
         }
     }
@@ -433,19 +492,26 @@ fn build_node(
     }
 }
 
+/// Keep only snapshot entries whose name contains `needle_lower`
+/// (case-insensitive). Pure, so the name-matching semantics of
+/// `find_process` are testable without a live host.
+fn filter_by_name(entries: Vec<ProcessEntry>, needle_lower: &str) -> Vec<ProcessEntry> {
+    entries
+        .into_iter()
+        .filter(|e| e.name.to_lowercase().contains(needle_lower))
+        .collect()
+}
+
 /// Find processes whose name contains `needle` (case-insensitive).
+///
+/// The full snapshot is scanned first — not just the top-N by memory — so a
+/// low-memory match is still found. Matches are enriched, ordered by working
+/// set (readable first), and truncated to `limit`.
 pub fn find_process(needle: &str, limit: usize) -> Result<Vec<ProcessInfo>, WinkitError> {
-    let needle_lower = needle.to_lowercase();
-    let mut found = Vec::new();
-    for proc in list_processes(limit * 4)? {
-        if proc.name.to_lowercase().contains(&needle_lower) {
-            found.push(proc);
-            if found.len() >= limit {
-                break;
-            }
-        }
-    }
-    Ok(found)
+    let entries = snapshot_processes()?;
+    let matched = filter_by_name(entries, &needle.to_lowercase());
+    let enriched: Vec<ProcessInfo> = matched.into_iter().map(|e| enrich_entry(e, true)).collect();
+    Ok(order_process_listing(enriched).into_iter().take(limit).collect())
 }
 
 /// Resolve a PID to a process name via a snapshot (used by network/window
@@ -521,5 +587,42 @@ mod tests {
         let ordered = order_process_listing(vec![proc(9, None), proc(2, None), proc(7, None)]);
         let pids: Vec<u32> = ordered.iter().map(|p| p.pid).collect();
         assert_eq!(pids, vec![2, 7, 9]);
+    }
+
+    #[test]
+    fn find_process_name_filter_is_case_insensitive_substring() {
+        let entries = vec![
+            ProcessEntry {
+                pid: 1,
+                ppid: None,
+                name: "chrome.exe".into(),
+                threads: 0,
+                priority: 0,
+            },
+            ProcessEntry {
+                pid: 2,
+                ppid: None,
+                name: "Firefox".into(),
+                threads: 0,
+                priority: 0,
+            },
+            ProcessEntry {
+                pid: 3,
+                ppid: None,
+                name: "CHROME_UPDATE.EXE".into(),
+                threads: 0,
+                priority: 0,
+            },
+            ProcessEntry {
+                pid: 4,
+                ppid: None,
+                name: "node".into(),
+                threads: 0,
+                priority: 0,
+            },
+        ];
+        let matched = filter_by_name(entries, "chrome");
+        let pids: Vec<u32> = matched.iter().map(|e| e.pid).collect();
+        assert_eq!(pids, vec![1, 3]);
     }
 }

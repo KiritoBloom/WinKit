@@ -41,10 +41,23 @@ pub async fn call_tool(
 /// Map a `WinkitError` to the JSON-RPC error code the protocol emits,
 /// attaching the stable WinKit error code in `data` so agents can match on
 /// it without parsing message text.
+///
+/// The "unavailable" family (provider/application/feature/endpoint) maps to
+/// distinct implementation-defined server errors in the `-32000..-32099`
+/// range (JSON-RPC reserves this range for server errors) instead of
+/// `-32603` (internal error), so a caller can tell "the chrome provider is
+/// not enabled" from "something broke internally" without parsing the
+/// message. `-32602` (invalid params) and `-32603` remain for the spec
+/// cases.
 pub fn map_protocol_error(err: &WinkitError) -> (i64, serde_json::Value) {
     let code = match err.kind {
-        ErrorKind::InvalidArgument => -32602, // INVALID_PARAMS
-        _ => -32603,                          // INTERNAL_ERROR
+        ErrorKind::InvalidArgument => -32602,          // INVALID_PARAMS
+        ErrorKind::ProviderUnavailable => -32001,      // server error: provider not available
+        ErrorKind::ApplicationUnavailable => -32002,   // server error: application unreachable
+        ErrorKind::FeatureDisabled => -32003,          // server error: feature disabled in config
+        ErrorKind::EndpointUnavailable => -32004,      // server error: endpoint unavailable
+        ErrorKind::BrowserExited => -32005,            // server error: managed browser exited
+        _ => -32603,                                   // INTERNAL_ERROR
     };
     (code, serde_json::json!({ "winkit_code": err.kind.code() }))
 }

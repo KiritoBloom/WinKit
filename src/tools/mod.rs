@@ -149,6 +149,25 @@ pub fn tool_in_profile(name: &str, profile: ToolProfile) -> bool {
     tool_profiles(name).contains(&profile)
 }
 
+/// The error a gated tool produces when it is not in the active profile.
+///
+/// Chrome/browser tools explain that the *Chrome integration* is what is
+/// gated, so the message is consistent with `get_application`'s
+/// "no application provider with id 'chrome'" for the same underlying
+/// condition (Chrome not enabled) instead of looking like a generic
+/// profile-configuration problem.
+pub fn profile_gate_message(name: &str, profile: ToolProfile) -> String {
+    use ToolProfile::{Browser, Developer, Full};
+    let hint = if tool_profiles(name) == [Browser, Full] {
+        "; the Chrome integration is not enabled in this configuration (enable tool profile 'browser' or 'full' and register the chrome provider to use it)"
+    } else if tool_profiles(name) == [Developer, Full] {
+        "; this developer workflow tool is only enabled in tool profile 'developer' or 'full'"
+    } else {
+        ""
+    };
+    format!("tool '{name}' is not available in tool profile '{profile}'{hint}")
+}
+
 /// The action capability for managed-browser lifecycle tools, dispatched
 /// through the approval-aware permission path instead of the read check.
 pub fn tool_action_capability(name: &str) -> Option<Capability> {
@@ -333,9 +352,8 @@ impl ToolRegistry {
             )));
         }
         if !crate::tools::tool_in_profile(name, self.profile) {
-            return Err(WinkitError::invalid_argument(format!(
-                "tool '{name}' is not available in tool profile '{}'",
-                self.profile
+            return Err(WinkitError::invalid_argument(crate::tools::profile_gate_message(
+                name, self.profile,
             )));
         }
         let timeout_ms = tool
@@ -695,6 +713,27 @@ mod tests {
             assert!(tool_in_profile(core_tool, ToolProfile::Core));
             assert!(tool_in_profile(core_tool, ToolProfile::Developer));
         }
+    }
+
+    #[test]
+    fn profile_gate_message_names_the_chrome_integration_for_browser_tools() {
+        // With the default developer profile, chrome tools must explain that
+        // the Chrome integration is what is gated — consistent with
+        // get_application's "no application provider with id 'chrome'" for
+        // the same underlying condition.
+        let msg = profile_gate_message("chrome_info", ToolProfile::Developer);
+        assert!(msg.contains("not available in tool profile 'developer'"));
+        assert!(
+            msg.contains("Chrome integration is not enabled"),
+            "message should name the Chrome integration: {msg}"
+        );
+        assert!(msg.contains("'browser' or 'full'"));
+        // Developer-only workflow tools get a workflow-specific hint.
+        let dev_msg = profile_gate_message("system_health_trend", ToolProfile::Browser);
+        assert!(dev_msg.contains("developer workflow tool"));
+        // Core tools outside the profile get the plain message.
+        let core_msg = profile_gate_message("list_processes", ToolProfile::Browser);
+        assert!(!core_msg.contains("Chrome"));
     }
 
     #[test]

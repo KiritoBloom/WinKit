@@ -20,10 +20,13 @@ pub struct ProcessInfo {
     pub start_time: Option<String>,
     /// Total CPU time (kernel + user) in milliseconds.
     pub cpu_time_ms: Option<u64>,
-    /// Per-process CPU percent. Intentionally **not available** in v1: this
-    /// field is always `null`, because computing it from the system-wide CPU
-    /// ratio would be misleading on multi-core machines. For CPU evidence use
-    /// the aggregate views instead: `ApplicationGroupInfo.cpu_percent`
+    /// Per-process CPU percent over a short two-sample window (≈300 ms), on
+    /// basis `system_capacity_all_cores`. Computed by `get_process` only,
+    /// and only when the process handle is openable and both samples
+    /// succeed; otherwise `None`. `list_processes` and
+    /// `list_processes_minimal` report `None` here by design, because a
+    /// per-process percent requires an extra two-sample pass per PID. For
+    /// aggregate CPU evidence use `ApplicationGroupInfo.cpu_percent`
     /// (`system_health` / `system_diagnose`) or `ChromeProcessSummary`
     /// (`chrome_diagnose_tab` / `chrome_tab_trend`), which carry an explicit
     /// `cpu_percent_basis`.

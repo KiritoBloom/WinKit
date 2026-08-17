@@ -7,15 +7,23 @@
 
 use serde::{Deserialize, Serialize};
 
-/// One application group (all processes of one executable).
+/// One application group (all processes of one executable, plus their
+/// descendants).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ApplicationGroupInfo {
     /// Executable stem, e.g. `chrome`.
     pub name: String,
     /// Human-readable label, e.g. `Google Chrome`.
     pub display_name: String,
+    /// Direct processes of this executable.
     pub process_count: usize,
+    /// Direct + descendant (whole tree) process count.
+    pub tree_process_count: usize,
+    /// Tree-inclusive working set: the real app footprint including
+    /// descendant processes (matches Task Manager's per-app numbers).
     pub total_working_set_bytes: u64,
+    /// Direct processes' working set only (pre-tree aggregation).
+    pub own_working_set_bytes: u64,
     /// Aggregate CPU percent of total system CPU capacity (100% = all
     /// logical processors fully busy), sampled over
     /// `cpu_percent_sample_ms`.

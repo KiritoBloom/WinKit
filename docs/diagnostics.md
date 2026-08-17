@@ -183,7 +183,7 @@ Score formulas (all pure functions of measured values):
 | Category | Formula | Example |
 | --- | --- | --- |
 | `storage` | free % ≤ 1 → 100; ≤ 5 → 95; ≤ 10 → 80; ≤ 20 → 60; else 0 | C: at 1% free → 100 |
-| `memory_pressure` | linear 0 → 100 from the load threshold to 100% load | 92% load (threshold 85) → 47 |
+| `memory_pressure` | sqrt ramp: √((load − threshold) ÷ (100 − threshold)) × 100 (100 when the span ≤ 0), maxed with the available-memory anchor (available % ≤ 5 → 90, ≤ 10 → 80, ≤ 15 → 60, ≤ 20 → 40, else 0) | 92% load (threshold 85) → 68; 12.5% free (2 GB on 16 GB) → 60 |
 | `app_cpu` | the CPU percent itself (of system capacity), clamped | 57% → 57 |
 | `app_memory` | working set ÷ max(¼ RAM, memory threshold), × 100 | 4.6 GB on 16 GB → 100 |
 | `memory_growth` | rate ÷ (2 × runaway threshold), × 100 | 62 MB/s (threshold 50) → 62 |

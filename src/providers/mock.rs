@@ -175,6 +175,7 @@ impl WindowsBackend for MockWindowsBackend {
             boot_time: Some("2026-08-12T00:00:00.000Z".into()),
             hostname: Some("mock-host".into()),
             cpu_cores: 8,
+            logical_processors: 16,
             total_memory_bytes: Some(16_000_000_000),
         })
     }
@@ -442,7 +443,9 @@ impl WindowsBackend for MockWindowsBackend {
                 name: stem.clone(),
                 display_name: crate::platform::windows::health::display_name(&stem),
                 process_count: procs.len(),
+                tree_process_count: procs.len(),
                 total_working_set_bytes: total_ws,
+                own_working_set_bytes: total_ws,
                 cpu_percent: if stem == "chrome" { Some(42.5) } else { None },
                 cpu_percent_basis: "system_capacity_all_cores".into(),
                 cpu_percent_sample_ms: 300,
@@ -794,6 +797,7 @@ impl WindowsBackend for MockWindowsBackend {
             findings: Vec::new(),
             completeness: "full".into(),
             unavailable: Vec::new(),
+            external_connectivity: "ok".into(),
         })
     }
 }

@@ -2,10 +2,12 @@
 //! Wi-Fi signal/link evidence, producing structured findings.
 //!
 //! Probing uses `icmp.dll` (`IcmpSendEcho`), which does not require
-//! elevation for ICMPv4. Every probe is bounded (4 pings, 1 s timeout
-//! each). The module never claims "the Internet is broken"; it reports only
-//! what the evidence supports.
+//! elevation for ICMPv4. Every probe is bounded (2 pings, 750 ms timeout
+//! each) so the worst case fits the ~3 s probe budget even when the router
+//! drops ICMP. The module never claims "the Internet is broken"; it reports
+//! only what the evidence supports.
 
+use std::net::ToSocketAddrs;
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::NetworkManagement::IpHelper::{
     IcmpCloseHandle, IcmpCreateFile, IcmpSendEcho, ICMP_ECHO_REPLY, IP_OPTION_INFORMATION,
@@ -18,12 +20,46 @@ use crate::models::{
     SensorAvailability, UnavailableReading, WifiAdapterStatus,
 };
 
-const PINGS: u32 = 4;
-const PING_TIMEOUT_MS: u32 = 1_000;
+// The whole diagnosis runs under a ~3 s probe budget, so the worst-case
+// ICMP cost must fit comfortably inside it: 2 pings * 750 ms = 1.5 s even
+// when the router drops ICMP entirely (a common configuration).
+const PINGS: u32 = 2;
+const PING_TIMEOUT_MS: u32 = 750;
 const WEAK_SIGNAL_PERCENT: u8 = 40;
 const LOW_LINK_SPEED_MBPS: f64 = 20.0;
 const LOSS_WARNING_PERCENT: f64 = 5.0;
 const LATENCY_WARNING_MS: f64 = 100.0;
+
+/// Well-known anycast host used for the external-connectivity cross-check.
+/// A DNS resolution through the machine's real resolver is the lightest
+/// reliable proof that "the Internet is reachable" — it works through NAT and
+/// does not depend on ICMP, which many routers filter.
+const EXTERNAL_PROBE_HOST: &str = "one.one.one.one";
+/// Bound on the external-connectivity check (ms). Keeps the worst case
+/// (2 * 750 ms ICMP + this) inside the ~3 s probe budget.
+const EXTERNAL_PROBE_TIMEOUT_MS: u64 = 1_000;
+
+/// Cross-check external connectivity by resolving a well-known host through
+/// the machine's default resolver.
+///
+/// Returns `Some(true)` when the host resolved (Internet is reachable),
+/// `Some(false)` when the resolver returned a definitive error, and `None`
+/// when the check could not finish inside `EXTERNAL_PROBE_TIMEOUT_MS` (slow
+/// or black-holed DNS — inconclusive, not a failure).
+fn external_connectivity_ok() -> Option<bool> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let resolved = (EXTERNAL_PROBE_HOST, 0)
+            .to_socket_addrs()
+            .map(|mut it| it.next().is_some());
+        let _ = tx.send(resolved);
+    });
+    match rx.recv_timeout(std::time::Duration::from_millis(EXTERNAL_PROBE_TIMEOUT_MS)) {
+        Ok(Ok(true)) => Some(true),
+        Ok(Ok(false)) | Ok(Err(_)) => Some(false),
+        Err(_) => None,
+    }
+}
 
 /// Parse `a.b.c.d` into the network-byte-order `u32` `IcmpSendEcho` wants.
 fn ipv4_to_u32(s: &str) -> Option<u32> {
@@ -156,6 +192,7 @@ pub fn network_diagnose(sample_window_ms: u64) -> Result<NetworkDiagnosis, Winki
                 findings: Vec::new(),
                 completeness: "limited".into(),
                 unavailable,
+                external_connectivity: "not_probed".into(),
             });
         }
     };
@@ -183,8 +220,20 @@ pub fn network_diagnose(sample_window_ms: u64) -> Result<NetworkDiagnosis, Winki
         .find(|i| i.is_up && i.gateway.is_some())
         .and_then(|i| i.gateway.clone());
 
-    if let Some(gateway) = probe_target {
-        match probe_gateway(&gateway) {
+    // Cross-check real Internet reachability so gateway ICMP loss is
+    // interpreted sensibly: many routers filter or deprioritize ICMP, so
+    // loss alone is not an outage. The check is bounded so the whole
+    // diagnosis fits the probe budget even when both ICMP and DNS are
+    // black-holed. Hoisted to function scope so the report's
+    // `external_connectivity` field can reference it.
+    let external: Option<bool> = if probe_target.is_some() {
+        external_connectivity_ok()
+    } else {
+        None
+    };
+
+    if let Some(ref gateway) = probe_target {
+        match probe_gateway(gateway) {
             Some((loss, avg_rtt)) => {
                 if !avg_rtt.is_nan() {
                     let idx = interfaces
@@ -216,16 +265,70 @@ pub fn network_diagnose(sample_window_ms: u64) -> Result<NetworkDiagnosis, Winki
                         detail: "average round-trip to the gateway".into(),
                     },
                 ];
+                let dns_evidence = EvidencePoint {
+                    metric: "external_dns_resolution".into(),
+                    value: if external == Some(true) {
+                        "ok".into()
+                    } else if external == Some(false) {
+                        "failed".into()
+                    } else {
+                        "unconfirmed".into()
+                    },
+                    detail: format!(
+                        "resolution of '{EXTERNAL_PROBE_HOST}' through the default resolver"
+                    ),
+                };
                 if loss >= LOSS_WARNING_PERCENT {
-                    findings.push(finding(
-                        "gateway-packet-loss",
-                        "Packet loss to the gateway",
-                        if loss >= 20.0 { "high" } else { "medium" },
-                        "confirmed",
-                        evidence,
-                        format!("{loss:.1}% of ICMP probes to the gateway {gateway} were lost"),
-                        Vec::new(),
-                    ));
+                    match external {
+                        Some(true) => {
+                            // Internet works; the gateway just drops ICMP.
+                            findings.push(finding(
+                                "gateway-drops-icmp",
+                                "Gateway drops ICMP probes",
+                                "info",
+                                "confirmed",
+                                evidence,
+                                format!(
+                                    "{loss:.1}% of ICMP probes to the gateway {gateway} were lost, but external connectivity is healthy (a well-known host resolved) — the router likely filters or deprioritizes ICMP, which is common and not an outage"
+                                ),
+                                vec![format!(
+                                    "external connectivity verified: '{EXTERNAL_PROBE_HOST}' resolved"
+                                )],
+                            ));
+                        }
+                        Some(false) => {
+                            // Both ICMP and DNS fail: a real connectivity problem.
+                            let mut ev = evidence;
+                            ev.push(dns_evidence);
+                            findings.push(finding(
+                                "no-external-connectivity",
+                                "No external connectivity",
+                                "high",
+                                "confirmed",
+                                ev,
+                                format!(
+                                    "{loss:.1}% of ICMP probes to the gateway {gateway} were lost and '{EXTERNAL_PROBE_HOST}' did not resolve — the machine has no verified path to the Internet"
+                                ),
+                                Vec::new(),
+                            ));
+                        }
+                        None => {
+                            // DNS cross-check inconclusive: report the loss, but
+                            // temper severity and confidence — an outage is not
+                            // confirmed.
+                            findings.push(finding(
+                                "gateway-packet-loss",
+                                "Packet loss to the gateway",
+                                if loss >= 20.0 { "medium" } else { "low" },
+                                "possible",
+                                evidence,
+                                format!(
+                                    "{loss:.1}% of ICMP probes to the gateway {gateway} were lost; the external-connectivity cross-check did not finish, so an outage is not confirmed"
+                                ),
+                                vec!["external-connectivity cross-check timed out; treat this as unconfirmed".to_string()],
+                            ));
+                        }
+                    }
                 } else if !avg_rtt.is_nan() && avg_rtt >= LATENCY_WARNING_MS {
                     findings.push(finding(
                         "gateway-high-latency",
@@ -234,6 +337,20 @@ pub fn network_diagnose(sample_window_ms: u64) -> Result<NetworkDiagnosis, Winki
                         "confirmed",
                         evidence,
                         format!("average round-trip to the gateway is {avg_rtt:.0} ms"),
+                        Vec::new(),
+                    ));
+                } else if external == Some(false) {
+                    // Gateway responds to ICMP, but DNS fails: an ISP- or
+                    // DNS-level outage that gateway pings alone would miss.
+                    findings.push(finding(
+                        "no-external-connectivity",
+                        "No external connectivity",
+                        "high",
+                        "confirmed",
+                        vec![dns_evidence],
+                        format!(
+                            "the gateway {gateway} responds to ICMP, but '{EXTERNAL_PROBE_HOST}' failed to resolve — routing to the gateway works, yet there is no verified path to the Internet (ISP outage or DNS failure)"
+                        ),
                         Vec::new(),
                     ));
                 }
@@ -377,6 +494,16 @@ pub fn network_diagnose(sample_window_ms: u64) -> Result<NetworkDiagnosis, Winki
         }
         .into(),
         unavailable,
+        external_connectivity: if probe_target.is_some() {
+            match external {
+                Some(true) => "ok",
+                Some(false) => "failed",
+                None => "unconfirmed",
+            }
+        } else {
+            "not_probed"
+        }
+        .into(),
     })
 }
 
