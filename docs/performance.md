@@ -68,7 +68,12 @@ dispatch, and provider work. This is what a client actually experiences.
 Not benchmarked: `find_large_files`, `get_application_errors`,
 `get_system_errors`, `chrome_get_active_tab`, and the `disk_scan_*` family
 (pathological or environment-dependent by nature — whole-volume scans and
-event-log reads vary wildly with the machine).
+event-log reads vary wildly with the machine). For the `disk_scan_*` family
+specifically: with an elevated token the NTFS fast path streams a volume in
+seconds, while without one the fallback walks the tree in parallel and is
+bound by the disk — on the benchmark machine a full 4.2 M-entry volume
+takes roughly 100 seconds, versus about 18 minutes when the enumeration is
+serialized (see [docs/tools.md](tools.md)).
 
 ## Reading the numbers
 

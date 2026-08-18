@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-08-18
+
+### Added
+
+- **Opt-in jwalk fallback walker** — setting `WINKIT_FALLBACK_WALKER=jwalk`
+  switches the recursive fallback scanner to the `jwalk` parallel directory
+  walker (the engine behind `dua-cli`), for comparing walkers on a given
+  volume. It measured slower than the built-in walker on this project's
+  benchmark drive, so it is opt-in and never the default.
+
+### Changed
+
+- **Parallel fallback scanner** — the recursive fallback (used when the MFT
+  fast path is unavailable, e.g. without an administrator token or on
+  non-NTFS volumes) now enumerates directories in parallel on a worker pool
+  with `FindFirstFileExW` plus `FIND_FIRST_EX_LARGE_FETCH`, and entry
+  size/attributes arrive with each enumeration instead of a separate
+  metadata call. A full-volume fallback scan is bound by the disk, not the
+  scanner: on the benchmark drive (≈4.2 M entries across ≈544 K
+  directories) it completes in roughly 100 seconds versus about 18 minutes
+  for the serial equivalent.
+- **`disk_scan` queries no longer block the server** — the synchronous query
+  tools (`disk_scan`, `disk_scan_largest_files`,
+  `disk_scan_largest_folders`, `disk_scan_folder_size`, `disk_scan_find`)
+  run on the blocking-thread pool instead of the async runtime, so a scan
+  in progress cannot stall other tools' responses.
+
 ## [0.1.3] - 2026-08-17
 
 ### Added

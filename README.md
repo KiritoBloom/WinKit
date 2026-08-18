@@ -89,7 +89,7 @@ single heaviest tab, then whether it is getting worse.
   explain exactly what would be required.
 - **Provider architecture** — everything sits behind `WindowsBackend` /
   `ApplicationProvider` traits; the real Win32 layer is fully separable, and a
-  mock backend plus deterministic fixtures power a 381-test suite
+  mock backend plus deterministic fixtures power a 384-test suite
   (`cargo test --features mocks`) with no machine dependency.
 - **Hardened by construction** — bounded results, per-tool timeouts, payload
   caps, an 8 MiB transport frame cap, strict JSON schema validation, and
@@ -287,7 +287,7 @@ WinKit treats limits as first-class output, not bugs:
 ```powershell
 cargo check                 # compile checks
 cargo build                 # debug build
-cargo test --features mocks # full test suite (381 tests)
+cargo test --features mocks # full test suite (384 tests)
 cargo clippy --all-targets  # lint
 
 # evaluation suite (fixture-backed failure scenarios)

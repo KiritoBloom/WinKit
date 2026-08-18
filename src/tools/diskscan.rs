@@ -206,7 +206,9 @@ pub async fn disk_scan_largest_files_handler(
         extensions,
         pattern: None,
     };
-    match state.windows.disk_scan_query(&request)? {
+    let state = state.clone();
+    let result = spawn_block_call(move || state.windows.disk_scan_query(&request)).await?;
+    match result {
         DiskQueryResult::TopFiles {
             entries,
             volume,
@@ -271,7 +273,9 @@ pub async fn disk_scan_largest_folders_handler(
         extensions: None,
         pattern: None,
     };
-    match state.windows.disk_scan_query(&request)? {
+    let state = state.clone();
+    let result = spawn_block_call(move || state.windows.disk_scan_query(&request)).await?;
+    match result {
         DiskQueryResult::TopFolders {
             entries,
             volume,
@@ -330,7 +334,9 @@ pub async fn disk_scan_folder_size_handler(
         extensions: None,
         pattern: None,
     };
-    match state.windows.disk_scan_query(&request)? {
+    let state = state.clone();
+    let result = spawn_block_call(move || state.windows.disk_scan_query(&request)).await?;
+    match result {
         DiskQueryResult::FolderSize {
             folder,
             volume,
@@ -392,7 +398,9 @@ pub async fn disk_scan_find_handler(
         extensions,
         pattern,
     };
-    match state.windows.disk_scan_query(&request)? {
+    let state = state.clone();
+    let result = spawn_block_call(move || state.windows.disk_scan_query(&request)).await?;
+    match result {
         DiskQueryResult::FindFiles {
             entries,
             truncated,

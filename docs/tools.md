@@ -238,6 +238,17 @@ Semantics worth knowing:
   root (`D:`, `D:\`) scans the whole volume, as documented. Results
   describe the scanned scope; `fast_path_unavailable` names the exact
   reason when a fallback happened.
+- **Fallback performance** — the fallback enumerates directories in parallel
+  (workers pull from a shared queue; each directory is read with
+  `FindFirstFileExW` plus `FIND_FIRST_EX_LARGE_FETCH`, so sizes, attributes,
+  and timestamps arrive with the enumeration). A whole-volume fallback scan
+  is bound by the disk, not the scanner: on this project's benchmark drive
+  (≈4.2 M entries, ≈544 K directories) it takes roughly 100 seconds, versus
+  about 18 minutes if the enumeration were serialized. Setting
+  `WINKIT_FALLBACK_WALKER=jwalk` opts into the `jwalk` parallel walker (the
+  engine behind `dua-cli`) for comparison — it measured slower here, so it
+  is opt-in and never the default. The elevated MFT fast path remains the
+  only scanner that completes a whole volume in seconds.
 - **Background lifecycle**: finished, failed, and cancelled scans are
   removed from the active-scan registry as soon as they end, so a new scan
   for the same volume can always start; terminal statuses stay pollable

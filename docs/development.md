@@ -33,9 +33,9 @@ cargo test
 cargo test --features mocks
 ```
 
-The suite has 381 tests with the feature (375 without), split across:
+The suite has 384 tests with the feature (378 without), split across:
 
-- Lib unit tests (310; 316 with the `mocks` feature) — diagnostics
+- Lib unit tests (313; 319 with the `mocks` feature) — diagnostics
   engine, permission policy, config
   strictness, tool helpers, and the managed-Chrome lifecycle
   (construction, containment, loopback, readiness handshake, timeout,
@@ -44,7 +44,9 @@ The suite has 381 tests with the feature (375 without), split across:
   GPU-exit-code extraction, exit detection, unexpected-exit tree reaping
   and profile removal, cleanup-failure reporting, single-run cleanup,
   unrelated-profile safety, bounded redacted stderr diagnostics, max
-  sessions, stop/cleanup, cleanup refusal, owned-tree reaping).
+  sessions, stop/cleanup, cleanup refusal, owned-tree reaping), plus the
+  disk-scan fallback walkers (parallel queue walker and opt-in `jwalk`
+  walker, including a completion-race regression test).
 - `tests/eval` (19) — the deterministic, fixture-backed evaluation suite:
   healthy machine, memory pressure, low disk, heavy processes, workspace
   metadata and nested-project detection, dev-server discovery, port
