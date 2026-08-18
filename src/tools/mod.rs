@@ -352,9 +352,9 @@ impl ToolRegistry {
             )));
         }
         if !crate::tools::tool_in_profile(name, self.profile) {
-            return Err(WinkitError::invalid_argument(crate::tools::profile_gate_message(
-                name, self.profile,
-            )));
+            return Err(WinkitError::invalid_argument(
+                crate::tools::profile_gate_message(name, self.profile),
+            ));
         }
         let timeout_ms = tool
             .timeout_ms

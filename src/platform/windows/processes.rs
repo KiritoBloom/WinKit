@@ -317,7 +317,10 @@ fn pid_only_info(pid: u32) -> ProcessInfo {
 /// processes keep the snapshot view (null counters). When
 /// `include_command_line` is false the expensive PEB walk is skipped.
 fn enrich_entry(entry: ProcessEntry, include_command_line: bool) -> ProcessInfo {
-    let handle = open_process(entry.pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ);
+    let handle = open_process(
+        entry.pid,
+        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+    );
     if let Some(h) = handle {
         let mut info = build_process_info(Some(&entry), entry.pid, &h, include_command_line);
         info.name = if info.name.is_empty() {
@@ -466,7 +469,14 @@ fn build_node(
                 if *budget == 0 {
                     break;
                 }
-                children.push(build_node(kid.pid, depth + 1, max_depth, by_parent, index, budget));
+                children.push(build_node(
+                    kid.pid,
+                    depth + 1,
+                    max_depth,
+                    by_parent,
+                    index,
+                    budget,
+                ));
             }
         }
     }
@@ -511,7 +521,10 @@ pub fn find_process(needle: &str, limit: usize) -> Result<Vec<ProcessInfo>, Wink
     let entries = snapshot_processes()?;
     let matched = filter_by_name(entries, &needle.to_lowercase());
     let enriched: Vec<ProcessInfo> = matched.into_iter().map(|e| enrich_entry(e, true)).collect();
-    Ok(order_process_listing(enriched).into_iter().take(limit).collect())
+    Ok(order_process_listing(enriched)
+        .into_iter()
+        .take(limit)
+        .collect())
 }
 
 /// Resolve a PID to a process name via a snapshot (used by network/window

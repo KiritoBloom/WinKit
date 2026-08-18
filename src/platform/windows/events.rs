@@ -132,13 +132,7 @@ fn format_message(provider: &str, handle: *mut std::ffi::c_void) -> Option<Strin
     // metadata handle fails with ERROR_EVT_MESSAGE_NOT_FOUND for them.
     let provider_wide = to_wide(provider);
     let metadata = unsafe {
-        ffi::EvtOpenPublisherMetadata(
-            null_mut(),
-            provider_wide.as_ptr(),
-            null_mut(),
-            0,
-            0,
-        )
+        ffi::EvtOpenPublisherMetadata(null_mut(), provider_wide.as_ptr(), null_mut(), 0, 0)
     };
     if metadata.is_null() {
         return None;
@@ -293,7 +287,9 @@ fn parse_event_xml(xml: &str) -> Option<EventInfo> {
                     match field.as_str() {
                         "Message" => message_buf.push_str(&text),
                         "EventID" => info.event_id = text.trim().parse::<u32>().ok(),
-                        "Level" => info.level = EventLevel::from_u32(text.trim().parse().unwrap_or(0)),
+                        "Level" => {
+                            info.level = EventLevel::from_u32(text.trim().parse().unwrap_or(0))
+                        }
                         "Channel" => info.channel = Some(text.trim().to_string()),
                         "Computer" => info.computer = Some(text.trim().to_string()),
                         "EventRecordID" => info.record_id = text.trim().parse::<u64>().ok(),
@@ -414,7 +410,8 @@ Exception code: 0xc0000005
 
     #[test]
     fn parse_rendered_event_extracts_fields() {
-        let info = parse_event_xml(rendered_event_xml()).expect("representative event should parse");
+        let info =
+            parse_event_xml(rendered_event_xml()).expect("representative event should parse");
         let message = info.message.as_deref().unwrap_or("");
         assert!(
             message.contains("Faulting application name"),
@@ -431,7 +428,10 @@ Exception code: 0xc0000005
         assert_eq!(info.record_id, Some(12345));
         assert_eq!(info.level, EventLevel::Error);
         assert!(
-            info.time_created.as_deref().unwrap_or("").starts_with("2026-08-15"),
+            info.time_created
+                .as_deref()
+                .unwrap_or("")
+                .starts_with("2026-08-15"),
             "time_created was {:?}",
             info.time_created
         );
@@ -455,7 +455,10 @@ Exception code: 0xc0000005
   </EventData>
 </Event>"#;
         let info = parse_event_xml(xml).expect("raw event should parse");
-        assert_eq!(info.message, None, "no RenderingInfo means no fabricated message");
+        assert_eq!(
+            info.message, None,
+            "no RenderingInfo means no fabricated message"
+        );
         assert_eq!(info.process_id, Some(1234));
         assert_eq!(info.event_id, Some(1000));
         assert_eq!(info.provider.as_deref(), Some("Application Error"));
@@ -469,6 +472,9 @@ Exception code: 0xc0000005
             <RenderingInfo Culture='en-US'><Message>  </Message></RenderingInfo>\
             </Event>";
         let info = parse_event_xml(xml).expect("event should parse");
-        assert_eq!(info.message, None, "whitespace-only Message must not become an empty string");
+        assert_eq!(
+            info.message, None,
+            "whitespace-only Message must not become an empty string"
+        );
     }
 }

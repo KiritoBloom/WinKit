@@ -84,17 +84,15 @@ pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Valu
     // instead of failing the whole snapshot.
     let budget = cfg.hardware.probe_timeout_ms;
     let disk_state = state.clone();
-    let disk_health = crate::tools::hardware::probe(budget, move || {
-        disk_state.windows.disk_health()
-    })
-    .await
-    .ok();
+    let disk_health =
+        crate::tools::hardware::probe(budget, move || disk_state.windows.disk_health())
+            .await
+            .ok();
     let thermal_state = state.clone();
-    let thermals = crate::tools::hardware::probe(budget, move || {
-        thermal_state.windows.thermal_snapshot()
-    })
-    .await
-    .ok();
+    let thermals =
+        crate::tools::hardware::probe(budget, move || thermal_state.windows.thermal_snapshot())
+            .await
+            .ok();
     let power_state = state.clone();
     let power = crate::tools::hardware::probe(budget, move || power_state.windows.power_status())
         .await

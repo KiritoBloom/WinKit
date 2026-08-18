@@ -30,7 +30,7 @@ use crate::models::{
     DiskHealthReport, SensorAvailability, StorageHealthDevice, UnavailableReading,
 };
 use crate::platform::windows::hardware::HardwareOptions;
-use crate::platform::windows::wmi::{WmiObject, WmiSession};
+use crate::platform::windows::wmi::{WmiObject, WmiSession, WmiValue};
 
 fn query_disk_drives() -> Result<Vec<WmiObject>, WinkitError> {
     let session = WmiSession::connect("root\\cimv2")?;
@@ -66,6 +66,46 @@ fn storage_health_status(health_status: u32) -> Option<&'static str> {
         2 => Some("critical"),
         _ => None,
     }
+}
+
+/// `MSFT_PhysicalDisk.MediaType`: 3 = HDD, 4 = SSD, 5 = SCM.
+fn media_type_name(media_type: u32) -> Option<&'static str> {
+    match media_type {
+        3 => Some("hdd"),
+        4 => Some("ssd"),
+        5 => Some("scm"),
+        _ => None,
+    }
+}
+
+/// `MSFT_PhysicalDisk.BusType`, for the interfaces WinKit distinguishes.
+fn bus_type_name(bus_type: u32) -> Option<&'static str> {
+    match bus_type {
+        11 => Some("sata"),
+        17 => Some("nvme"),
+        7 => Some("usb"),
+        10 => Some("sas"),
+        _ => None,
+    }
+}
+
+/// Copy the diagnostics the storage stack exposes without elevation onto a
+/// device report.
+fn apply_stack_metadata(device: &mut StorageHealthDevice, st: &WmiObject) {
+    device.media_type = st
+        .get("MediaType")
+        .and_then(WmiValue::as_u32)
+        .and_then(media_type_name)
+        .map(str::to_string);
+    device.bus_type = st
+        .get("BusType")
+        .and_then(WmiValue::as_u32)
+        .and_then(bus_type_name)
+        .map(str::to_string);
+    device.firmware_version = st.get_string("FirmwareVersion");
+    device.serial_number = st.get_string("SerialNumber");
+    device.physical_location = st.get_string("PhysicalLocation");
+    device.spindle_speed_rpm = st.get_u32("SpindleSpeed").filter(|&v| v > 0);
 }
 
 /// The numeric index from a `PhysicalDriveN` device name.
@@ -106,14 +146,18 @@ fn push_storage_or_unavailable(
     };
     let model = st.get_string("Model").or(model);
     match st.get_u32("HealthStatus").and_then(storage_health_status) {
-        Some(hs) => devices.push(StorageHealthDevice {
-            device,
-            model,
-            interface,
-            health_status: Some(hs.into()),
-            availability: SensorAvailability::Available,
-            ..Default::default()
-        }),
+        Some(hs) => {
+            let mut dev = StorageHealthDevice {
+                device,
+                model,
+                interface,
+                health_status: Some(hs.into()),
+                availability: SensorAvailability::Available,
+                ..Default::default()
+            };
+            apply_stack_metadata(&mut dev, st);
+            devices.push(dev);
+        }
         None => {
             let reason = "the OS storage stack exposed the disk but no health status";
             unavailable.push(UnavailableReading::new(
@@ -122,14 +166,16 @@ fn push_storage_or_unavailable(
                 SensorAvailability::Unavailable,
                 reason,
             ));
-            devices.push(StorageHealthDevice {
+            let mut dev = StorageHealthDevice {
                 device,
                 model,
                 interface,
                 availability: SensorAvailability::Unavailable,
                 reason: Some(reason.into()),
                 ..Default::default()
-            });
+            };
+            apply_stack_metadata(&mut dev, st);
+            devices.push(dev);
         }
     }
 }
@@ -138,26 +184,27 @@ fn push_storage_or_unavailable(
 fn nvme_health_log(device: &str) -> Option<NVME_HEALTH_INFO_LOG> {
     unsafe {
         let path = format!("\\\\.\\{}", device.trim_end_matches('\\'));
-        let mut handle = CreateFileW(
-            crate::utils::to_wide(&path).as_ptr(),
-            GENERIC_READ | GENERIC_WRITE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            std::ptr::null(),
-            OPEN_EXISTING,
-            0,
-            std::ptr::null_mut(),
-        );
-        if handle == INVALID_HANDLE_VALUE {
-            // Retry with read-only access; some systems refuse write open.
-            handle = CreateFileW(
+        let open = |access: u32| {
+            CreateFileW(
                 crate::utils::to_wide(&path).as_ptr(),
-                GENERIC_READ,
+                access,
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 std::ptr::null(),
                 OPEN_EXISTING,
                 0,
                 std::ptr::null_mut(),
-            );
+            )
+        };
+        let mut handle = open(GENERIC_READ | GENERIC_WRITE);
+        if handle == INVALID_HANDLE_VALUE {
+            // Retry with read-only access; some systems refuse write open.
+            handle = open(GENERIC_READ);
+        }
+        if handle == INVALID_HANDLE_VALUE {
+            // Non-elevated processes cannot open a physical drive for
+            // read/write at all. A zero-desired-access handle still permits
+            // `IOCTL_STORAGE_QUERY_PROPERTY`, so retry without access rights.
+            handle = open(0);
         }
         if handle == INVALID_HANDLE_VALUE {
             return None;
@@ -285,6 +332,12 @@ fn nvme_health(device: &str) -> Option<StorageHealthDevice> {
         data_units_read: u64_from_u128(u128_le(&log.DataUnitRead)),
         data_units_written: u64_from_u128(u128_le(&log.DataUnitWritten)),
         reallocated_sectors: None,
+        media_type: None,
+        bus_type: Some("nvme".into()),
+        firmware_version: None,
+        serial_number: None,
+        physical_location: None,
+        spindle_speed_rpm: None,
         availability: SensorAvailability::Available,
         reason: None,
     })
@@ -370,6 +423,9 @@ pub fn disk_health(opts: &HardwareOptions) -> Result<DiskHealthReport, WinkitErr
             match nvme_health(&device) {
                 Some(mut h) => {
                     h.model = d.get_string("Model");
+                    if let Some(st) = stack_health {
+                        apply_stack_metadata(&mut h, st);
+                    }
                     devices.push(h);
                 }
                 None => push_storage_or_unavailable(
@@ -379,7 +435,8 @@ pub fn disk_health(opts: &HardwareOptions) -> Result<DiskHealthReport, WinkitErr
                     d.get_string("Model"),
                     interface.clone(),
                     stack_health,
-                    "NVMe SMART health log could not be read (needs elevation or a busy drive)",
+                    "NVMe SMART health log could not be read (the drive may be busy, \
+                     or the driver rejects the query)",
                 ),
             }
         } else {
@@ -466,6 +523,22 @@ mod tests {
         assert_eq!(storage_health_status(1), Some("warning"));
         assert_eq!(storage_health_status(2), Some("critical"));
         assert_eq!(storage_health_status(5), None);
+    }
+
+    #[test]
+    fn media_type_maps_storage_stack_values() {
+        assert_eq!(media_type_name(3), Some("hdd"));
+        assert_eq!(media_type_name(4), Some("ssd"));
+        assert_eq!(media_type_name(5), Some("scm"));
+        assert_eq!(media_type_name(0), None);
+    }
+
+    #[test]
+    fn bus_type_maps_interfaces_winkit_distinguishes() {
+        assert_eq!(bus_type_name(11), Some("sata"));
+        assert_eq!(bus_type_name(17), Some("nvme"));
+        assert_eq!(bus_type_name(7), Some("usb"));
+        assert_eq!(bus_type_name(0), None);
     }
 
     #[test]

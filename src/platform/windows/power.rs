@@ -103,6 +103,57 @@ fn battery_health(design: Option<f64>, full: Option<f64>) -> Option<BatteryHealt
     })
 }
 
+/// Read a single unsigned property from a `root\WMI` battery class.
+///
+/// These classes (unlike `Win32_Battery`) expose the design/full charge
+/// capacity and cycle count without elevation. Returns `None` when the
+/// property is missing or the query fails (e.g. no battery driver support).
+fn query_root_wmi_battery(class: &str, property: &str) -> Option<u32> {
+    let session = WmiSession::connect("root\\WMI").ok()?;
+    let wql = format!("SELECT {property} FROM {class}");
+    let objs = session.query(&wql).ok()?;
+    objs.first().and_then(|o| o.get_u32(property))
+}
+
+/// Battery health from the `root\WMI` battery classes, which report design
+/// and full-charge capacity without elevation where the ACPI battery driver
+/// is present.
+fn battery_health_root_wmi() -> (Option<BatteryHealth>, Vec<UnavailableReading>) {
+    let mut unavailable = Vec::new();
+    let full = query_root_wmi_battery("BatteryFullChargedCapacity", "FullChargedCapacity");
+    let design = query_root_wmi_battery("BatteryStaticData", "DesignedCapacity");
+    let cycle = query_root_wmi_battery("BatteryCycleCount", "CycleCount");
+    let remaining = query_root_wmi_battery("BatteryStatus", "RemainingCapacity");
+
+    let full = match full {
+        Some(v) if v > 0 => v as u64,
+        _ => {
+            unavailable.push(UnavailableReading::new(
+                "battery",
+                "health",
+                SensorAvailability::Unavailable,
+                "root\\WMI BatteryFullChargedCapacity reported no usable capacity",
+            ));
+            return (None, unavailable);
+        }
+    };
+    let design = design.filter(|&v| v > 0).map(|v| v as u64);
+    let health_percent = design.map(|d| (full as f64 / d as f64 * 100.0).clamp(0.0, 100.0));
+    let health = BatteryHealth {
+        designed_capacity_mwh: design,
+        full_charge_capacity_mwh: Some(full),
+        current_charge_mwh: remaining.filter(|&v| v > 0).map(|v| v as u64),
+        cycle_count: cycle.filter(|&v| v > 0),
+        health_percent,
+        temperature_c: None,
+        availability: SensorAvailability::Available,
+        reason: health_percent
+            .is_none()
+            .then(|| "full-charge capacity reported, but design capacity is not readable without elevation".to_string()),
+    };
+    (Some(health), unavailable)
+}
+
 /// Compact power picture used by `hardware_snapshot`.
 pub fn power_state() -> (PowerStateInfo, Vec<UnavailableReading>) {
     let mut unavailable = Vec::new();
@@ -199,12 +250,11 @@ fn read_battery_health() -> (Option<BatteryHealth>, Vec<UnavailableReading>) {
                         .map(|(r, f)| (r as f64 / 100.0 * f as f64) as u64);
                     return (Some(health), unavailable);
                 }
-                unavailable.push(UnavailableReading::new(
-                    "battery",
-                    "health",
-                    SensorAvailability::Unavailable,
-                    "Win32_Battery reported no usable design/full capacities",
-                ));
+                // Win32_Battery capacity fields are empty on some hosts; the
+                // root\WMI classes report them without elevation.
+                let (health, mut wmi_unavailable) = battery_health_root_wmi();
+                unavailable.append(&mut wmi_unavailable);
+                return (health, unavailable);
             } else {
                 unavailable.push(UnavailableReading::new(
                     "battery",
@@ -221,6 +271,9 @@ fn read_battery_health() -> (Option<BatteryHealth>, Vec<UnavailableReading>) {
                 SensorAvailability::Unavailable,
                 format!("Win32_Battery query failed: {}", e.message),
             ));
+            let (health, mut wmi_unavailable) = battery_health_root_wmi();
+            unavailable.append(&mut wmi_unavailable);
+            return (health, unavailable);
         }
     }
     (None, unavailable)
@@ -329,27 +382,51 @@ mod tests {
 
     #[test]
     fn label_not_present_is_none() {
-        assert_eq!(battery_state_label(false, Some(80), false, Some(true)), None);
+        assert_eq!(
+            battery_state_label(false, Some(80), false, Some(true)),
+            None
+        );
         assert_eq!(battery_state_label(false, None, false, None), None);
     }
 
     #[test]
     fn label_critical_and_low_before_anything_else() {
-        assert_eq!(battery_state_label(true, Some(8), false, None), Some("critical".into()));
-        assert_eq!(battery_state_label(true, Some(10), false, Some(true)), Some("critical".into()));
-        assert_eq!(battery_state_label(true, Some(25), true, Some(true)), Some("low".into()));
+        assert_eq!(
+            battery_state_label(true, Some(8), false, None),
+            Some("critical".into())
+        );
+        assert_eq!(
+            battery_state_label(true, Some(10), false, Some(true)),
+            Some("critical".into())
+        );
+        assert_eq!(
+            battery_state_label(true, Some(25), true, Some(true)),
+            Some("low".into())
+        );
     }
 
     #[test]
     fn label_charging() {
-        assert_eq!(battery_state_label(true, Some(60), true, Some(true)), Some("charging".into()));
-        assert_eq!(battery_state_label(true, Some(77), true, Some(false)), Some("charging".into()));
+        assert_eq!(
+            battery_state_label(true, Some(60), true, Some(true)),
+            Some("charging".into())
+        );
+        assert_eq!(
+            battery_state_label(true, Some(77), true, Some(false)),
+            Some("charging".into())
+        );
     }
 
     #[test]
     fn label_plugged_full_battery() {
-        assert_eq!(battery_state_label(true, Some(99), false, Some(true)), Some("full".into()));
-        assert_eq!(battery_state_label(true, Some(100), false, Some(true)), Some("full".into()));
+        assert_eq!(
+            battery_state_label(true, Some(99), false, Some(true)),
+            Some("full".into())
+        );
+        assert_eq!(
+            battery_state_label(true, Some(100), false, Some(true)),
+            Some("full".into())
+        );
     }
 
     #[test]
@@ -358,12 +435,21 @@ mod tests {
             battery_state_label(true, Some(77), false, Some(true)),
             Some("not_charging".into())
         );
-        assert_eq!(battery_state_label(true, None, false, Some(true)), Some("not_charging".into()));
+        assert_eq!(
+            battery_state_label(true, None, false, Some(true)),
+            Some("not_charging".into())
+        );
     }
 
     #[test]
     fn label_discharging_on_battery() {
-        assert_eq!(battery_state_label(true, Some(77), false, Some(false)), Some("discharging".into()));
-        assert_eq!(battery_state_label(true, Some(77), false, None), Some("discharging".into()));
+        assert_eq!(
+            battery_state_label(true, Some(77), false, Some(false)),
+            Some("discharging".into())
+        );
+        assert_eq!(
+            battery_state_label(true, Some(77), false, None),
+            Some("discharging".into())
+        );
     }
 }

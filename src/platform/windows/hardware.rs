@@ -1,15 +1,19 @@
 //! Hardware snapshot and thermal telemetry.
 //!
 //! Providers used, in order of trust:
-//! - `MSAcpi_ThermalZoneTemperature` (WMI, root\WMI): ACPI thermal zones.
+//! - PDH `\Thermal Zone Information(*)\Temperature`: ACPI thermal-zone
+//!   temperatures, readable without elevation.
+//! - `MSAcpi_ThermalZoneTemperature` (WMI, root\WMI): fallback when PDH
+//!   exposes no thermal zones.
+//! - NVML (`nvml.dll`): NVIDIA GPU temperature, readable without elevation.
 //! - `Win32_Processor` / `Win32_VideoController` / `Win32_PhysicalMemory` /
 //!   `Win32_DiskDrive` (WMI, root\cimv2): static hardware identity.
 //! - PDH `% Processor Performance`: current CPU clock relative to base.
 //!
 //! Honesty rules: a reading that cannot be produced by a documented path is
-//! returned as explicitly unavailable with a reason. GPU temperature has no
-//! documented read path on Windows without a vendor SDK, so it is always
-//! reported unavailable — never inferred, never "healthy".
+//! returned as explicitly unavailable with a reason. An asleep GPU reports
+//! no temperature — never a fabricated 0 C. Firmware placeholder readings
+//! (e.g. a thermal zone pinned at 127 C) are filtered out.
 
 use crate::errors::{ErrorKind, WinkitError};
 use crate::log_warn;
@@ -80,7 +84,81 @@ fn is_access_denied(e: &WinkitError) -> bool {
 }
 
 /// Collect thermal-zone sensors. Returns `(sensors, unavailable, warnings)`.
+///
+/// The PDH counter is tried first because it works without elevation on this
+/// host; the ACPI WMI class is the fallback for machines where PDH exposes
+/// no thermal zones.
 fn collect_thermal_sensors() -> (Vec<SensorReading>, Vec<UnavailableReading>, Vec<String>) {
+    let pdh_zones = pdh::thermal_zone_temperatures();
+    if !pdh_zones.is_empty() {
+        return pdh_thermal_sensors(&pdh_zones);
+    }
+    collect_acpi_thermal_sensors()
+}
+
+/// Build sensor readings from PDH thermal-zone temperatures. Each entry is
+/// `(instance, celsius)`.
+fn pdh_thermal_sensors(
+    zones: &[(String, f64)],
+) -> (Vec<SensorReading>, Vec<UnavailableReading>, Vec<String>) {
+    let mut sensors = Vec::new();
+    let mut unavailable = Vec::new();
+    let mut warnings = Vec::new();
+
+    for (instance, celsius) in zones {
+        if *celsius <= 1.0 {
+            // ACPI zones report ~0 C (273 K) for a powered-off component
+            // (e.g. the GPU while asleep); that is a placeholder, not a
+            // measured temperature.
+            unavailable.push(UnavailableReading::new(
+                instance,
+                "temperature",
+                SensorAvailability::Unavailable,
+                "thermal zone reports ~0 C, which is a powered-off placeholder",
+            ));
+            continue;
+        }
+        let label = instance.clone();
+        let id = format!("thermal_zone-{label}");
+        let lower = label.to_ascii_lowercase();
+        let is_cpu = lower.contains("cpu") || lower.contains("proc") || lower.contains("package");
+        let class = if is_cpu {
+            SensorClass::CpuPackage
+        } else {
+            SensorClass::ThermalZone
+        };
+        let mut reading = SensorReading::available(
+            id.clone(),
+            format!("Thermal zone {label}"),
+            class,
+            SensorKind::Temperature,
+            label.clone(),
+            *celsius,
+            "temperature_c",
+            SensorSource::PerformanceCounter,
+            SensorQuality::High,
+            None,
+            None,
+        );
+        reading.status = if *celsius >= THROTTLE_CPU_TEMP_C {
+            SensorStatus::Critical
+        } else if *celsius >= HIGH_CPU_TEMP_C {
+            SensorStatus::Warning
+        } else {
+            SensorStatus::Ok
+        };
+        sensors.push(reading);
+    }
+
+    if sensors.is_empty() {
+        warnings.push("no PDH thermal zone produced a usable temperature".to_string());
+    }
+    (sensors, unavailable, warnings)
+}
+
+/// Collect thermal-zone sensors from `MSAcpi_ThermalZoneTemperature` (WMI,
+/// root\WMI). Returns `(sensors, unavailable, warnings)`.
+fn collect_acpi_thermal_sensors() -> (Vec<SensorReading>, Vec<UnavailableReading>, Vec<String>) {
     let mut sensors = Vec::new();
     let mut unavailable = Vec::new();
     let mut warnings = Vec::new();
@@ -210,8 +288,8 @@ fn gpu_temperature_unavailable() -> UnavailableReading {
         "gpu",
         "temperature",
         SensorAvailability::Unsupported,
-        "no documented Windows API exposes GPU temperature without a vendor SDK \
-         (NVML/ADL); GPU temperature is not reported",
+        "no NVIDIA GPU with NVML is present (or nvml.dll failed to load); \
+         AMD/Intel GPU temperature has no documented non-elevated read path",
     )
 }
 
@@ -263,21 +341,67 @@ pub fn thermal_snapshot(opts: &HardwareOptions) -> Result<ThermalSnapshot, Winki
                 "cpu_package",
                 "temperature",
                 SensorAvailability::PermissionDenied,
-                "the only native CPU temperature source (ACPI thermal zones) is \
-                 elevation-gated on this host; run elevated to read it",
+                "neither the PDH thermal-zone counter nor the ACPI thermal-zone WMI class \
+                 exposed a CPU temperature; the ACPI path is elevation-gated on this host",
             ));
         } else {
             unavailable.push(UnavailableReading::new(
                 "cpu_package",
                 "temperature",
                 SensorAvailability::Unsupported,
-                "no documented CPU package temperature source is available on this machine \
-                 (no vendor SDK, no ACPI CPU zone)",
+                "no CPU package temperature source is available on this machine \
+                 (no vendor SDK, no ACPI/PDH thermal zone)",
             ));
         }
     }
 
-    unavailable.push(gpu_temperature_unavailable());
+    // GPU temperature via NVML; asleep GPUs are unavailable, and machines
+    // without an NVIDIA driver report unsupported.
+    let nvml_gpus = crate::platform::windows::nvml::nvidia_gpu_temperatures();
+    if nvml_gpus.is_empty() {
+        unavailable.push(gpu_temperature_unavailable());
+    } else {
+        for gpu in &nvml_gpus {
+            match gpu.temperature_c {
+                Some(t) => {
+                    let mut reading = SensorReading::available(
+                        format!(
+                            "gpu_temperature_{}",
+                            gpu.name.to_ascii_lowercase().replace(' ', "_")
+                        ),
+                        format!("{} temperature", gpu.name),
+                        SensorClass::Gpu,
+                        SensorKind::Temperature,
+                        "gpu",
+                        t,
+                        "temperature_c",
+                        SensorSource::GpuVendor,
+                        SensorQuality::High,
+                        None,
+                        None,
+                    );
+                    reading.status = if t >= 95.0 {
+                        SensorStatus::Critical
+                    } else if t >= 85.0 {
+                        SensorStatus::Warning
+                    } else {
+                        SensorStatus::Ok
+                    };
+                    sensors.push(reading);
+                }
+                None => unavailable.push(UnavailableReading::new(
+                    "gpu",
+                    "temperature",
+                    SensorAvailability::Unavailable,
+                    format!(
+                        "{} is asleep or powered off (NVML reports 0 C); \
+                         no measured temperature while idle",
+                        gpu.name
+                    ),
+                )),
+            }
+        }
+    }
 
     // Current CPU frequency, when PDH can read it.
     let base = cpu_base_clock_mhz();
@@ -308,7 +432,7 @@ pub fn thermal_snapshot(opts: &HardwareOptions) -> Result<ThermalSnapshot, Winki
         evidence.push(EvidencePoint {
             metric: "cpu_temperature_c".into(),
             value: format!("{t:.1} C"),
-            detail: "ACPI thermal zone temperature".into(),
+            detail: "thermal zone temperature (PDH counter or ACPI WMI)".into(),
         });
         let mut freq_sensor = SensorReading::available(
             "cpu_frequency",
@@ -328,6 +452,12 @@ pub fn thermal_snapshot(opts: &HardwareOptions) -> Result<ThermalSnapshot, Winki
         } else {
             SensorAvailability::Unavailable
         };
+        freq_sensor.status = if current_freq.is_some() {
+            SensorStatus::Ok
+        } else {
+            SensorStatus::Unknown
+        };
+        freq_sensor.value = current_freq;
         freq_sensor.reason = current_freq
             .is_none()
             .then(|| "PDH frequency counter unavailable".to_string());
@@ -358,11 +488,30 @@ pub fn thermal_snapshot(opts: &HardwareOptions) -> Result<ThermalSnapshot, Winki
             limitations.push("no CPU temperature sensor, so throttling cannot be assessed".into());
         }
     }
-    state.gpu_throttling = "unknown".into();
-    state.gpu_thermal_pressure = "unknown".into();
-    limitations.push(
-        "GPU temperature is not readable without a vendor SDK; GPU throttling is unknown".into(),
-    );
+    let gpu_max = sensors
+        .iter()
+        .filter(|s| s.class == SensorClass::Gpu)
+        .filter_map(|s| s.value)
+        .fold(f64::NEG_INFINITY, f64::max);
+    if gpu_max.is_finite() {
+        if gpu_max >= 95.0 {
+            state.gpu_throttling = "likely".into();
+            state.gpu_thermal_pressure = "high".into();
+        } else if gpu_max >= 85.0 {
+            state.gpu_throttling = "not_observed".into();
+            state.gpu_thermal_pressure = "elevated".into();
+        } else {
+            state.gpu_throttling = "not_observed".into();
+            state.gpu_thermal_pressure = "low".into();
+        }
+    } else {
+        state.gpu_throttling = "unknown".into();
+        state.gpu_thermal_pressure = "unknown".into();
+        limitations.push(
+            "no GPU temperature sensor (NVML absent or GPU asleep); GPU throttling is unknown"
+                .into(),
+        );
+    }
     if let Some(true) = cpu_frequency_reduced {
         state.cpu_throttling = "likely".into();
         evidence.push(EvidencePoint {
@@ -477,7 +626,16 @@ fn collect_cpu(opts: &HardwareOptions) -> (CpuHardwareInfo, Vec<UnavailableReadi
     let (sensors, _, _) = collect_thermal_sensors();
     if let Some(t) = cpu_package_temperature(&sensors) {
         info.package_temperature_c = Some(t);
-        info.temperature_source = Some("acpi_thermal_zone".into());
+        // Label the actual source: PDH thermal-zone counters on machines
+        // where they work, ACPI WMI otherwise.
+        let via_pdh = sensors.iter().any(|s| {
+            s.class == SensorClass::CpuPackage && s.source == SensorSource::PerformanceCounter
+        });
+        info.temperature_source = Some(if via_pdh {
+            "pdh_thermal_zone".into()
+        } else {
+            "acpi_thermal_zone".into()
+        });
     } else if opts.sensors_enabled {
         info.temperature_source = Some("none".into());
     }
@@ -533,7 +691,8 @@ fn collect_gpus(opts: &HardwareOptions) -> (Vec<GpuHardwareInfo>, Vec<Unavailabl
                     temperature_available: false,
                     temperature_c: None,
                     temperature_reason: Some(
-                        "no documented GPU temperature read path on Windows without a vendor SDK"
+                        "no documented non-elevated GPU temperature read path for this vendor \
+                         (NVML covers NVIDIA only)"
                             .into(),
                     ),
                 });
@@ -556,6 +715,31 @@ fn collect_gpus(opts: &HardwareOptions) -> (Vec<GpuHardwareInfo>, Vec<Unavailabl
             ));
         }
     }
+    // Fill GPU temperature from NVML when an NVIDIA adapter is present.
+    let nvml_gpus = crate::platform::windows::nvml::nvidia_gpu_temperatures();
+    if !nvml_gpus.is_empty() {
+        let mut nvml_iter = nvml_gpus.into_iter();
+        for gpu in gpus.iter_mut().filter(|g| g.vendor == "nvidia") {
+            if let Some(nvml) = nvml_iter.next() {
+                match nvml.temperature_c {
+                    Some(t) => {
+                        gpu.temperature_available = true;
+                        gpu.temperature_c = Some(t);
+                        gpu.temperature_reason = None;
+                    }
+                    None => {
+                        gpu.temperature_available = false;
+                        gpu.temperature_c = None;
+                        gpu.temperature_reason = Some(format!(
+                            "{} is asleep or powered off (NVML reports 0 C); \
+                             no measured temperature while idle",
+                            nvml.name
+                        ));
+                    }
+                }
+            }
+        }
+    }
     (gpus, unavailable)
 }
 
@@ -573,8 +757,7 @@ fn collect_memory(opts: &HardwareOptions) -> (MemoryHardwareInfo, Vec<Unavailabl
     }
     // `total_bytes` mirrors `system_info.total_memory_bytes`: usable physical
     // memory from `GlobalMemoryStatusEx`, so both tools report the same value.
-    info.total_bytes =
-        crate::platform::windows::system::memory_status().map(|(_, total, _)| total);
+    info.total_bytes = crate::platform::windows::system::memory_status().map(|(_, total, _)| total);
     // The module count is only known from WMI (`Win32_PhysicalMemory`); when
     // the query fails the count stays `None` while the total still stands.
     match query_cimv2("SELECT Capacity FROM Win32_PhysicalMemory") {

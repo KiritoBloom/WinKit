@@ -542,6 +542,17 @@ pub struct StorageHealthDevice {
     pub data_units_written: Option<u64>,
     /// ATA reallocated sector count (only when an ATA SMART path works).
     pub reallocated_sectors: Option<u64>,
+    /// Physical media kind from the storage stack: `hdd`, `ssd`, or `scm`.
+    pub media_type: Option<String>,
+    /// Interface the storage stack reports, e.g. `sata` or `nvme`.
+    pub bus_type: Option<String>,
+    pub firmware_version: Option<String>,
+    pub serial_number: Option<String>,
+    /// Where the stack says the disk is attached, e.g.
+    /// `Integrated : Bus 0 : Device 23 : Function 0`.
+    pub physical_location: Option<String>,
+    /// Nominal rotation speed in RPM; 0 or `None` for solid-state media.
+    pub spindle_speed_rpm: Option<u32>,
     pub availability: SensorAvailability,
     /// Why health is unavailable, when it is.
     pub reason: Option<String>,

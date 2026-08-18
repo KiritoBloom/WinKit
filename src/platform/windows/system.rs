@@ -8,7 +8,7 @@ use std::mem::size_of;
 use windows_sys::Win32::Foundation::FILETIME;
 use windows_sys::Win32::System::SystemInformation::{
     GetLogicalProcessorInformationEx, GetSystemInfo, GetTickCount64, GlobalMemoryStatusEx,
-    MEMORYSTATUSEX, RelationProcessorCore, SYSTEM_INFO, SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX,
+    RelationProcessorCore, MEMORYSTATUSEX, SYSTEM_INFO, SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX,
 };
 use windows_sys::Win32::System::Threading::GetSystemTimes;
 use windows_sys::Win32::System::WindowsProgramming::GetComputerNameW;
@@ -39,7 +39,9 @@ fn cpu_topology() -> (u32, u32) {
             std::ptr::null_mut(),
             &mut needed,
         );
-        if ok != 0 || needed == 0 || windows_sys::Win32::Foundation::GetLastError() != ERROR_INSUFFICIENT_BUFFER
+        if ok != 0
+            || needed == 0
+            || windows_sys::Win32::Foundation::GetLastError() != ERROR_INSUFFICIENT_BUFFER
         {
             return (logical, logical);
         }
@@ -216,9 +218,7 @@ mod live_windows {
         assert!(logical >= cores, "logical processors >= physical cores");
         // Cross-check against WMI's NumberOfCores, which is authoritative.
         let wmi_cores = crate::platform::windows::wmi::WmiSession::connect("root\\cimv2")
-            .and_then(|s| {
-                s.query("SELECT NumberOfCores FROM Win32_Processor")
-            })
+            .and_then(|s| s.query("SELECT NumberOfCores FROM Win32_Processor"))
             .ok()
             .and_then(|rows| rows.first().and_then(|r| r.get_u32("NumberOfCores")));
         if let Some(wmi) = wmi_cores {

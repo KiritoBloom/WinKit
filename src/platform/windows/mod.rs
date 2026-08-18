@@ -12,6 +12,7 @@ pub mod hardware;
 pub mod health;
 pub mod network;
 pub mod network_diag;
+pub mod nvml;
 pub mod pdh;
 pub mod power;
 pub mod processes;

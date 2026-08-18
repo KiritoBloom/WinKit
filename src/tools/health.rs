@@ -119,16 +119,14 @@ pub fn build_health_report(
         .unwrap_or(false);
     if pressure {
         let load = resources.memory_load_percent.unwrap_or(0.0);
-        let available_percent = match (resources.available_memory_bytes, resources.total_memory_bytes)
-        {
+        let available_percent = match (
+            resources.available_memory_bytes,
+            resources.total_memory_bytes,
+        ) {
             (Some(avail), Some(total)) if total > 0 => Some(avail as f64 / total as f64 * 100.0),
             _ => None,
         };
-        let score = memory_pressure_score(
-            load,
-            config.high_memory_load_percent,
-            available_percent,
-        );
+        let score = memory_pressure_score(load, config.high_memory_load_percent, available_percent);
         let (severity, _) = score_bands(score);
         issues.push(HealthIssue {
             layer: "system".into(),
@@ -254,67 +252,64 @@ pub async fn system_diagnose_handler(
     // configured budget and degrades to `None`/empty instead of failing.
     let budget = state.config.hardware.probe_timeout_ms;
     let thermal_state = state.clone();
-    let thermal = crate::tools::hardware::probe(budget, move || {
-        thermal_state.windows.thermal_snapshot()
-    })
-    .await
-    .ok()
-    .map(|r| {
-        let mut temps: Vec<f64> = r
-            .sensors
-            .iter()
-            .filter(|s| s.availability.is_available())
-            .filter(|s| {
-                matches!(
-                    s.class,
-                    crate::models::SensorClass::CpuPackage | crate::models::SensorClass::CpuCore
-                )
-            })
-            .filter_map(|s| s.value)
-            .collect();
-        temps.sort_by(|a, b| a.total_cmp(b));
-        SystemThermalEvidence {
-            cpu_thermal_pressure: r.thermal_state.cpu_thermal_pressure.clone(),
-            cpu_throttling: r.thermal_state.cpu_throttling.clone(),
-            cpu_frequency_reduced: r.thermal_state.cpu_frequency_reduced,
-            cpu_temperature_c: temps.last().copied(),
-            gpu_thermal_pressure: r.thermal_state.gpu_thermal_pressure.clone(),
-        }
-    });
+    let thermal =
+        crate::tools::hardware::probe(budget, move || thermal_state.windows.thermal_snapshot())
+            .await
+            .ok()
+            .map(|r| {
+                let mut temps: Vec<f64> = r
+                    .sensors
+                    .iter()
+                    .filter(|s| s.availability.is_available())
+                    .filter(|s| {
+                        matches!(
+                            s.class,
+                            crate::models::SensorClass::CpuPackage
+                                | crate::models::SensorClass::CpuCore
+                        )
+                    })
+                    .filter_map(|s| s.value)
+                    .collect();
+                temps.sort_by(|a, b| a.total_cmp(b));
+                SystemThermalEvidence {
+                    cpu_thermal_pressure: r.thermal_state.cpu_thermal_pressure.clone(),
+                    cpu_throttling: r.thermal_state.cpu_throttling.clone(),
+                    cpu_frequency_reduced: r.thermal_state.cpu_frequency_reduced,
+                    cpu_temperature_c: temps.last().copied(),
+                    gpu_thermal_pressure: r.thermal_state.gpu_thermal_pressure.clone(),
+                }
+            });
     let storage_state = state.clone();
     let storage_health: Vec<SystemStorageHealthEvidence> =
-        crate::tools::hardware::probe(budget, move || {
-            storage_state.windows.disk_health()
-        })
-        .await
-        .ok()
-        .map(|r| {
-            r.devices
-                .into_iter()
-                .map(|d| SystemStorageHealthEvidence {
-                    device: d.device,
-                    interface: d.interface,
-                    health_status: d.health_status,
-                    temperature_c: d.temperature_c,
-                    percentage_used: d.percentage_used,
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+        crate::tools::hardware::probe(budget, move || storage_state.windows.disk_health())
+            .await
+            .ok()
+            .map(|r| {
+                r.devices
+                    .into_iter()
+                    .map(|d| SystemStorageHealthEvidence {
+                        device: d.device,
+                        interface: d.interface,
+                        health_status: d.health_status,
+                        temperature_c: d.temperature_c,
+                        percentage_used: d.percentage_used,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
     let battery_state = state.clone();
-    let battery = crate::tools::hardware::probe(budget, move || {
-        battery_state.windows.battery_status()
-    })
-    .await
-    .ok()
-    .map(|b| SystemBatteryEvidence {
-        present: b.present,
-        percent: b.percent,
-        ac_online: b.ac_online,
-        charging: b.charging,
-        battery_state: b.battery_state,
-        health_percent: b.health.as_ref().and_then(|h| h.health_percent),
-    });
+    let battery =
+        crate::tools::hardware::probe(budget, move || battery_state.windows.battery_status())
+            .await
+            .ok()
+            .map(|b| SystemBatteryEvidence {
+                present: b.present,
+                percent: b.percent,
+                ac_online: b.ac_online,
+                charging: b.charging,
+                battery_state: b.battery_state,
+                health_percent: b.health.as_ref().and_then(|h| h.health_percent),
+            });
     let wifi_state = state.clone();
     let wifi: Vec<SystemWifiEvidence> =
         crate::tools::hardware::probe(budget, move || wifi_state.windows.wifi_status())

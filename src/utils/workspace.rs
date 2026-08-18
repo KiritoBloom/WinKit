@@ -297,9 +297,7 @@ pub fn scan_workspace(root: &Path, options: &ScanOptions) -> WorkspaceScan {
     let started = std::time::Instant::now();
     // Windows canonicalization yields the extended-length `\\?\` prefix; strip it
     // so reported paths match what the user sees in Explorer and terminals.
-    let clean_root = PathBuf::from(
-        root.to_string_lossy().trim_start_matches("\\\\?\\"),
-    );
+    let clean_root = PathBuf::from(root.to_string_lossy().trim_start_matches("\\\\?\\"));
     let root = clean_root.as_path();
     let mut scan = WorkspaceScan {
         root: root.to_string_lossy().into_owned(),

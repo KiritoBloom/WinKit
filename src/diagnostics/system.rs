@@ -236,7 +236,8 @@ fn system_measurements(data: &SystemDiagnosticData) -> Vec<Measurement> {
             unit: "bytes".into(),
             scope: "application".into(),
             subject: Some(g.display_name.clone()),
-            detail: "Working set of this executable's own processes only (excludes descendants).".into(),
+            detail: "Working set of this executable's own processes only (excludes descendants)."
+                .into(),
         });
         out.push(Measurement {
             metric: "tree_process_count".into(),
@@ -448,14 +449,13 @@ fn system_signals_and_findings(
     if let Some(load) = data.memory_load_percent {
         if load >= health.high_memory_load_percent {
             let available_percent = match (data.memory_available_bytes, data.memory_total_bytes) {
-                (Some(avail), Some(total)) if total > 0 => Some(avail as f64 / total as f64 * 100.0),
+                (Some(avail), Some(total)) if total > 0 => {
+                    Some(avail as f64 / total as f64 * 100.0)
+                }
                 _ => None,
             };
-            let score = memory_pressure_score(
-                load,
-                health.high_memory_load_percent,
-                available_percent,
-            );
+            let score =
+                memory_pressure_score(load, health.high_memory_load_percent, available_percent);
             let (severity, confidence) = score_bands(score);
             let available = data.memory_available_bytes.unwrap_or(0);
             signals.push(DiagnosticSignal {

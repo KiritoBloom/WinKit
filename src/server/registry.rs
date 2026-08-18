@@ -51,13 +51,13 @@ pub async fn call_tool(
 /// cases.
 pub fn map_protocol_error(err: &WinkitError) -> (i64, serde_json::Value) {
     let code = match err.kind {
-        ErrorKind::InvalidArgument => -32602,          // INVALID_PARAMS
-        ErrorKind::ProviderUnavailable => -32001,      // server error: provider not available
-        ErrorKind::ApplicationUnavailable => -32002,   // server error: application unreachable
-        ErrorKind::FeatureDisabled => -32003,          // server error: feature disabled in config
-        ErrorKind::EndpointUnavailable => -32004,      // server error: endpoint unavailable
-        ErrorKind::BrowserExited => -32005,            // server error: managed browser exited
-        _ => -32603,                                   // INTERNAL_ERROR
+        ErrorKind::InvalidArgument => -32602,        // INVALID_PARAMS
+        ErrorKind::ProviderUnavailable => -32001,    // server error: provider not available
+        ErrorKind::ApplicationUnavailable => -32002, // server error: application unreachable
+        ErrorKind::FeatureDisabled => -32003,        // server error: feature disabled in config
+        ErrorKind::EndpointUnavailable => -32004,    // server error: endpoint unavailable
+        ErrorKind::BrowserExited => -32005,          // server error: managed browser exited
+        _ => -32603,                                 // INTERNAL_ERROR
     };
     (code, serde_json::json!({ "winkit_code": err.kind.code() }))
 }

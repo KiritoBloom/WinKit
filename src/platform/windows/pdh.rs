@@ -24,6 +24,7 @@ use crate::models::{DiskActivity, SensorAvailability, StorageActivity, Unavailab
 
 const PHYSICAL_DISK_OBJECT: &str = "PhysicalDisk";
 const PROCESSOR_INFORMATION_OBJECT: &str = "Processor Information";
+const THERMAL_ZONE_OBJECT: &str = "Thermal Zone Information";
 
 /// Per-disk activity counters, in the order `DiskActivity` fields expect.
 const DISK_COUNTERS: [&str; 6] = [
@@ -142,9 +143,14 @@ unsafe fn read_double(counter: isize) -> Option<f64> {
     }
 }
 
-/// Current CPU frequency as a fraction of base (0-100) from
+/// Current CPU frequency as a fraction of base from
 /// `\Processor Information(_Total)\% Processor Performance`. Returns `None`
 /// when the counter is unavailable.
+///
+/// The counter is a percentage of the base clock and legitimately exceeds
+/// 100 when turbo boost raises the multiplier above the base ratio (e.g.
+/// 118% on a 2712 MHz base means ~3250 MHz). Only values far outside any
+/// plausible multiplier are treated as invalid.
 pub fn cpu_performance_percent() -> Option<f64> {
     let path = counter_path(
         PROCESSOR_INFORMATION_OBJECT,
@@ -153,29 +159,26 @@ pub fn cpu_performance_percent() -> Option<f64> {
     )?;
     let counter = PdhCounter::new(&path)?;
     let v = counter.sample_double(250)?;
-    if (0.0..=100.0).contains(&v) {
+    // Turbo boost pushes this counter past 100; cap at 1000% as a sanity
+    // bound against corrupt counter data.
+    if (0.0..=1000.0).contains(&v) {
         Some(v)
     } else {
         None
     }
 }
 
-/// Enumerate `PhysicalDisk` instances (e.g. `0`, `1 C:`, `NVMe`).
-///
-/// The instance list is a double-NUL-terminated sequence of wide strings.
-/// Early PDH documentation claimed the list opens with a blank placeholder
-/// instance, but in practice the first entry can be a real disk, so we skip
-/// only empty strings and the aggregate `_Total` instance — never a fixed
-/// first position (which would silently drop the first physical disk).
-fn physical_disk_instances() -> Vec<String> {
+/// Enumerate the instances of any PDH object (double-NUL-terminated wide
+/// strings), skipping empty names and the aggregate `_Total` instance.
+fn enum_object_instances(object: &str) -> Vec<String> {
     unsafe {
-        let object = crate::utils::to_wide(PHYSICAL_DISK_OBJECT);
+        let object_w = crate::utils::to_wide(object);
         let mut counter_size = 0u32;
         let mut instance_size = 0u32;
         let mut status = PdhEnumObjectItemsW(
             std::ptr::null(),
             std::ptr::null(),
-            object.as_ptr(),
+            object_w.as_ptr(),
             std::ptr::null_mut(),
             &mut counter_size,
             std::ptr::null_mut(),
@@ -191,7 +194,7 @@ fn physical_disk_instances() -> Vec<String> {
         status = PdhEnumObjectItemsW(
             std::ptr::null(),
             std::ptr::null(),
-            object.as_ptr(),
+            object_w.as_ptr(),
             counters_buf.as_mut_ptr(),
             &mut counter_size,
             instance_buf.as_mut_ptr(),
@@ -217,6 +220,70 @@ fn physical_disk_instances() -> Vec<String> {
         }
         out
     }
+}
+
+/// Physical disk instances (e.g. `0`, `1 C:`, `NVMe`), reusing the generic
+/// instance enumerator. The instance list opens with no guaranteed blank
+/// placeholder, so only empty names and `_Total` are skipped — never a fixed
+/// first position.
+fn physical_disk_instances() -> Vec<String> {
+    enum_object_instances(PHYSICAL_DISK_OBJECT)
+}
+
+/// ACPI thermal-zone temperatures via the PDH counter
+/// `\Thermal Zone Information(*)\Temperature`, which is readable without
+/// elevation (unlike the `MSAcpi_ThermalZoneTemperature` WMI class on many
+/// hosts).
+///
+/// The counter is a gauge expressed in kelvin; readings that decode to an
+/// implausible temperature (below -30 C or above 110 C) are firmware
+/// placeholders and are skipped rather than reported as real sensors.
+pub fn thermal_zone_temperatures() -> Vec<(String, f64)> {
+    let instances = enum_object_instances(THERMAL_ZONE_OBJECT);
+    if instances.is_empty() {
+        return Vec::new();
+    }
+
+    let mut query: isize = 0;
+    if unsafe { PdhOpenQueryW(std::ptr::null(), 0, &mut query) } != PDH_CSTATUS_VALID_DATA {
+        return Vec::new();
+    }
+    let mut handles: Vec<(String, isize)> = Vec::new();
+    for inst in &instances {
+        if let Some(path) = counter_path(THERMAL_ZONE_OBJECT, Some(inst), "Temperature") {
+            let mut h: isize = 0;
+            let status = unsafe {
+                PdhAddEnglishCounterW(query, crate::utils::to_wide(&path).as_ptr(), 0, &mut h)
+            };
+            if status == PDH_CSTATUS_VALID_DATA {
+                handles.push((inst.clone(), h));
+            }
+        }
+    }
+    if handles.is_empty() {
+        unsafe { PdhCloseQuery(query) };
+        return Vec::new();
+    }
+
+    // Two samples, one shared gap — the same shape `disk_activity` uses, so a
+    // counter that needs a warm-up sample still produces a value.
+    let first_ok = unsafe { PdhCollectQueryData(query) } == PDH_CSTATUS_VALID_DATA;
+    unsafe { Sleep(100) };
+    let second_ok = unsafe { PdhCollectQueryData(query) } == PDH_CSTATUS_VALID_DATA;
+
+    let mut out = Vec::new();
+    if first_ok && second_ok {
+        for (inst, h) in &handles {
+            if let Some(v) = unsafe { read_double(*h) } {
+                let celsius = v - 273.15;
+                if celsius.is_finite() && (-30.0..=110.0).contains(&celsius) {
+                    out.push((inst.clone(), celsius));
+                }
+            }
+        }
+    }
+    unsafe { PdhCloseQuery(query) };
+    out
 }
 
 /// Sample per-disk activity over a window. `% Disk Time` and
@@ -249,7 +316,8 @@ pub fn disk_activity(sample_window_ms: u64) -> Result<StorageActivity, WinkitErr
     }
 
     let mut query: isize = 0;
-    let opened = unsafe { PdhOpenQueryW(std::ptr::null(), 0, &mut query) } == PDH_CSTATUS_VALID_DATA;
+    let opened =
+        unsafe { PdhOpenQueryW(std::ptr::null(), 0, &mut query) } == PDH_CSTATUS_VALID_DATA;
     if !opened {
         return Ok(StorageActivity {
             status: "unavailable".into(),
@@ -285,11 +353,9 @@ pub fn disk_activity(sample_window_ms: u64) -> Result<StorageActivity, WinkitErr
 
     // Two samples for the whole query: first immediately, second after the
     // gap. Both must succeed for any rate to be readable.
-    let first_ok =
-        unsafe { PdhCollectQueryData(query) } == PDH_CSTATUS_VALID_DATA;
+    let first_ok = unsafe { PdhCollectQueryData(query) } == PDH_CSTATUS_VALID_DATA;
     unsafe { Sleep(gap_ms as u32) };
-    let second_ok =
-        unsafe { PdhCollectQueryData(query) } == PDH_CSTATUS_VALID_DATA;
+    let second_ok = unsafe { PdhCollectQueryData(query) } == PDH_CSTATUS_VALID_DATA;
     let samples_ok = first_ok && second_ok;
 
     let mut disks = Vec::with_capacity(instances.len());

@@ -250,7 +250,12 @@ fn first_upper(s: &str) -> String {
 mod tests {
     use super::*;
 
-    fn proc(pid: u32, ppid: Option<u32>, name: &str, working_set_bytes: Option<u64>) -> ProcessInfo {
+    fn proc(
+        pid: u32,
+        ppid: Option<u32>,
+        name: &str,
+        working_set_bytes: Option<u64>,
+    ) -> ProcessInfo {
         ProcessInfo {
             pid,
             name: name.to_string(),
