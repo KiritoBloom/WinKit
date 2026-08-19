@@ -75,6 +75,14 @@ pub trait WindowsBackend: Send + Sync {
     fn wifi_status(&self) -> Result<Vec<WifiAdapterStatus>, WinkitError>;
     fn wifi_scan(&self) -> Result<WifiScan, WinkitError>;
     fn network_diagnose(&self, sample_window_ms: u64) -> Result<NetworkDiagnosis, WinkitError>;
+    /// Allowlist-only registry diagnostics (OS identity, startup programs,
+    /// installed software). `include_software` and `max_software` bound the
+    /// potentially large Uninstall enumeration.
+    fn registry_diagnostics(
+        &self,
+        include_software: bool,
+        max_software: usize,
+    ) -> Result<RegistryDiagnostics, WinkitError>;
 }
 
 /// Aggregate view of Chrome processes from the Windows layer (§28).
@@ -323,6 +331,17 @@ impl WindowsBackend for RealWindowsBackend {
     fn network_diagnose(&self, sample_window_ms: u64) -> Result<NetworkDiagnosis, WinkitError> {
         crate::platform::windows::network_diag::network_diagnose(sample_window_ms)
     }
+
+    fn registry_diagnostics(
+        &self,
+        include_software: bool,
+        max_software: usize,
+    ) -> Result<RegistryDiagnostics, WinkitError> {
+        crate::platform::windows::registry::read_registry_diagnostics(
+            include_software,
+            max_software,
+        )
+    }
 }
 
 /// Concrete provider type registered in the registry.
@@ -367,6 +386,7 @@ impl Provider for WindowsProvider {
             Capability::PowerRead,
             Capability::WifiRead,
             Capability::NetworkDiagnosticsRead,
+            Capability::RegistryRead,
         ]
     }
 }

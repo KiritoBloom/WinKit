@@ -22,6 +22,7 @@ pub struct MockWindowsBackend {
     pub drives: Vec<DriveInfo>,
     pub services: Vec<ServiceInfo>,
     pub events: Vec<EventInfo>,
+    pub registry: RegistryDiagnostics,
     pub windows: Vec<WindowInfo>,
     pub wifi: Vec<WifiAdapterStatus>,
 }
@@ -129,11 +130,61 @@ impl MockWindowsBackend {
                 level: EventLevel::Error,
                 provider: Some("Application Error".into()),
                 channel: Some("Application".into()),
-                time_created: Some("2026-08-13T07:59:00.000Z".into()),
+                time_created: Some(crate::utils::time::minutes_ago_rfc3339(60)),
                 computer: Some("DESKTOP-X".into()),
                 process_id: Some(521),
                 message: Some("Faulting application name: chrome.exe".into()),
             }],
+            registry: RegistryDiagnostics {
+                system_identity: SystemIdentity {
+                    product_name: Some("Windows 11 Pro".into()),
+                    display_version: Some("23H2".into()),
+                    current_version: Some("6.3".into()),
+                    current_build: Some("22631".into()),
+                    ubr: Some("4036".into()),
+                    install_date: Some("2024-01-15T00:00:00.000Z".into()),
+                    edition_id: Some("Professional".into()),
+                    build_lab_ex: Some("22631.1.amd64fre.ni_release.220506-1250".into()),
+                },
+                startup_programs: vec![
+                    StartupProgram {
+                        name: "OneDrive".into(),
+                        command: "C:\\Program Files\\Microsoft OneDrive\\OneDrive.exe /background"
+                            .into(),
+                        scope: "user".into(),
+                        source_key: "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+                            .into(),
+                        enabled: true,
+                    },
+                    StartupProgram {
+                        name: "OldTool".into(),
+                        command: "C:\\Tools\\old.exe".into(),
+                        scope: "machine".into(),
+                        source_key: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
+                            .into(),
+                        enabled: false,
+                    },
+                ],
+                installed_software: vec![
+                    InstalledSoftware {
+                        name: "Visual Studio Code".into(),
+                        version: Some("1.90.0".into()),
+                        publisher: Some("Microsoft Corporation".into()),
+                        install_date: None,
+                    },
+                    InstalledSoftware {
+                        name: "Git".into(),
+                        version: Some("2.45.0".into()),
+                        publisher: Some("The Git Development Community".into()),
+                        install_date: Some("20240601".into()),
+                    },
+                ],
+                counts: RegistryCounts {
+                    startup_programs: 2,
+                    installed_software: 2,
+                },
+                warnings: Vec::new(),
+            },
             windows: vec![WindowInfo {
                 hwnd: 0x000A_0001,
                 title: "My Heavy Tab - Google Chrome".into(),
@@ -364,6 +415,10 @@ impl WindowsBackend for MockWindowsBackend {
     }
 
     fn get_recent_events(&self, query: &EventQuery) -> Result<Vec<EventInfo>, WinkitError> {
+        let since_epoch = query.since_minutes.and_then(|minutes| {
+            std::time::SystemTime::now()
+                .checked_sub(std::time::Duration::from_secs(minutes.saturating_mul(60)))
+        });
         let mut out: Vec<EventInfo> = self
             .events
             .iter()
@@ -378,6 +433,22 @@ impl WindowsBackend for MockWindowsBackend {
                         .as_ref()
                         .map(|p| e.provider.as_deref() == Some(p.as_str()))
                         .unwrap_or(true)
+                    && query
+                        .event_id
+                        .map(|id| e.event_id == Some(id))
+                        .unwrap_or(true)
+                    && match (&since_epoch, &e.time_created) {
+                        (Some(limit), Some(ts)) => {
+                            crate::utils::time::parse_rfc3339_epoch_secs(ts)
+                                .map(|secs| {
+                                    std::time::SystemTime::UNIX_EPOCH
+                                        + std::time::Duration::from_secs(secs)
+                                })
+                                .map(|t| t >= *limit)
+                                .unwrap_or(true)
+                        }
+                        _ => true,
+                    }
             })
             .cloned()
             .collect();
@@ -806,6 +877,20 @@ impl WindowsBackend for MockWindowsBackend {
             external_connectivity: "ok".into(),
         })
     }
+
+    fn registry_diagnostics(
+        &self,
+        include_software: bool,
+        max_software: usize,
+    ) -> Result<RegistryDiagnostics, WinkitError> {
+        let mut diag = self.registry.clone();
+        if !include_software {
+            diag.installed_software.clear();
+        }
+        diag.installed_software.truncate(max_software);
+        diag.counts.installed_software = diag.installed_software.len();
+        Ok(diag)
+    }
 }
 
 /// Synthetic toolchain used by fixture-loading tests.
@@ -833,4 +918,85 @@ pub fn fixture_process_entries() -> Vec<ProcessEntry> {
             priority: 8,
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::EventQuery;
+
+    fn sample_event(record_id: u64, event_id: u32, provider: &str, channel: &str) -> EventInfo {
+        EventInfo {
+            record_id: Some(record_id),
+            event_id: Some(event_id),
+            level: EventLevel::Error,
+            provider: Some(provider.to_string()),
+            channel: Some(channel.to_string()),
+            time_created: Some(crate::utils::time::minutes_ago_rfc3339(60)),
+            computer: Some("HOST".to_string()),
+            process_id: None,
+            message: Some("boom".to_string()),
+        }
+    }
+
+    #[test]
+    fn mock_event_query_filters_by_event_id_and_provider() {
+        let mock = MockWindowsBackend {
+            events: vec![
+                sample_event(1, 1001, "A", "System"),
+                sample_event(2, 41, "B", "System"),
+                sample_event(3, 1001, "A", "System"),
+            ],
+            ..Default::default()
+        };
+        let q = EventQuery {
+            log: "System".to_string(),
+            min_level: None,
+            since_minutes: Some(43_200),
+            provider: Some("A".to_string()),
+            event_id: Some(1001),
+            max_results: 10,
+        };
+        let out = mock.get_recent_events(&q).unwrap();
+        assert_eq!(out.len(), 2);
+        assert!(out
+            .iter()
+            .all(|e| e.event_id == Some(1001) && e.provider.as_deref() == Some("A")));
+    }
+
+    #[test]
+    fn mock_event_query_respects_since_window() {
+        let old = EventInfo {
+            time_created: Some(crate::utils::time::minutes_ago_rfc3339(100_000)),
+            ..sample_event(1, 1001, "A", "System")
+        };
+        let mock = MockWindowsBackend {
+            events: vec![old.clone(), sample_event(2, 41, "A", "System")],
+            ..Default::default()
+        };
+        let q = EventQuery {
+            log: "System".to_string(),
+            min_level: None,
+            since_minutes: Some(43_200),
+            provider: None,
+            event_id: None,
+            max_results: 10,
+        };
+        let out = mock.get_recent_events(&q).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].record_id, Some(2));
+    }
+
+    #[test]
+    fn mock_registry_diagnostics_honors_flags() {
+        let mock = MockWindowsBackend::with_fixtures();
+        let all = mock.registry_diagnostics(true, 200).unwrap();
+        assert_eq!(all.counts.installed_software, 2);
+        let no_software = mock.registry_diagnostics(false, 200).unwrap();
+        assert!(no_software.installed_software.is_empty());
+        assert_eq!(no_software.counts.installed_software, 0);
+        let capped = mock.registry_diagnostics(true, 1).unwrap();
+        assert_eq!(capped.installed_software.len(), 1);
+        assert_eq!(capped.counts.installed_software, 1);
+    }
 }

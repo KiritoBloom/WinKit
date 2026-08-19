@@ -3235,5 +3235,13 @@ mod tests {
         ) -> Result<crate::models::NetworkDiagnosis, WinkitError> {
             self.inner.network_diagnose(sample_window_ms)
         }
+        fn registry_diagnostics(
+            &self,
+            include_software: bool,
+            max_software: usize,
+        ) -> Result<crate::models::RegistryDiagnostics, WinkitError> {
+            self.inner
+                .registry_diagnostics(include_software, max_software)
+        }
     }
 }
