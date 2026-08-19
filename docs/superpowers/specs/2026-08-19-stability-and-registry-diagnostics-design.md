@@ -116,16 +116,16 @@ Notes:
 
 | Category | Provider | Event IDs | Meaning |
 | --- | --- | --- | --- |
-| `boot` | EventLog | 6005 | Event log service started (boot marker) |
+| `boot` | Microsoft-Windows-Eventlog | 6005 | Event log service started (boot marker) |
 | `boot` | Microsoft-Windows-Kernel-General | 12 | "The operating system started" |
-| `clean_shutdown` | EventLog | 6006 | Event log service stopped |
+| `clean_shutdown` | Microsoft-Windows-Eventlog | 6006 | Event log service stopped |
 | `clean_shutdown` | Microsoft-Windows-Kernel-General | 13 | "The operating system is shutting down" |
-| `unexpected_shutdown` | EventLog | 6008 | "The previous system shutdown at <t> on <d> was unexpected" |
+| `unexpected_shutdown` | Microsoft-Windows-Eventlog | 6008 | "The previous system shutdown at <t> on <d> was unexpected" |
 | `user_shutdown` | User32 | 1074 | Process/user-initiated shutdown/restart; message carries reason, reason code, shutdown type |
 | `power_loss` | Microsoft-Windows-Kernel-Power | 41 | Rebooted without clean shutdown |
 | `sleep` | Microsoft-Windows-Kernel-Power | 42 | Entering sleep |
 | `hibernate` | Microsoft-Windows-Kernel-Power | 107 | Hibernate transition |
-| `uptime` | EventLog | 6013 | Uptime in seconds after boot |
+| `uptime` | Microsoft-Windows-Eventlog | 6013 | Uptime in seconds after boot |
 
 All queries target the System log. `last_boot_time` is the newest `boot`
 event; `current_boot_time`/`current_uptime_seconds` come from the existing
@@ -194,9 +194,9 @@ the documented set):
    - `HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run`
      (32-bit entries on 64-bit Windows)
    Each entry is classified `enabled`/`disabled` from the matching
-   `Explorer\StartupApproved\Run` binary flag (byte offset 1: `0x02` enabled,
-   `0x03` disabled; absent entry means enabled — matches Task Manager
-   behavior documented by the StartupApproved analysis).
+   `Explorer\StartupApproved\Run` binary flag (12-byte layout: state byte at
+   offset 0, `0x02` enabled, `0x03` disabled; absent entry means enabled —
+   matches Task Manager behavior).
 3. **Installed software** — subkeys of
    `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` and the
    `WOW6432Node` mirror; `DisplayName`, `DisplayVersion`, `Publisher`,
