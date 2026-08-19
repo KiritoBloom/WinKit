@@ -50,7 +50,7 @@ pub async fn get_process_handler(state: Arc<AppState>, args: Value) -> Result<Va
 pub fn get_process_definition() -> ToolDefinition {
     ToolDefinition {
         name: "get_process",
-        description: "Detailed information about one process by PID: memory, threads, CPU time, executable path, and command line when readable. Per-process CPU percent is intentionally not reported; use system_health for CPU evidence.",
+        description: "Detailed information about one process by PID: memory, threads, CPU time, executable path, and command line when readable. Includes a two-sample CPU percent estimate (relative to total system CPU capacity) when the process is openable; for multi-sample CPU evidence use system_health.",
         input_schema: json!({
             "type": "object",
             "properties": {
