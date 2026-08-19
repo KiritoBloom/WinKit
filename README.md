@@ -8,11 +8,11 @@ guessing.
 
 Your machine, visible to your agent. No cloud, no telemetry, no writes.
 
-```text
-$ opencode --mcp-config examples/mcp/opencode.json
+```ansi
+[32m$ opencode --mcp-config examples/mcp/opencode.json[0m
 
-  User: Why did my PC restart overnight?
-  Agent: > shutdown_analysis(since_minutes=720)
+[1m  User:[0m Why did my PC restart overnight?
+[1m  Agent:[0m [36m> shutdown_analysis(since_minutes=720)[0m
          { boots: 1, unexpected_shutdowns: 1, power_losses: 1,
            last_shutdown_kind: "power_loss",
            events: [6008 @ 2026-08-18T20:13:47Z, 41 @ ...] }
