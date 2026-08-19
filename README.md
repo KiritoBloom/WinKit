@@ -287,7 +287,7 @@ WinKit treats limits as first-class output, not bugs:
 ```powershell
 cargo check                 # compile checks
 cargo build                 # debug build
-cargo test --features mocks # full test suite (384 tests)
+cargo test --features mocks # full test suite (408 tests)
 cargo clippy --all-targets  # lint
 
 # evaluation suite (fixture-backed failure scenarios)

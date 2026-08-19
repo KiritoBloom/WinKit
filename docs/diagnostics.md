@@ -227,21 +227,31 @@ Groups crash-class events into five fixed categories: `bugcheck`
 (WER-SystemErrorReporting 1001), `unclean_shutdown` (Kernel-Power 41),
 `hardware_error` (WHEA-Logger 18/19/20), `app_crash` (Application Error
 1000/1002, .NET Runtime 1026), and `wer_report` (Windows Error Reporting
-1001). The `categories` block reports count and first/last timestamp per
-category; the flat `crashes` list is sorted newest-first. `bugcheck_code` is
-populated only when the 1001 message actually contains one (`The bugcheck
-was: 0x…`); the Kernel-Power 41 code lives in EventData, so it is never
-reported — the tool does not read raw XML.
+1001). The `categories` block reports count, first/last timestamp, and a
+`truncated` flag per category — `true` when any feeding query hit its
+`max_results` cap, meaning more events may exist beyond the window. The flat
+`crashes` list is sorted newest-first. `bugcheck_code` is populated only when
+the 1001 message actually contains one (`The bugcheck was: 0x…`); the
+Kernel-Power 41 code lives in EventData, so it is never reported — the tool
+does not read raw XML.
+
+Note that `total` counts event-log records, not distinct incidents: an
+application crash typically produces both an Application Error 1000 and a
+Windows Error Reporting 1001 record, so the same incident appears in two
+categories. Use the per-category counts, not `total`, for incident numbers.
 
 ### `shutdown_analysis`
 
 Timeline of boots, clean shutdowns (6006 / Kernel-General 13), unexpected
 shutdowns (6008), user-initiated shutdowns and restarts (User32 1074),
 power losses (Kernel-Power 41), sleep (42) and hibernate (107) transitions,
-and uptime reports (6013). `summary.last_shutdown_kind` is the newest
-shutdown-class event strictly before the newest boot in the window — or
-`null` when there is no such evidence, never a guess. `current_uptime_seconds`
-comes from `system_info`; a failure there is a warning, not a fatal error.
+and uptime reports (6013). The 6005/6006/6008/6013 markers come from the
+`EventLog` provider. `summary.last_shutdown_kind` is the newest shutdown-class
+event strictly before the newest boot in the window — or `null` when there is
+no such evidence, never a guess. `current_uptime_seconds` comes from
+`system_info`; a failure there is a warning, not a fatal error. Per-category
+`truncated` flags in `summary` follow the same cap convention as
+`crash_history`.
 
 ## Design guarantees
 

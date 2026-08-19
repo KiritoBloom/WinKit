@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`registry_diagnostics` tool** — allowlist-only registry reads: OS identity, startup programs (with enabled/disabled state), and installed software.
 - **`registry.read` capability** — promoted from declared-but-never-granted to a v1 read capability, granted in `safe` and `read_only` modes.
 
+### Fixed
+
+- **`registry_diagnostics` reported a garbage `ubr` value** — the OS build revision (`UBR`) is a `REG_DWORD`, but it was read through the string path, which decoded the 4-byte value as UTF-16. It is now read as a DWORD and reported as a decimal string.
+- **`shutdown_analysis` missed EventLog 6005/6006/6008/6013 markers** — the queries filtered on provider `Microsoft-Windows-Eventlog`, but Windows publishes these under the `EventLog` provider, so unexpected-shutdown counts and the uptime/boot markers were silently empty. The provider name is fixed, and the live regression suite now guards the real event log.
+- **`crash_history` / `shutdown_analysis` truncation under-reported** — `truncated` was computed against `queries × max_results`, a threshold that is nearly unreachable, so a single category hitting its per-query cap was reported as complete. Each category now reports its own `truncated` flag (top-level `truncated` is true when any category is capped).
+
 ## [0.1.4] - 2026-08-18
 
 ### Added

@@ -130,7 +130,7 @@ impl MockWindowsBackend {
                 level: EventLevel::Error,
                 provider: Some("Application Error".into()),
                 channel: Some("Application".into()),
-time_created: Some(crate::utils::time::minutes_ago_rfc3339(30)),
+                time_created: Some(crate::utils::time::minutes_ago_rfc3339(30)),
                 computer: Some("DESKTOP-X".into()),
                 process_id: Some(521),
                 message: Some("Faulting application name: chrome.exe".into()),

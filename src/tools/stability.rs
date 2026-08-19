@@ -154,7 +154,10 @@ fn crash_entry(e: &EventInfo, category: CrashCategory) -> CrashEntry {
     }
 }
 
-fn category_blocks(entries: &[CrashEntry]) -> Value {
+fn category_blocks(
+    entries: &[CrashEntry],
+    truncated_categories: &BTreeMap<&'static str, bool>,
+) -> Value {
     let mut counts: BTreeMap<&'static str, usize> =
         CrashCategory::ALL.iter().map(|c| (c.as_str(), 0)).collect();
     for e in entries {
@@ -174,6 +177,7 @@ fn category_blocks(entries: &[CrashEntry]) -> Value {
                 "count": counts[name],
                 "first_ts": times.iter().min(),
                 "last_ts": times.iter().max(),
+                "truncated": truncated_categories.get(name).copied().unwrap_or(false),
             }),
         );
     }
@@ -194,6 +198,7 @@ pub async fn crash_history_handler(
 
     let mut entries: Vec<CrashEntry> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
+    let mut truncated_categories: BTreeMap<&'static str, bool> = BTreeMap::new();
     for spec in CRASH_QUERIES {
         let query = EventQuery {
             log: spec.log.to_string(),
@@ -205,6 +210,13 @@ pub async fn crash_history_handler(
         };
         match state.windows.get_recent_events(&query) {
             Ok(events) => {
+                // The backend caps at max_results; reaching the cap means more
+                // events may exist beyond the window, so the category is
+                // reported as possibly truncated (same convention as the
+                // plain event query tool).
+                if events.len() == max_results {
+                    truncated_categories.insert(spec.category.as_str(), true);
+                }
                 entries.extend(events.iter().map(|e| crash_entry(e, spec.category)));
             }
             Err(err) => warnings.push(format!(
@@ -219,12 +231,12 @@ pub async fn crash_history_handler(
     entries.sort_by(|a, b| b.time_created.cmp(&a.time_created));
 
     let total = entries.len();
-    let truncated = total >= CRASH_QUERIES.len() * max_results;
+    let truncated = truncated_categories.values().any(|t| *t);
     Ok(json!({
         "since_minutes": since_minutes,
         "total": total,
         "truncated": truncated,
-        "categories": category_blocks(&entries),
+        "categories": category_blocks(&entries, &truncated_categories),
         "crashes": entries,
         "warnings": warnings,
     }))
@@ -289,7 +301,7 @@ struct ShutdownQuery {
 const SHUTDOWN_QUERIES: &[ShutdownQuery] = &[
     ShutdownQuery {
         log: "System",
-        provider: "Microsoft-Windows-Eventlog",
+        provider: "EventLog",
         event_id: 6005,
         category: ShutdownCategory::Boot,
     },
@@ -301,7 +313,7 @@ const SHUTDOWN_QUERIES: &[ShutdownQuery] = &[
     },
     ShutdownQuery {
         log: "System",
-        provider: "Microsoft-Windows-Eventlog",
+        provider: "EventLog",
         event_id: 6006,
         category: ShutdownCategory::CleanShutdown,
     },
@@ -313,7 +325,7 @@ const SHUTDOWN_QUERIES: &[ShutdownQuery] = &[
     },
     ShutdownQuery {
         log: "System",
-        provider: "Microsoft-Windows-Eventlog",
+        provider: "EventLog",
         event_id: 6008,
         category: ShutdownCategory::UnexpectedShutdown,
     },
@@ -343,7 +355,7 @@ const SHUTDOWN_QUERIES: &[ShutdownQuery] = &[
     },
     ShutdownQuery {
         log: "System",
-        provider: "Microsoft-Windows-Eventlog",
+        provider: "EventLog",
         event_id: 6013,
         category: ShutdownCategory::Uptime,
     },
@@ -423,6 +435,7 @@ pub async fn shutdown_analysis_handler(
 
     let mut entries: Vec<ShutdownEntry> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
+    let mut truncated_categories: BTreeMap<&'static str, bool> = BTreeMap::new();
     for spec in SHUTDOWN_QUERIES {
         let query = EventQuery {
             log: spec.log.to_string(),
@@ -434,6 +447,11 @@ pub async fn shutdown_analysis_handler(
         };
         match state.windows.get_recent_events(&query) {
             Ok(events) => {
+                // Same per-category cap convention as crash_history: reaching
+                // max_results means more events may exist beyond the window.
+                if events.len() == max_results {
+                    truncated_categories.insert(spec.category.as_str(), true);
+                }
                 entries.extend(events.iter().map(|e| shutdown_entry(e, spec.category)));
             }
             Err(err) => warnings.push(format!(
@@ -469,6 +487,16 @@ pub async fn shutdown_analysis_handler(
         "sleeps": count_category(&entries, "sleep"),
         "hibernations": count_category(&entries, "hibernate"),
         "last_shutdown_kind": last_shutdown_kind(&entries, &last_boot_time),
+        "truncated": {
+            "boot": truncated_categories.get("boot").copied().unwrap_or(false),
+            "clean_shutdown": truncated_categories.get("clean_shutdown").copied().unwrap_or(false),
+            "unexpected_shutdown": truncated_categories.get("unexpected_shutdown").copied().unwrap_or(false),
+            "power_loss": truncated_categories.get("power_loss").copied().unwrap_or(false),
+            "user_shutdown": truncated_categories.get("user_shutdown").copied().unwrap_or(false),
+            "sleep": truncated_categories.get("sleep").copied().unwrap_or(false),
+            "hibernate": truncated_categories.get("hibernate").copied().unwrap_or(false),
+            "uptime": truncated_categories.get("uptime").copied().unwrap_or(false),
+        },
     });
 
     Ok(json!({
@@ -477,7 +505,7 @@ pub async fn shutdown_analysis_handler(
         "current_uptime_seconds": current_uptime_seconds,
         "last_boot_time": last_boot_time,
         "total_events": entries.len(),
-        "truncated": entries.len() >= SHUTDOWN_QUERIES.len() * max_results,
+        "truncated": truncated_categories.values().any(|t| *t),
         "summary": summary,
         "events": entries,
         "warnings": warnings,
@@ -617,14 +645,60 @@ mod tests {
 
     #[tokio::test]
     async fn crash_history_reports_query_failures_as_warnings() {
-        // A backend whose query errors: any mock that returns Err. Build a
-        // backend with an empty event list and force the failure by stubbing
-        // via a wrapper is not possible with the concrete mock; instead
-        // assert the happy path warnings array is present and empty.
         let state = state_with(vec![]);
         let out = crash_history_handler(state, json!({})).await.unwrap();
         assert_eq!(out["total"], 0);
         assert!(out["warnings"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn crash_history_flags_category_when_single_query_hits_cap() {
+        // A single WER query hitting its per-query cap must flag the category
+        // even though the aggregate total is far below `queries * max_results`.
+        let events = vec![
+            event(
+                1,
+                1001,
+                "Windows Error Reporting",
+                "Application",
+                30,
+                Some("Faulting application name: chrome.exe"),
+            ),
+            event(
+                2,
+                1001,
+                "Windows Error Reporting",
+                "Application",
+                45,
+                Some("Faulting application name: notepad.exe"),
+            ),
+        ];
+        let state = state_with(events);
+        let out = crash_history_handler(state, json!({ "max_results": 2 }))
+            .await
+            .unwrap();
+        assert_eq!(out["categories"]["wer_report"]["truncated"], true);
+        assert_eq!(out["categories"]["app_crash"]["truncated"], false);
+        assert_eq!(out["truncated"], true);
+    }
+
+    #[tokio::test]
+    async fn crash_history_not_truncated_when_under_cap() {
+        let events = vec![event(
+            1,
+            1000,
+            "Application Error",
+            "Application",
+            30,
+            Some("Faulting application name: chrome.exe"),
+        )];
+        let state = state_with(events);
+        let out = crash_history_handler(state, json!({ "max_results": 50 }))
+            .await
+            .unwrap();
+        assert_eq!(out["categories"]["app_crash"]["truncated"], false);
+        assert_eq!(out["categories"]["wer_report"]["truncated"], false);
+        assert_eq!(out["truncated"], false);
     }
 
     #[tokio::test]
@@ -633,7 +707,7 @@ mod tests {
             event(
                 11,
                 6005,
-                "Microsoft-Windows-Eventlog",
+                "EventLog",
                 "System",
                 600,
                 Some("The Event log service was started."),
@@ -641,7 +715,7 @@ mod tests {
             event(
                 12,
                 6013,
-                "Microsoft-Windows-Eventlog",
+                "EventLog",
                 "System",
                 600,
                 Some("The system uptime is 86400 seconds."),
@@ -649,7 +723,7 @@ mod tests {
             event(
                 13,
                 6008,
-                "Microsoft-Windows-Eventlog",
+                "EventLog",
                 "System",
                 720,
                 Some("The previous system shutdown at 9:00:00 AM on 8/18/2026 was unexpected."),
@@ -667,7 +741,7 @@ mod tests {
             event(
                 15,
                 6006,
-                "Microsoft-Windows-Eventlog",
+                "EventLog",
                 "System",
                 4320,
                 Some("The Event log service was stopped."),
@@ -711,7 +785,7 @@ mod tests {
             event(
                 21,
                 6005,
-                "Microsoft-Windows-Eventlog",
+                "EventLog",
                 "System",
                 600,
                 Some("The Event log service was started."),
@@ -732,5 +806,36 @@ mod tests {
             serde_json::Value::Null
         );
         assert_eq!(out["summary"]["boots"], 1);
+    }
+
+    #[tokio::test]
+    async fn shutdown_analysis_flags_category_when_single_query_hits_cap() {
+        // A single boot-marker query (6005) hitting its per-query cap must
+        // flag truncation even though the aggregate total is far below
+        // `queries * max_results`.
+        let events = vec![
+            event(
+                11,
+                6005,
+                "EventLog",
+                "System",
+                600,
+                Some("The Event log service was started."),
+            ),
+            event(
+                12,
+                6005,
+                "EventLog",
+                "System",
+                620,
+                Some("The Event log service was started."),
+            ),
+        ];
+        let state = state_with(events);
+        let out = shutdown_analysis_handler(state, json!({ "max_results": 2 }))
+            .await
+            .unwrap();
+        assert_eq!(out["truncated"], true);
+        assert_eq!(out["summary"]["boots"], 2);
     }
 }

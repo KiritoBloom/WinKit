@@ -78,11 +78,11 @@ Output shape (projected JSON):
   "total": 5,
   "truncated": false,
   "categories": {
-    "bugcheck":          { "count": 1, "first_ts": "...", "last_ts": "..." },
-    "unclean_shutdown":  { "count": 2, "first_ts": "...", "last_ts": "..." },
-    "hardware_error":    { "count": 1, "first_ts": "...", "last_ts": "..." },
-    "app_crash":         { "count": 1, "first_ts": "...", "last_ts": "..." },
-    "wer_report":        { "count": 0, "first_ts": null, "last_ts": null }
+    "bugcheck":          { "count": 1, "first_ts": "...", "last_ts": "...", "truncated": false },
+    "unclean_shutdown":  { "count": 2, "first_ts": "...", "last_ts": "...", "truncated": false },
+    "hardware_error":    { "count": 1, "first_ts": "...", "last_ts": "...", "truncated": false },
+    "app_crash":         { "count": 1, "first_ts": "...", "last_ts": "...", "truncated": false },
+    "wer_report":        { "count": 0, "first_ts": null, "last_ts": null, "truncated": false }
   },
   "crashes": [
     {
@@ -116,16 +116,20 @@ Notes:
 
 | Category | Provider | Event IDs | Meaning |
 | --- | --- | --- | --- |
-| `boot` | Microsoft-Windows-Eventlog | 6005 | Event log service started (boot marker) |
+| `boot` | EventLog | 6005 | Event log service started (boot marker) |
 | `boot` | Microsoft-Windows-Kernel-General | 12 | "The operating system started" |
-| `clean_shutdown` | Microsoft-Windows-Eventlog | 6006 | Event log service stopped |
+| `clean_shutdown` | EventLog | 6006 | Event log service stopped |
 | `clean_shutdown` | Microsoft-Windows-Kernel-General | 13 | "The operating system is shutting down" |
-| `unexpected_shutdown` | Microsoft-Windows-Eventlog | 6008 | "The previous system shutdown at <t> on <d> was unexpected" |
+| `unexpected_shutdown` | EventLog | 6008 | "The previous system shutdown at <t> on <d> was unexpected" |
 | `user_shutdown` | User32 | 1074 | Process/user-initiated shutdown/restart; message carries reason, reason code, shutdown type |
 | `power_loss` | Microsoft-Windows-Kernel-Power | 41 | Rebooted without clean shutdown |
 | `sleep` | Microsoft-Windows-Kernel-Power | 42 | Entering sleep |
 | `hibernate` | Microsoft-Windows-Kernel-Power | 107 | Hibernate transition |
-| `uptime` | Microsoft-Windows-Eventlog | 6013 | Uptime in seconds after boot |
+| `uptime` | EventLog | 6013 | Uptime in seconds after boot |
+
+> The EventLog-service markers (6005/6006/6008/6013) are matched under the
+> provider name `EventLog` — Windows publishes these under the Event Log
+> service's own source name, not `Microsoft-Windows-Eventlog`.
 
 All queries target the System log. `last_boot_time` is the newest `boot`
 event; `current_boot_time`/`current_uptime_seconds` come from the existing
@@ -152,7 +156,17 @@ Output shape:
     "user_initiated_shutdowns": 3,
     "sleeps": 4,
     "hibernations": 1,
-    "last_shutdown_kind": "unexpected_shutdown"
+    "last_shutdown_kind": "unexpected_shutdown",
+    "truncated": {
+      "boot": false,
+      "clean_shutdown": false,
+      "unexpected_shutdown": false,
+      "power_loss": false,
+      "user_shutdown": false,
+      "sleep": false,
+      "hibernate": false,
+      "uptime": false
+    }
   },
   "events": [
     { "category": "user_shutdown", "event_id": 1074, "provider": "User32",
@@ -186,8 +200,9 @@ the documented set):
 
 1. **OS identity** — `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`:
    `ProductName`, `DisplayVersion`, `CurrentVersion`, `CurrentBuildNumber`,
-   `CurrentBuild`, `UBR`, `InstallDate` (Unix seconds → RFC3339),
-   `EditionID`, `BuildLabEx`. Missing values are omitted, never fabricated.
+   `CurrentBuild`, `UBR` (a `REG_DWORD`, read as a decimal string),
+   `InstallDate` (Unix seconds → RFC3339), `EditionID`, `BuildLabEx`.
+   Missing values are omitted, never fabricated.
 2. **Startup programs** — value names + command strings from:
    - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run` and `RunOnce`
    - `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run` and `RunOnce`

@@ -376,15 +376,29 @@ A `bugcheck_code` is included only when the 1001 message actually carries one
 Arguments: `since_minutes` (default 43200 = 30 days, clamped to 90 days),
 `max_results` (per-query cap, defaults to the configured event limit).
 
+Each category block reports `truncated` — `true` when any query feeding that
+category returned exactly `max_results` events, meaning more events may exist
+beyond the window. The top-level `truncated` flag is `true` when any category
+is truncated.
+
+Note: `total` counts event-log records, not distinct crashes. An application
+crash typically produces two records (Application Error 1000 *and* a
+Windows Error Reporting 1001), so the same incident appears in both
+`app_crash` and `wer_report`. Treat `total` as the number of crash-class
+events, and use `categories` for the per-kind breakdown.
+
 ### `shutdown_analysis`
 
 Boot and shutdown timeline: boots (6005 / Kernel-General 12), clean
 shutdowns (6006 / Kernel-General 13), unexpected shutdowns (6008), user-
 initiated shutdowns and restarts (User32 1074), power losses (Kernel-Power
 41), sleep (42) and hibernate (107) transitions, and uptime reports (6013).
-The `summary` includes per-category counts and `last_shutdown_kind` — the
-newest shutdown-class event that precedes the newest boot in the window,
-or `null` when there is no such evidence.
+The 6005/6006/6008/6013 markers are matched under the `EventLog` provider
+(the name Windows uses for its own Event Log service). The `summary` includes
+per-category counts, per-category `truncated` flags (same convention as
+`crash_history`), and `last_shutdown_kind` — the newest shutdown-class event
+that precedes the newest boot in the window, or `null` when there is no such
+evidence.
 
 Arguments: same as `crash_history`.
 

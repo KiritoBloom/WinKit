@@ -101,7 +101,7 @@ fn read_system_identity(warnings: &mut Vec<String>) -> SystemIdentity {
                 current_version: read_value_string(key, "CurrentVersion"),
                 current_build: read_value_string(key, "CurrentBuildNumber")
                     .or_else(|| read_value_string(key, "CurrentBuild")),
-                ubr: read_value_string(key, "UBR"),
+                ubr: read_value_dword(key, "UBR").map(|v| v.to_string()),
                 install_date: read_value_dword(key, "InstallDate")
                     .and_then(install_date_to_rfc3339),
                 edition_id: read_value_string(key, "EditionID"),
@@ -438,5 +438,37 @@ mod tests {
             install_date_to_rfc3339(1_700_000_000),
             Some("2023-11-14T22:13:20.000Z".to_string())
         );
+    }
+}
+
+/// Live Windows regression tests (opt-in): `WINKIT_LIVE_WINDOWS=1 cargo test
+/// --features live-windows`. Guards the real-registry `UBR` read: it is a
+/// `REG_DWORD`, and reading it through the string path yields garbage.
+#[cfg(all(test, feature = "live-windows"))]
+mod live_windows {
+    use super::*;
+
+    fn live_enabled() -> bool {
+        std::env::var("WINKIT_LIVE_WINDOWS")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn ubr_reads_as_decimal_dword() {
+        if !live_enabled() {
+            eprintln!("SKIP: live diagnostic harness not enabled; run with WINKIT_LIVE_WINDOWS=1");
+            return;
+        }
+        let mut warnings = Vec::new();
+        let identity = read_system_identity(&mut warnings);
+        let ubr = identity
+            .ubr
+            .expect("this Windows install reports a UBR revision");
+        assert!(
+            ubr.chars().all(|c| c.is_ascii_digit()),
+            "UBR must be a decimal revision, got {ubr:?}"
+        );
+        assert!(warnings.is_empty(), "no warnings expected: {warnings:?}");
     }
 }

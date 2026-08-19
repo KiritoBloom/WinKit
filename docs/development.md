@@ -33,9 +33,9 @@ cargo test
 cargo test --features mocks
 ```
 
-The suite has 384 tests with the feature (378 without), split across:
+The suite has 408 tests with the feature (402 without), split across:
 
-- Lib unit tests (313; 319 with the `mocks` feature) — diagnostics
+- Lib unit tests (337; 343 with the `mocks` feature) — diagnostics
   engine, permission policy, config
   strictness, tool helpers, and the managed-Chrome lifecycle
   (construction, containment, loopback, readiness handshake, timeout,

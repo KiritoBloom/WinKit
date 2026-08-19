@@ -44,7 +44,7 @@ local run is a good proxy for a green tag build.
   clean (the `--features mocks` form additionally compiles the
   mocks-gated test surface).
 - [ ] **Tests** — `cargo test` (no features) and
-`cargo test --features mocks` pass: 384 tests with the feature (378
+`cargo test --features mocks` pass: 408 tests with the feature (402
   without), split across lib unit tests, the fixture-backed evaluation
   suite (`tests/eval`), protocol, fixture, and mock-tool integration
   tests. No test touches the real machine. The evaluation suite is
@@ -67,7 +67,7 @@ local run is a good proxy for a green tag build.
   exit-code propagation, and missing-runtime behavior through the installed
   launcher.
 - [ ] **Docs consistency** — README states 72 tools and the current test
-  count (384 with `--features mocks`, 378 without); the tool count matches the registry
+  count (408 with `--features mocks`, 402 without); the tool count matches the registry
   in `src/tools/` and the test count matches the `cargo test` output. Every
   link in the README docs list points to an existing file — write any
   missing doc or drop the link before release.
