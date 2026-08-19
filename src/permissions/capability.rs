@@ -105,6 +105,7 @@ impl Capability {
         Capability::PowerRead,
         Capability::WifiRead,
         Capability::NetworkDiagnosticsRead,
+        Capability::RegistryRead,
         Capability::ApplicationDiscover,
         Capability::ApplicationTabsRead,
         Capability::ApplicationPerformanceRead,

@@ -74,6 +74,7 @@ impl Policy {
                             | Capability::ServiceRead
                             | Capability::EventRead
                             | Capability::WindowRead
+                            | Capability::RegistryRead
                     ) {
                         granted.insert(*c);
                     }
@@ -117,6 +118,19 @@ mod tests {
         let p = Policy::for_mode(PermissionMode::ReadOnly);
         assert!(p.allows(Capability::SystemRead));
         assert!(p.allows(Capability::ApplicationDiagnosticsRead));
+    }
+
+    #[test]
+    fn safe_mode_allows_registry_read() {
+        let p = Policy::for_mode(PermissionMode::Safe);
+        assert!(p.allows(Capability::RegistryRead));
+        assert!(!p.allows(Capability::RegistryWrite));
+    }
+
+    #[test]
+    fn read_only_mode_allows_registry_read() {
+        let p = Policy::for_mode(PermissionMode::ReadOnly);
+        assert!(p.allows(Capability::RegistryRead));
     }
 
     #[test]
