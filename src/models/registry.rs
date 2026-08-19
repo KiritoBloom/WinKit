@@ -80,7 +80,10 @@ mod tests {
                 publisher: Some("The Git Development Community".into()),
                 install_date: Some("20240601".into()),
             }],
-            counts: RegistryCounts { startup_programs: 1, installed_software: 1 },
+            counts: RegistryCounts {
+                startup_programs: 1,
+                installed_software: 1,
+            },
             warnings: Vec::new(),
         };
         let json = serde_json::to_string(&diag).unwrap();

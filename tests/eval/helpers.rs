@@ -251,6 +251,15 @@ impl WindowsBackend for ScenarioBackend {
     fn network_diagnose(&self, sample_window_ms: u64) -> Result<NetworkDiagnosis, WinkitError> {
         self.inner.network_diagnose(sample_window_ms)
     }
+
+    fn registry_diagnostics(
+        &self,
+        include_software: bool,
+        max_software: usize,
+    ) -> Result<RegistryDiagnostics, WinkitError> {
+        self.inner
+            .registry_diagnostics(include_software, max_software)
+    }
 }
 
 // ---------------------------------------------------------------------------

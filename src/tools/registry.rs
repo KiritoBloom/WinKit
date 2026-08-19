@@ -15,7 +15,9 @@ pub async fn registry_diagnostics_handler(
 ) -> Result<Value, WinkitError> {
     let include_software = optional_bool(&args, "include_software").unwrap_or(true);
     let max_software = clamp_limit(optional_usize(&args, "max_software"), MAX_SOFTWARE);
-    let diag = state.windows.registry_diagnostics(include_software, max_software)?;
+    let diag = state
+        .windows
+        .registry_diagnostics(include_software, max_software)?;
     Ok(json!(diag))
 }
 
@@ -57,13 +59,19 @@ mod tests {
 
     #[tokio::test]
     async fn registry_diagnostics_returns_fixture_view() {
-        let out = registry_diagnostics_handler(state(), json!({})).await.unwrap();
+        let out = registry_diagnostics_handler(state(), json!({}))
+            .await
+            .unwrap();
         assert_eq!(out["system_identity"]["product_name"], "Windows 11 Pro");
         assert_eq!(out["counts"]["startup_programs"], 2);
         assert_eq!(out["counts"]["installed_software"], 2);
         let startup = out["startup_programs"].as_array().unwrap();
-        assert!(startup.iter().any(|s| s["name"] == "OneDrive" && s["enabled"] == true));
-        assert!(startup.iter().any(|s| s["name"] == "OldTool" && s["enabled"] == false));
+        assert!(startup
+            .iter()
+            .any(|s| s["name"] == "OneDrive" && s["enabled"] == true));
+        assert!(startup
+            .iter()
+            .any(|s| s["name"] == "OldTool" && s["enabled"] == false));
     }
 
     #[tokio::test]

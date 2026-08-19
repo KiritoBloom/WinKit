@@ -130,7 +130,7 @@ impl MockWindowsBackend {
                 level: EventLevel::Error,
                 provider: Some("Application Error".into()),
                 channel: Some("Application".into()),
-                time_created: Some(crate::utils::time::minutes_ago_rfc3339(60)),
+time_created: Some(crate::utils::time::minutes_ago_rfc3339(30)),
                 computer: Some("DESKTOP-X".into()),
                 process_id: Some(521),
                 message: Some("Faulting application name: chrome.exe".into()),
@@ -438,15 +438,13 @@ impl WindowsBackend for MockWindowsBackend {
                         .map(|id| e.event_id == Some(id))
                         .unwrap_or(true)
                     && match (&since_epoch, &e.time_created) {
-                        (Some(limit), Some(ts)) => {
-                            crate::utils::time::parse_rfc3339_epoch_secs(ts)
-                                .map(|secs| {
-                                    std::time::SystemTime::UNIX_EPOCH
-                                        + std::time::Duration::from_secs(secs)
-                                })
-                                .map(|t| t >= *limit)
-                                .unwrap_or(true)
-                        }
+                        (Some(limit), Some(ts)) => crate::utils::time::parse_rfc3339_epoch_secs(ts)
+                            .map(|secs| {
+                                std::time::SystemTime::UNIX_EPOCH
+                                    + std::time::Duration::from_secs(secs)
+                            })
+                            .map(|t| t >= *limit)
+                            .unwrap_or(true),
                         _ => true,
                     }
             })

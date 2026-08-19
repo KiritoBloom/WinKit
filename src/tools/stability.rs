@@ -287,16 +287,66 @@ struct ShutdownQuery {
 }
 
 const SHUTDOWN_QUERIES: &[ShutdownQuery] = &[
-    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Eventlog", event_id: 6005, category: ShutdownCategory::Boot },
-    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Kernel-General", event_id: 12, category: ShutdownCategory::Boot },
-    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Eventlog", event_id: 6006, category: ShutdownCategory::CleanShutdown },
-    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Kernel-General", event_id: 13, category: ShutdownCategory::CleanShutdown },
-    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Eventlog", event_id: 6008, category: ShutdownCategory::UnexpectedShutdown },
-    ShutdownQuery { log: "System", provider: "User32", event_id: 1074, category: ShutdownCategory::UserShutdown },
-    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Kernel-Power", event_id: 41, category: ShutdownCategory::PowerLoss },
-    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Kernel-Power", event_id: 42, category: ShutdownCategory::Sleep },
-    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Kernel-Power", event_id: 107, category: ShutdownCategory::Hibernate },
-    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Eventlog", event_id: 6013, category: ShutdownCategory::Uptime },
+    ShutdownQuery {
+        log: "System",
+        provider: "Microsoft-Windows-Eventlog",
+        event_id: 6005,
+        category: ShutdownCategory::Boot,
+    },
+    ShutdownQuery {
+        log: "System",
+        provider: "Microsoft-Windows-Kernel-General",
+        event_id: 12,
+        category: ShutdownCategory::Boot,
+    },
+    ShutdownQuery {
+        log: "System",
+        provider: "Microsoft-Windows-Eventlog",
+        event_id: 6006,
+        category: ShutdownCategory::CleanShutdown,
+    },
+    ShutdownQuery {
+        log: "System",
+        provider: "Microsoft-Windows-Kernel-General",
+        event_id: 13,
+        category: ShutdownCategory::CleanShutdown,
+    },
+    ShutdownQuery {
+        log: "System",
+        provider: "Microsoft-Windows-Eventlog",
+        event_id: 6008,
+        category: ShutdownCategory::UnexpectedShutdown,
+    },
+    ShutdownQuery {
+        log: "System",
+        provider: "User32",
+        event_id: 1074,
+        category: ShutdownCategory::UserShutdown,
+    },
+    ShutdownQuery {
+        log: "System",
+        provider: "Microsoft-Windows-Kernel-Power",
+        event_id: 41,
+        category: ShutdownCategory::PowerLoss,
+    },
+    ShutdownQuery {
+        log: "System",
+        provider: "Microsoft-Windows-Kernel-Power",
+        event_id: 42,
+        category: ShutdownCategory::Sleep,
+    },
+    ShutdownQuery {
+        log: "System",
+        provider: "Microsoft-Windows-Kernel-Power",
+        event_id: 107,
+        category: ShutdownCategory::Hibernate,
+    },
+    ShutdownQuery {
+        log: "System",
+        provider: "Microsoft-Windows-Eventlog",
+        event_id: 6013,
+        category: ShutdownCategory::Uptime,
+    },
 ];
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -348,10 +398,12 @@ fn last_shutdown_kind(
     let mut candidates: Vec<&ShutdownEntry> = entries
         .iter()
         .filter(|e| is_shutdown_category(e.category))
-        .filter(|e| match (e.time_created.as_deref(), last_boot_time.as_deref()) {
-            (Some(created), Some(boot)) => created <= boot,
-            _ => true,
-        })
+        .filter(
+            |e| match (e.time_created.as_deref(), last_boot_time.as_deref()) {
+                (Some(created), Some(boot)) => created <= boot,
+                _ => true,
+            },
+        )
         .collect();
     candidates.sort_by(|a, b| b.time_created.cmp(&a.time_created));
     candidates.first().map(|e| e.category.to_string())
@@ -487,8 +539,10 @@ mod tests {
     }
 
     fn state_with(events: Vec<EventInfo>) -> Arc<AppState> {
-        let backend: Arc<dyn WindowsBackend> =
-            Arc::new(MockWindowsBackend { events, ..Default::default() });
+        let backend: Arc<dyn WindowsBackend> = Arc::new(MockWindowsBackend {
+            events,
+            ..Default::default()
+        });
         let mut config = Config::default();
         config.permissions.mode = "read_only".to_string();
         config.providers.enabled = vec!["windows".to_string()];
@@ -500,7 +554,10 @@ mod tests {
         let msg = "The computer has rebooted from a bugcheck. The bugcheck was: 0x00000124 \
                    (0x0000000000000000, 0xffffffffc0000005, 0x0, 0x0). A dump was saved in: \
                    C:\\Windows\\MEMORY.DMP.";
-        assert_eq!(extract_bugcheck_code(Some(msg)), Some("0x00000124".to_string()));
+        assert_eq!(
+            extract_bugcheck_code(Some(msg)),
+            Some("0x00000124".to_string())
+        );
         assert_eq!(extract_bugcheck_code(Some("no bugcheck here")), None);
         assert_eq!(extract_bugcheck_code(None), None);
     }
@@ -535,7 +592,10 @@ mod tests {
             .find(|c| c["category"] == "bugcheck")
             .unwrap();
         assert_eq!(bugcheck["bugcheck_code"], "0x00000124");
-        let app = crashes.iter().find(|c| c["category"] == "app_crash").unwrap();
+        let app = crashes
+            .iter()
+            .find(|c| c["category"] == "app_crash")
+            .unwrap();
         assert_eq!(app["bugcheck_code"], serde_json::Value::Null);
     }
 
@@ -548,7 +608,9 @@ mod tests {
                 Some("Faulting application name: chrome.exe")),
         ];
         let state = state_with(events);
-        let out = crash_history_handler(state, json!({ "since_minutes": 43200 })).await.unwrap();
+        let out = crash_history_handler(state, json!({ "since_minutes": 43200 }))
+            .await
+            .unwrap();
         assert_eq!(out["total"], 1);
         assert_eq!(out["crashes"][0]["record_id"], 2);
     }
@@ -568,20 +630,64 @@ mod tests {
     #[tokio::test]
     async fn shutdown_analysis_reports_last_boot_and_last_shutdown_kind() {
         let events = vec![
-            event(11, 6005, "Microsoft-Windows-Eventlog", "System", 600,
-                Some("The Event log service was started.")),
-            event(12, 6013, "Microsoft-Windows-Eventlog", "System", 600,
-                Some("The system uptime is 86400 seconds.")),
-            event(13, 6008, "Microsoft-Windows-Eventlog", "System", 720,
-                Some("The previous system shutdown at 9:00:00 AM on 8/18/2026 was unexpected.")),
-            event(14, 1074, "User32", "System", 2880,
-                Some("The process C:\\Windows\\System32\\shutdown.exe ... reason: Other (Unplanned)")),
-            event(15, 6006, "Microsoft-Windows-Eventlog", "System", 4320,
-                Some("The Event log service was stopped.")),
-            event(16, 41, "Microsoft-Windows-Kernel-Power", "System", 5760,
-                Some("The system has rebooted without cleanly shutting down first.")),
-            event(17, 42, "Microsoft-Windows-Kernel-Power", "System", 1500,
-                Some("The system is entering sleep.")),
+            event(
+                11,
+                6005,
+                "Microsoft-Windows-Eventlog",
+                "System",
+                600,
+                Some("The Event log service was started."),
+            ),
+            event(
+                12,
+                6013,
+                "Microsoft-Windows-Eventlog",
+                "System",
+                600,
+                Some("The system uptime is 86400 seconds."),
+            ),
+            event(
+                13,
+                6008,
+                "Microsoft-Windows-Eventlog",
+                "System",
+                720,
+                Some("The previous system shutdown at 9:00:00 AM on 8/18/2026 was unexpected."),
+            ),
+            event(
+                14,
+                1074,
+                "User32",
+                "System",
+                2880,
+                Some(
+                    "The process C:\\Windows\\System32\\shutdown.exe ... reason: Other (Unplanned)",
+                ),
+            ),
+            event(
+                15,
+                6006,
+                "Microsoft-Windows-Eventlog",
+                "System",
+                4320,
+                Some("The Event log service was stopped."),
+            ),
+            event(
+                16,
+                41,
+                "Microsoft-Windows-Kernel-Power",
+                "System",
+                5760,
+                Some("The system has rebooted without cleanly shutting down first."),
+            ),
+            event(
+                17,
+                42,
+                "Microsoft-Windows-Kernel-Power",
+                "System",
+                1500,
+                Some("The system is entering sleep."),
+            ),
         ];
         let state = state_with(events);
         let out = shutdown_analysis_handler(state, json!({})).await.unwrap();
@@ -602,14 +708,29 @@ mod tests {
     #[tokio::test]
     async fn shutdown_analysis_kind_is_null_without_shutdown_evidence() {
         let events = vec![
-            event(21, 6005, "Microsoft-Windows-Eventlog", "System", 600,
-                Some("The Event log service was started.")),
-            event(22, 42, "Microsoft-Windows-Kernel-Power", "System", 1500,
-                Some("The system is entering sleep.")),
+            event(
+                21,
+                6005,
+                "Microsoft-Windows-Eventlog",
+                "System",
+                600,
+                Some("The Event log service was started."),
+            ),
+            event(
+                22,
+                42,
+                "Microsoft-Windows-Kernel-Power",
+                "System",
+                1500,
+                Some("The system is entering sleep."),
+            ),
         ];
         let state = state_with(events);
         let out = shutdown_analysis_handler(state, json!({})).await.unwrap();
-        assert_eq!(out["summary"]["last_shutdown_kind"], serde_json::Value::Null);
+        assert_eq!(
+            out["summary"]["last_shutdown_kind"],
+            serde_json::Value::Null
+        );
         assert_eq!(out["summary"]["boots"], 1);
     }
 }

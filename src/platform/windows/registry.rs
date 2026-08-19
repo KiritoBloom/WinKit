@@ -102,7 +102,8 @@ fn read_system_identity(warnings: &mut Vec<String>) -> SystemIdentity {
                 current_build: read_value_string(key, "CurrentBuildNumber")
                     .or_else(|| read_value_string(key, "CurrentBuild")),
                 ubr: read_value_string(key, "UBR"),
-                install_date: read_value_dword(key, "InstallDate").and_then(install_date_to_rfc3339),
+                install_date: read_value_dword(key, "InstallDate")
+                    .and_then(install_date_to_rfc3339),
                 edition_id: read_value_string(key, "EditionID"),
                 build_lab_ex: read_value_string(key, "BuildLabEx"),
             };
@@ -131,7 +132,11 @@ fn read_startup_programs(warnings: &mut Vec<String>) -> Vec<StartupProgram> {
                         scope: (*scope).to_string(),
                         source_key: format!(
                             "{}\\{}",
-                            if *root == HKEY_LOCAL_MACHINE { "HKLM" } else { "HKCU" },
+                            if *root == HKEY_LOCAL_MACHINE {
+                                "HKLM"
+                            } else {
+                                "HKCU"
+                            },
                             path
                         ),
                         enabled,
