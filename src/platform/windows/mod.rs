@@ -16,6 +16,7 @@ pub mod nvml;
 pub mod pdh;
 pub mod power;
 pub mod processes;
+pub mod registry;
 pub mod services;
 pub mod storage;
 pub mod storage_health;
