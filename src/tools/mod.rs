@@ -95,6 +95,9 @@ pub fn tool_profiles(name: &str) -> &'static [ToolProfile] {
         | "get_recent_events"
         | "get_application_errors"
         | "get_system_errors"
+        | "crash_history"
+        | "shutdown_analysis"
+        | "registry_diagnostics"
         | "list_windows"
         | "list_applications"
         | "get_application"
@@ -228,8 +231,11 @@ impl ToolRegistry {
         registry.register(events::get_recent_events_definition());
         registry.register(events::get_application_errors_definition());
         registry.register(events::get_system_errors_definition());
+        registry.register(stability::crash_history_definition());
+        registry.register(stability::shutdown_analysis_definition());
         registry.register(windows::list_windows_definition());
         registry.register(developer::dev_environment_definition());
+        registry.register(registry::registry_diagnostics_definition());
 
         // Hardware telemetry: sensors, power, storage health/activity, Wi-Fi,
         // and network diagnosis.
@@ -528,6 +534,7 @@ mod tests {
         "chrome_stop_managed_session",
         "chrome_tab_trend",
         "correlate_recent_failures",
+        "crash_history",
         "dev_environment",
         "diagnose_local_webapp",
         "diagnose_workspace",
@@ -566,6 +573,8 @@ mod tests {
         "network_snapshot",
         "power_status",
         "privacy_info",
+        "registry_diagnostics",
+        "shutdown_analysis",
         "snapshot",
         "system_diagnose",
         "system_health",
@@ -652,9 +661,9 @@ mod tests {
         // developer/full, so browser = developer group + browser group only.
         for (profile, expected) in [
             ("core", 5),
-            ("developer", 52),
-            ("browser", 55),
-            ("full", 69),
+            ("developer", 55),
+            ("browser", 58),
+            ("full", 72),
         ] {
             let mut cfg = Config::default();
             cfg.tools.profile = profile.to_string();
