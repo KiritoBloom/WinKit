@@ -16,6 +16,7 @@ pub mod health;
 pub mod network;
 pub mod processes;
 pub mod services;
+pub mod stability;
 pub mod storage;
 pub mod system;
 pub mod windows;
