@@ -252,6 +252,208 @@ pub fn crash_history_definition() -> ToolDefinition {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShutdownCategory {
+    Boot,
+    CleanShutdown,
+    UnexpectedShutdown,
+    UserShutdown,
+    PowerLoss,
+    Sleep,
+    Hibernate,
+    Uptime,
+}
+
+impl ShutdownCategory {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Boot => "boot",
+            Self::CleanShutdown => "clean_shutdown",
+            Self::UnexpectedShutdown => "unexpected_shutdown",
+            Self::UserShutdown => "user_shutdown",
+            Self::PowerLoss => "power_loss",
+            Self::Sleep => "sleep",
+            Self::Hibernate => "hibernate",
+            Self::Uptime => "uptime",
+        }
+    }
+}
+
+struct ShutdownQuery {
+    log: &'static str,
+    provider: &'static str,
+    event_id: u32,
+    category: ShutdownCategory,
+}
+
+const SHUTDOWN_QUERIES: &[ShutdownQuery] = &[
+    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Eventlog", event_id: 6005, category: ShutdownCategory::Boot },
+    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Kernel-General", event_id: 12, category: ShutdownCategory::Boot },
+    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Eventlog", event_id: 6006, category: ShutdownCategory::CleanShutdown },
+    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Kernel-General", event_id: 13, category: ShutdownCategory::CleanShutdown },
+    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Eventlog", event_id: 6008, category: ShutdownCategory::UnexpectedShutdown },
+    ShutdownQuery { log: "System", provider: "User32", event_id: 1074, category: ShutdownCategory::UserShutdown },
+    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Kernel-Power", event_id: 41, category: ShutdownCategory::PowerLoss },
+    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Kernel-Power", event_id: 42, category: ShutdownCategory::Sleep },
+    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Kernel-Power", event_id: 107, category: ShutdownCategory::Hibernate },
+    ShutdownQuery { log: "System", provider: "Microsoft-Windows-Eventlog", event_id: 6013, category: ShutdownCategory::Uptime },
+];
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct ShutdownEntry {
+    category: &'static str,
+    event_id: Option<u32>,
+    provider: Option<String>,
+    time_created: Option<String>,
+    record_id: Option<u64>,
+    /// Rendered message only where it carries meaning (1074, 6008, 6013).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+fn shutdown_entry(e: &EventInfo, category: ShutdownCategory) -> ShutdownEntry {
+    let detail = match category {
+        ShutdownCategory::UserShutdown
+        | ShutdownCategory::UnexpectedShutdown
+        | ShutdownCategory::Uptime => e.message.clone(),
+        _ => None,
+    };
+    ShutdownEntry {
+        category: category.as_str(),
+        event_id: e.event_id,
+        provider: e.provider.clone(),
+        time_created: e.time_created.clone(),
+        record_id: e.record_id,
+        detail,
+    }
+}
+
+fn is_shutdown_category(category: &str) -> bool {
+    matches!(
+        category,
+        "clean_shutdown" | "unexpected_shutdown" | "user_shutdown" | "power_loss"
+    )
+}
+
+fn count_category(entries: &[ShutdownEntry], category: &str) -> usize {
+    entries.iter().filter(|e| e.category == category).count()
+}
+
+/// The newest shutdown-class event that precedes the newest boot, or `None`
+/// when there is no such evidence.
+fn last_shutdown_kind(
+    entries: &[ShutdownEntry],
+    last_boot_time: &Option<String>,
+) -> Option<String> {
+    let mut candidates: Vec<&ShutdownEntry> = entries
+        .iter()
+        .filter(|e| is_shutdown_category(e.category))
+        .filter(|e| match (e.time_created.as_deref(), last_boot_time.as_deref()) {
+            (Some(created), Some(boot)) => created <= boot,
+            _ => true,
+        })
+        .collect();
+    candidates.sort_by(|a, b| b.time_created.cmp(&a.time_created));
+    candidates.first().map(|e| e.category.to_string())
+}
+
+pub async fn shutdown_analysis_handler(
+    state: Arc<AppState>,
+    args: Value,
+) -> Result<Value, WinkitError> {
+    let since_minutes = optional_u64(&args, "since_minutes")
+        .unwrap_or(DEFAULT_SINCE_MINUTES)
+        .clamp(1, MAX_SINCE_MINUTES);
+    let max_results = clamp_limit(
+        optional_usize(&args, "max_results"),
+        state.config.limits.max_events,
+    );
+
+    let mut entries: Vec<ShutdownEntry> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+    for spec in SHUTDOWN_QUERIES {
+        let query = EventQuery {
+            log: spec.log.to_string(),
+            min_level: None,
+            since_minutes: Some(since_minutes),
+            provider: Some(spec.provider.to_string()),
+            event_id: Some(spec.event_id),
+            max_results,
+        };
+        match state.windows.get_recent_events(&query) {
+            Ok(events) => {
+                entries.extend(events.iter().map(|e| shutdown_entry(e, spec.category)));
+            }
+            Err(err) => warnings.push(format!(
+                "query for {}/{}/{} failed: {err}",
+                spec.log, spec.provider, spec.event_id
+            )),
+        }
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    entries.retain(|e| e.record_id.map(|id| seen.insert(id)).unwrap_or(true));
+    entries.sort_by(|a, b| b.time_created.cmp(&a.time_created));
+
+    let last_boot_time = entries
+        .iter()
+        .filter(|e| e.category == "boot")
+        .find_map(|e| e.time_created.clone());
+
+    let (current_boot_time, current_uptime_seconds) = match state.windows.system_info() {
+        Ok(info) => (info.boot_time, Some(info.uptime_seconds)),
+        Err(err) => {
+            warnings.push(format!("system_info unavailable: {err}"));
+            (None, None)
+        }
+    };
+
+    let summary = json!({
+        "boots": count_category(&entries, "boot"),
+        "clean_shutdowns": count_category(&entries, "clean_shutdown"),
+        "unexpected_shutdowns": count_category(&entries, "unexpected_shutdown"),
+        "power_losses": count_category(&entries, "power_loss"),
+        "user_initiated_shutdowns": count_category(&entries, "user_shutdown"),
+        "sleeps": count_category(&entries, "sleep"),
+        "hibernations": count_category(&entries, "hibernate"),
+        "last_shutdown_kind": last_shutdown_kind(&entries, &last_boot_time),
+    });
+
+    Ok(json!({
+        "since_minutes": since_minutes,
+        "current_boot_time": current_boot_time,
+        "current_uptime_seconds": current_uptime_seconds,
+        "last_boot_time": last_boot_time,
+        "total_events": entries.len(),
+        "truncated": entries.len() >= SHUTDOWN_QUERIES.len() * max_results,
+        "summary": summary,
+        "events": entries,
+        "warnings": warnings,
+    }))
+}
+
+fn shutdown_analysis_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "since_minutes": { "type": "integer", "minimum": 1, "maximum": 129600, "description": "Look-back window in minutes (default 43200 = 30 days, capped at 90 days)." },
+            "max_results": { "type": "integer", "minimum": 1, "description": "Per-category result cap (defaults to the configured event limit)." }
+        },
+        "additionalProperties": false,
+    })
+}
+
+pub fn shutdown_analysis_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: "shutdown_analysis",
+        description: "Boot and shutdown timeline from the System event log: boots, clean shutdowns, unexpected shutdowns, user-initiated shutdowns/restarts, power losses, sleep/hibernate transitions, and uptime reports, plus a last-shutdown-kind summary.",
+        input_schema: shutdown_analysis_schema(),
+        capability: Some(Capability::EventRead),
+        timeout_ms: None,
+        handler: wrap(shutdown_analysis_handler),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,5 +563,53 @@ mod tests {
         let out = crash_history_handler(state, json!({})).await.unwrap();
         assert_eq!(out["total"], 0);
         assert!(out["warnings"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn shutdown_analysis_reports_last_boot_and_last_shutdown_kind() {
+        let events = vec![
+            event(11, 6005, "Microsoft-Windows-Eventlog", "System", 600,
+                Some("The Event log service was started.")),
+            event(12, 6013, "Microsoft-Windows-Eventlog", "System", 600,
+                Some("The system uptime is 86400 seconds.")),
+            event(13, 6008, "Microsoft-Windows-Eventlog", "System", 720,
+                Some("The previous system shutdown at 9:00:00 AM on 8/18/2026 was unexpected.")),
+            event(14, 1074, "User32", "System", 2880,
+                Some("The process C:\\Windows\\System32\\shutdown.exe ... reason: Other (Unplanned)")),
+            event(15, 6006, "Microsoft-Windows-Eventlog", "System", 4320,
+                Some("The Event log service was stopped.")),
+            event(16, 41, "Microsoft-Windows-Kernel-Power", "System", 5760,
+                Some("The system has rebooted without cleanly shutting down first.")),
+            event(17, 42, "Microsoft-Windows-Kernel-Power", "System", 1500,
+                Some("The system is entering sleep.")),
+        ];
+        let state = state_with(events);
+        let out = shutdown_analysis_handler(state, json!({})).await.unwrap();
+        assert_eq!(out["summary"]["boots"], 1);
+        assert_eq!(out["summary"]["clean_shutdowns"], 1);
+        assert_eq!(out["summary"]["unexpected_shutdowns"], 1);
+        assert_eq!(out["summary"]["user_initiated_shutdowns"], 1);
+        assert_eq!(out["summary"]["power_losses"], 1);
+        assert_eq!(out["summary"]["sleeps"], 1);
+        assert_eq!(out["summary"]["hibernations"], 0);
+        assert_eq!(out["summary"]["last_shutdown_kind"], "unexpected_shutdown");
+        // Current uptime comes from the mock system_info (86400s).
+        assert_eq!(out["current_uptime_seconds"], 86400);
+        // The 6005 boot marker is the newest boot in the window.
+        assert!(out["last_boot_time"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn shutdown_analysis_kind_is_null_without_shutdown_evidence() {
+        let events = vec![
+            event(21, 6005, "Microsoft-Windows-Eventlog", "System", 600,
+                Some("The Event log service was started.")),
+            event(22, 42, "Microsoft-Windows-Kernel-Power", "System", 1500,
+                Some("The system is entering sleep.")),
+        ];
+        let state = state_with(events);
+        let out = shutdown_analysis_handler(state, json!({})).await.unwrap();
+        assert_eq!(out["summary"]["last_shutdown_kind"], serde_json::Value::Null);
+        assert_eq!(out["summary"]["boots"], 1);
     }
 }
