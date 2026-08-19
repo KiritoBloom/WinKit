@@ -213,6 +213,36 @@ All thresholds are overridable under `[diagnostics]` and `[health]`
 (defaults above; see [configuration.md](configuration.md)). Tune them
 per-environment if the stock defaults over- or under-report.
 
+## Stability analysis
+
+The stability tools (`crash_history`, `shutdown_analysis`) reuse the same
+evidence-first philosophy on the event logs. Each tool issues one bounded
+query per fixed `(log, provider, event id)` pair; every entry is normalized
+the same way as `get_recent_events`; and per-query failures surface in a
+`warnings` array instead of failing the whole tool.
+
+### `crash_history`
+
+Groups crash-class events into five fixed categories: `bugcheck`
+(WER-SystemErrorReporting 1001), `unclean_shutdown` (Kernel-Power 41),
+`hardware_error` (WHEA-Logger 18/19/20), `app_crash` (Application Error
+1000/1002, .NET Runtime 1026), and `wer_report` (Windows Error Reporting
+1001). The `categories` block reports count and first/last timestamp per
+category; the flat `crashes` list is sorted newest-first. `bugcheck_code` is
+populated only when the 1001 message actually contains one (`The bugcheck
+was: 0x…`); the Kernel-Power 41 code lives in EventData, so it is never
+reported — the tool does not read raw XML.
+
+### `shutdown_analysis`
+
+Timeline of boots, clean shutdowns (6006 / Kernel-General 13), unexpected
+shutdowns (6008), user-initiated shutdowns and restarts (User32 1074),
+power losses (Kernel-Power 41), sleep (42) and hibernate (107) transitions,
+and uptime reports (6013). `summary.last_shutdown_kind` is the newest
+shutdown-class event strictly before the newest boot in the window — or
+`null` when there is no such evidence, never a guess. `current_uptime_seconds`
+comes from `system_info`; a failure there is a warning, not a fatal error.
+
 ## Design guarantees
 
 1. **Deterministic** — same evidence, same report, same scores, every time.

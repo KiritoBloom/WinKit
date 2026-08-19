@@ -114,7 +114,7 @@ permission checks.
 | `full`     | Everything | Broad exploration, including managed browser actions |
 
 A profile is a *filter*, not a sandbox. `core` is the most conservative
-advertised surface; `full` is the complete v1 tool set (69 tools).
+advertised surface; `full` is the complete v1 tool set (72 tools).
 
 ## Permission modes
 

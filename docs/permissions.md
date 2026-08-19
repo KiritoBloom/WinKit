@@ -6,7 +6,7 @@ with a `PermissionDenied` error and no provider work happens.
 
 ## Capabilities
 
-A capability is the unit of permission. v1 implements 14 read capabilities;
+A capability is the unit of permission. v1 implements 15 read capabilities;
 a set of action capabilities is declared so policies and docs stay stable,
 but nothing in v1 can ever be granted them.
 
@@ -19,8 +19,9 @@ but nothing in v1 can ever be granted them.
 | Network read | `network.read` | `list_listening_ports`, `find_process_on_port`, `list_network_interfaces`, `list_connections` |
 | Storage read | `storage.read` | `list_drives`, `disk_usage`, `find_large_files`, `disk_scan`, `disk_scan_start`, `disk_scan_status`, `disk_scan_cancel`, `disk_scan_largest_files`, `disk_scan_largest_folders`, `disk_scan_folder_size`, `disk_scan_find` |
 | Service read | `service.read` | `list_services`, `get_service` |
-| Event read | `event.read` | `get_recent_events`, `get_application_errors`, `get_system_errors` |
+| Event read | `event.read` | `get_recent_events`, `get_application_errors`, `get_system_errors`, `crash_history`, `shutdown_analysis` |
 | Window read | `window.read` | `list_windows` |
+| Registry read | `registry.read` | `registry_diagnostics` |
 | Application discover | `application.discover` | `list_applications`, `get_application`, `chrome_info` |
 | Application tabs read | `application.tabs.read` | `chrome_list_tabs`, `chrome_get_tab`, `chrome_get_active_tab` |
 | Application performance read | `application.performance.read` | `chrome_get_tab_performance` |
@@ -32,7 +33,7 @@ but nothing in v1 can ever be granted them.
 ### Declared action capabilities (never granted in v1)
 
 `filesystem.read`, `filesystem.write`, `filesystem.delete`,
-`process.terminate`, `service.modify`, `powershell.execute`, `registry.read`,
+`process.terminate`, `service.modify`, `powershell.execute`,
 `registry.write`. The policy fails closed for all of them in every mode.
 
 ## Modes

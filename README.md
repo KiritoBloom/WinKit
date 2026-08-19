@@ -35,7 +35,7 @@ single heaviest tab, then whether it is getting worse.
 
 ## Highlights
 
-- **69 MCP tools** across system, process, network, storage, hardware, power,
+- **72 MCP tools** across system, process, network, storage, hardware, power,
   service, event, window, developer-environment, application, Chrome,
   managed-browser, and machine-health domains, organized into tool profiles
   (`core`, `developer` [default], `browser`, `full`) so an agent only sees
@@ -225,7 +225,7 @@ findings; the LLM explains them:
 
 ```text
 server (MCP over stdio, JSON-RPC 2.0, session lifecycle)
-  ├── tools        (59 tool definitions + argument handling + registry)
+  ├── tools        (72 tool definitions + argument handling + registry)
   │     ├── providers (WindowsBackend / ApplicationProvider traits)
   │     │     └── chrome::managed (isolated WinKit-owned sessions)
   │     └── platform::windows (real Win32 implementations, windows-sys 0.59)

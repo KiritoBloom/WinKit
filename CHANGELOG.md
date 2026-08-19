@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`crash_history` tool** — BSOD/crash history from the event logs: bugchecks (BugCheck 1001), unclean shutdowns (Kernel-Power 41), hardware errors (WHEA-Logger 18/19/20), application crashes, and Windows Error Reporting events, with bugcheck codes extracted from the rendered message.
+- **`shutdown_analysis` tool** — boot/shutdown timeline (EventLog 6005/6006/6008/6013, User32 1074, Kernel-General 12/13, Kernel-Power 41/42/107) with last boot, current uptime, and a last-shutdown-kind summary.
+- **`registry_diagnostics` tool** — allowlist-only registry reads: OS identity, startup programs (with enabled/disabled state), and installed software.
+- **`registry.read` capability** — promoted from declared-but-never-granted to a v1 read capability, granted in `safe` and `read_only` modes.
+
 ## [0.1.4] - 2026-08-18
 
 ### Added

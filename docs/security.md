@@ -157,6 +157,8 @@ Every broad query is capped:
 - `unsafe` blocks exist only in `src/platform/windows/` and the Chrome
   discovery provider (registry reads). The tool layer, server, permissions,
   config, and models are safe Rust.
+- Registry reads are allowlist-only: `registry_diagnostics` reads a fixed
+  set of diagnostic keys and never accepts caller-supplied paths.
 - Raw-pointer reads validate sizes, check nulls, and use zeroed buffers;
   strings are reconstructed with `String::from_utf16_lossy` / lossy byte
   decoding to avoid UTF-8 panics on hostile OS data.

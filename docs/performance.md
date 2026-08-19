@@ -12,7 +12,7 @@ dispatch, and provider work. This is what a client actually experiences.
   16.9 GB RAM.
 - **Binary**: `cargo build --release` (LTO, stripped), v0.1.3.
 - **Configuration**: full tool profile with the Chrome provider enabled
-  (`scripts/bench.ps1` requires it), all 69 tools benchmarked.
+  (`scripts/bench.ps1` requires it), all 72 tools benchmarked.
 - **Chrome**: debug (headless) instance on port 9222 with a single active tab
   (about:blank). The Chrome rows ran against that tab end-to-end.
 - **Method**: 3 runs per tool (2 for the Chrome observation-window tools),

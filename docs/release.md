@@ -66,7 +66,7 @@ local run is a good proxy for a green tag build.
   `init --client …`, `configure --dry-run`, the MCP initialize handshake,
   exit-code propagation, and missing-runtime behavior through the installed
   launcher.
-- [ ] **Docs consistency** — README states 69 tools and the current test
+- [ ] **Docs consistency** — README states 72 tools and the current test
   count (384 with `--features mocks`, 378 without); the tool count matches the registry
   in `src/tools/` and the test count matches the `cargo test` output. Every
   link in the README docs list points to an existing file — write any
@@ -79,7 +79,7 @@ local run is a good proxy for a green tag build.
 - [ ] **Live smoke** — launch Chrome with remote debugging
   (`chrome.exe --remote-debugging-port=9222 --user-data-dir=C:\winkit-chrome-profile`),
   then drive the release binary from an MCP client: `initialize`,
-`tools/list` (69 tools in the `full` profile, 52 in the default
+`tools/list` (72 tools in the `full` profile, 55 in the default
 `developer` profile), and one deep read such as `chrome_diagnose_tab`
   against a real tab. Stdout must carry only protocol frames.
 - [ ] **Live managed Chrome, both modes (required before any
@@ -202,7 +202,7 @@ for a human reading the repo for the first time.
 
 ### Highlights
 
-- **69 MCP tools** spanning system, process, network, storage, hardware,
+- **72 MCP tools** spanning system, process, network, storage, hardware,
   power, service, event, window, developer-environment, application, Chrome,
   managed-browser, and machine-health domains, organized into tool profiles
   (`core`, `developer`, `browser`, `full`).

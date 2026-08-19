@@ -50,7 +50,7 @@ deterministic fixtures; nothing in the test suite touches the real machine.
 ```text
 src/
   server/        MCP protocol, stdio transport, session lifecycle, tool dispatch, profiles
-  tools/         tool definitions, argument parsing, registry (69 tools)
+  tools/         tool definitions, argument parsing, registry (72 tools)
   providers/     WindowsBackend, ApplicationProvider traits, chrome adapter, mocks
   platform/      real Win32 implementations (windows-sys 0.59)
   permissions/   modes, capabilities, policy, approval surface

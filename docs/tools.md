@@ -1,9 +1,9 @@
 # Tool Reference
 
-WinKit registers 69 MCP tools: read-only Windows diagnostics (system,
+WinKit registers 72 MCP tools: read-only Windows diagnostics (system,
 processes, network, storage, hardware, power) plus the approval-gated
 managed-browser lifecycle tools. The default `developer` tool profile exposes
-52 of them; `core` exposes 5, `browser` exposes 55, and `full` exposes all 69.
+55 of them; `core` exposes 5, `browser` exposes 58, and `full` exposes all 72.
 This reference lists every tool with its arguments and output shape. The JSON
 input schema is also available live via `tools/list` in any MCP client,
 filtered to the effective profile.
@@ -355,6 +355,52 @@ Recent errors from the System event log.
 
 Arguments: same as `get_recent_events`, with `level` defaulting to `error`,
 and the same `skip_null_messages` default as `get_application_errors`.
+
+## Stability
+
+Read-only classification of the System and Application event logs. Both tools
+issue one bounded query per fixed `(log, provider, event id)` pair, so the
+look-back window is bounded and a failing query is reported in `warnings`
+without failing the whole tool.
+
+### `crash_history`
+
+Crash history grouped by category: `bugcheck` (WER-SystemErrorReporting
+1001), `unclean_shutdown` (Kernel-Power 41), `hardware_error`
+(WHEA-Logger 18/19/20), `app_crash` (Application Error 1000/1002,
+.NET Runtime 1026), and `wer_report` (WER 1001). Each crash carries its
+category, event id, provider, timestamp, record id, and rendered message.
+A `bugcheck_code` is included only when the 1001 message actually carries one
+— never inferred or synthesized.
+
+Arguments: `since_minutes` (default 43200 = 30 days, clamped to 90 days),
+`max_results` (per-query cap, defaults to the configured event limit).
+
+### `shutdown_analysis`
+
+Boot and shutdown timeline: boots (6005 / Kernel-General 12), clean
+shutdowns (6006 / Kernel-General 13), unexpected shutdowns (6008), user-
+initiated shutdowns and restarts (User32 1074), power losses (Kernel-Power
+41), sleep (42) and hibernate (107) transitions, and uptime reports (6013).
+The `summary` includes per-category counts and `last_shutdown_kind` — the
+newest shutdown-class event that precedes the newest boot in the window,
+or `null` when there is no such evidence.
+
+Arguments: same as `crash_history`.
+
+## Registry
+
+### `registry_diagnostics`
+
+Read-only registry diagnostics from a fixed allowlist: OS identity
+(`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`), startup programs
+(`Run`/`RunOnce` under `HKLM` and `HKCU`, with enabled/disabled state from
+`StartupApproved`), and installed software (`Uninstall` keys under `HKLM`
+and `HKLM\WOW6432Node`, plus `HKCU`). Arbitrary keys are never read; reads
+never exceed the configured timeout and each key is closed after use.
+
+Arguments: `include_software` (default `true`), `max_software` (cap on
+installed-software entries, default 200).
 
 ## Windows
 

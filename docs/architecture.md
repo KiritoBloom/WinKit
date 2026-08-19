@@ -9,7 +9,7 @@ unit and integration tests without launching the binary.
 
 ```text
 server (MCP over stdio, JSON-RPC 2.0, session lifecycle)
-  ├── tools        (59 tool definitions + argument handling + registry)
+  ├── tools        (72 tool definitions + argument handling + registry)
   │     ├── providers (WindowsBackend / ApplicationProvider traits)
   │     └── platform::windows (real Win32 implementations, windows-sys 0.59)
   ├── permissions  (modes, capabilities, policy, approval surface)
@@ -106,6 +106,9 @@ The Win32 layer (`windows-sys 0.59`), split by domain:
 - `storage.rs` — drives, volume sizes, large-file scans.
 - `services.rs` — service enumeration and detail via the SCM.
 - `events.rs` — Windows event log reads.
+- `registry.rs` — allowlist-only registry reads (OS identity, startup
+  programs with enabled/disabled state, installed software); arbitrary keys
+  are never read.
 - `windows.rs` — top-level window enumeration.
 - `system.rs` — OS version, uptime, resource snapshots, computer name.
 - `hardware.rs` — CPU/GPU/memory/storage/network device enumeration, battery
@@ -137,7 +140,7 @@ All unsafe blocks are confined to this layer.
 
 ### `permissions/`
 
-- `capability.rs` — the full capability enum. 14 read capabilities are
+- `capability.rs` — the full capability enum. 15 read capabilities are
   implemented in v1; the action capabilities (`filesystem.write`,
   `process.terminate`, `powershell.execute`, ...) are declared for policy
   stability and can never be granted.
