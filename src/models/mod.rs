@@ -14,6 +14,7 @@ pub mod hardware;
 pub mod health;
 pub mod network;
 pub mod process;
+pub mod registry;
 pub mod service;
 pub mod storage;
 pub mod system;
@@ -53,6 +54,9 @@ pub use health::{
 };
 pub use network::{ConnectionInfo, NetworkInterfaceInfo, PortInfo, TcpState};
 pub use process::{CpuTime, ProcessInfo, ProcessMemory, ProcessOnPort, ProcessTreeNode};
+pub use registry::{
+    InstalledSoftware, RegistryCounts, RegistryDiagnostics, StartupProgram, SystemIdentity,
+};
 pub use service::ServiceInfo;
 pub use storage::{DiskUsage, DriveInfo, FileEntry, FindLargeFilesRequest};
 pub use system::{
