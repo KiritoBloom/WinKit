@@ -1,111 +1,104 @@
 # WinKit
 
-Local Windows observability and diagnostics for AI agents, exposed through the
-[Model Context Protocol](https://modelcontextprotocol.io) (MCP).
+**Windows observability for AI agents.** WinKit is a read-only, local-first
+[Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that
+gives coding agents a structured, permissioned view of the Windows machine
+they run on — and the ability to answer real questions about it without
+guessing.
 
-WinKit is a read-only-by-default, local-first MCP server that gives coding
-agents a structured, permissioned view of the Windows machine they run on:
-processes, network, storage, services, event logs, windows, and — through the
-first deep application adapter — live Chrome tab inspection plus an isolated,
-WinKit-owned managed browser for diagnosing local web apps. Behind the tools
-sits a deterministic diagnostics engine that separates what was **measured**
-from what is **interpreted**, so an agent can answer real questions without
-guessing. No telemetry, no cloud; the only outbound surface is a gated,
-permission-checked managed-browser launch.
+Your machine, visible to your agent. No cloud, no telemetry, no writes.
 
-> **v1 is read-only by default.** Every inspection tool returns evidence and
-> nothing can modify your system. The only actions WinKit can take — launching
-> or closing its own isolated managed Chrome sessions — are disabled unless
-> `[chrome.managed] enabled = true` is set, are gated by a separate
-> `application.browser.*` permission that `safe`/`read_only` modes never
-> grant, and only ever touch resources WinKit itself created.
+```text
+$ opencode --mcp-config examples/mcp/opencode.json
 
-## What WinKit answers
+  User: Why did my PC restart overnight?
+  Agent: > shutdown_analysis(since_minutes=720)
+         { boots: 1, unexpected_shutdowns: 1, power_losses: 1,
+           last_shutdown_kind: "power_loss",
+           events: [6008 @ 2026-08-18T20:13:47Z, 41 @ ...] }
+         "You had a power loss at 8:13 PM yesterday — the machine
+          did not shut down cleanly. No BSOD was logged."
+```
 
-WinKit is built around three questions, each answered by a tool:
+That is the whole pitch: instead of an agent hallucinating a
+`Get-WinEvent` filter or telling you to "check Event Viewer", it reads the
+real event log through a schema-driven tool and answers with evidence.
 
-| Question | Tool | What it returns |
-| --- | --- | --- |
-| **"What's wrong with my PC?"** | `system_health` / `system_diagnose` | Machine-wide health: scored issues ranked by severity, plus a full diagnosis with ranked findings and a measured-vs-unmeasured completeness label. |
-| **"Why is this tab heavy?"** | `chrome_diagnose_tab` | One report per tab: CPU, memory, heap growth, network, runtime errors, and the possible causes ranked by score. |
-| **"Is this tab actually leaking memory?"** | `chrome_tab_trend` | A 10-second sampled trend of heap and RSS, showing sustained growth rather than a snapshot guess. |
+## Without / With
 
-Together they tell the whole story in under a minute: machine first, then the
-single heaviest tab, then whether it is getting worse.
+**❌ Without WinKit** — an agent on Windows is blind. It guesses PowerShell
+syntax, invents registry paths, assumes service names, and answers "why is
+my disk full?" with generic advice and no data.
+
+**✅ With WinKit** — the agent reads live process, service, event-log,
+network, storage, and registry state through 72 compact, read-only tools,
+then reports measurements, not guesses.
 
 ## Highlights
 
-- **72 MCP tools** across system, process, network, storage, hardware, power,
-  service, event, window, developer-environment, application, Chrome,
-  managed-browser, and machine-health domains, organized into tool profiles
-  (`core`, `developer` [default], `browser`, `full`) so an agent only sees
-  what it needs.
-- **Developer workflow tools** — `diagnose_workspace`, `diagnose_local_webapp`,
-  `list_dev_servers`, bounded `wait_for_*` tools, `correlate_recent_failures`,
-  and `system_health_trend` solve complete problems (stale port, wrong port,
-  HTTP 500, blank page) instead of exposing raw measurements.
-- **Evidence-first diagnostics** — every high-level report is a stable
-  envelope with ranked findings, stable finding/evidence IDs, and a
-  `confirmed`/`observed`/`likely`/`possible`/`unknown` confidence language
-  that never claims causality from timing proximity. Pure threshold logic:
-  no LLM, no randomness, no fabricated claims.
+- **72 MCP tools**, all read-only: system, processes, network, storage,
+  hardware, power, services, event logs, windows, registry, Wi-Fi, and the
+  developer workflow. Tool profiles (`core` 5, `developer` 55 [default],
+  `browser` 58, `full` 72) keep the agent's tool surface lean.
+- **Answers questions, not just queries** — `system_diagnose`,
+  `crash_history`, `shutdown_analysis`, `diagnose_workspace`, and
+  `diagnose_local_webapp` are complete problem-solvers: "what crashed last
+  night?", "why is the fan spinning?", "why is my port stale?".
+- **Evidence-first diagnostics** — every report separates what was
+  **measured** from what is **interpreted**: ranked findings, stable finding
+  IDs, and a `confirmed`/`observed`/`possible` confidence language that
+  never claims causality from timing. Pure threshold logic: no LLM, no
+  randomness, no fabricated claims.
 - **Honest completeness** — `system_diagnose` reports
-  `evidence_completeness: "full" | "limited"` when a dimension could not be
-  measured, and failed dimensions are excluded from the healthy set. WinKit
-  tells you what it could not see.
-- **Chrome deep inspection over CDP** — tabs, performance, memory, network,
-  runtime console, a combined diagnose report, and a sampled trend. Headers,
-  cookies, and request bodies are never captured.
-- **Isolated managed browser** — `chrome_start_managed_session` spawns a
-  WinKit-owned Chrome with a throwaway profile and a loopback-only DevTools
-  endpoint, inspects the page (`chrome_get_page_summary`,
-  `chrome_capture_screenshot`), and `chrome_stop_managed_session` closes it and
-  removes the profile. Windows x64 only; Chrome is never downloaded.
-  **Headed by default**: a real visible Chrome window opens (no `--headless`
-  flag, no headless-only GPU workarounds, window sized 1280x900). If the
-  default headed launch crashes during startup (a GPU-process failure), a
-  verified **headed software-rendering fallback** (`headed-software`)
-  opens the same visible window — it never becomes hidden or headless.
-  **Headless is opt-in** (`headless: true`) and opens no window by design;
-  it renders on the software path with safe fixed arguments
-  (`headless-software`: `--disable-gpu --disable-gpu-compositing
-  --use-angle=swiftshader --disable-gpu-program-cache
-  --disable-gpu-shader-disk-cache`; an in-process-GPU fallback runs if the
-  software mode crashes at startup). The selected mode is always reported
-  (`headless`, `window_mode`, `launch_mode`) and never silently changed.
-  A session is only declared `ready` after the browser survives a short
-  quiescence check — DevTools can become reachable moments before Chrome
-  dies (e.g. a GPU-process crash), so ready is never returned just because
-  `/json/version` answered once. The browser's stdout is redirected so it
-  can never corrupt the MCP stream, its stderr is captured into a bounded
-  redacted tail for diagnosis (including the GPU-process exit code when
-  Chrome reports one), and an unexpected exit reaps the owned process tree
-  (crashpad/GPU/utility/renderer, identified by the exact owned profile
-  path) and removes the owned profile — never the user's Chrome.
-  Feature-gated, permission-gated, no Playwright, no manual debug flags.
-- **Layered permission model** — four modes (`safe`, `read_only`, `approval`,
-  `unrestricted`) over 14 v1 read capabilities plus the separately gated
-  `application.browser.launch/navigate/close` action capabilities. Denials
-  explain exactly what would be required.
+  `evidence_completeness: "full" | "limited"` when something could not be
+  measured. WinKit tells you what it could not see.
+- **Read-only by construction** — the default tool surface is 100% reads;
+  the optional browser integration is feature-gated, off by default, and
+  denied in `safe`/`read_only` modes.
+- **Local-first, zero telemetry** — stdio transport, runs as your user,
+  nothing is persisted and nothing leaves the machine.
 - **Provider architecture** — everything sits behind `WindowsBackend` /
-  `ApplicationProvider` traits; the real Win32 layer is fully separable, and a
-  mock backend plus deterministic fixtures power a 384-test suite
-  (`cargo test --features mocks`) with no machine dependency.
+  `ApplicationProvider` traits; a mock backend plus deterministic fixtures
+  power a 408-test suite (`cargo test --features mocks`) with no machine
+  dependency. An optional Chrome integration plugs in the same way.
 - **Hardened by construction** — bounded results, per-tool timeouts, payload
   caps, an 8 MiB transport frame cap, strict JSON schema validation, and
-  stdout kept protocol-clean (all diagnostics go to stderr).
-- **npm distribution** — two packages, `@winkit/mcp` (launcher) and
-  `@winkit/win32-x64-msvc` (Windows x64 native runtime), installed with
-  `npx --yes @winkit/mcp@latest`. No install scripts, no browser-automation
-  dependencies; the native executable is an implementation detail.
-- **Agent skill** — `skills/winkit-developer-debugging/SKILL.md` teaches
-  coding agents the question→tool routing, permission and profile
-  selection, and the safe/read-only boundaries.
-- **Evaluation suite** — `tests/eval/` is a fixture-backed, deterministic
-  18-scenario suite that asserts status, evidence, finding IDs,
-  supporting/contradicting evidence, redaction, bounded output, permission
-  behavior, and no false root-cause claims for the failure modes WinKit
-  is built to diagnose.
+  stdout kept protocol-clean.
+- **npm distribution** — `npx --yes @winkit/mcp@latest doctor` verifies the
+  install; the native Windows x64 binary is an implementation detail.
+
+## Safety & privacy
+
+This is the section to read twice, because it is the product.
+
+- **Read-only by default.** Every tool is a read. The registry reader is
+  allowlist-only (OS identity, startup programs, installed software) and
+  never touches values. The only actions in the codebase — launching and
+  closing an optional, isolated browser session for local-app diagnosis —
+  are feature-gated, off by default, never granted in `safe`/`read_only`
+  modes, and only ever touch resources WinKit itself created.
+- **No telemetry.** No outbound calls, no update checks, no usage reports,
+  no crash uploads. WinKit makes no network connections except a loopback
+  probe when you ask it to inspect a local web app or an optional browser
+  integration.
+- **Local-first.** A stdio subprocess of your MCP client, running as your
+  user, on your machine. No daemon, no server, no account.
+- **Bounded everywhere.** Result caps, timeouts, payload caps, and a
+  transport frame cap keep every tool fast and cheap for your agent's
+  context window.
+- **Nothing persisted.** WinKit has no history, no logs-to-disk, no
+  state. Diagnostics sample in memory and report.
+
+### What WinKit does not do
+
+- No file writes, no process termination, no service changes.
+- No registry writes.
+- No admin elevation — it runs at your privilege level and says so when a
+  read needs more.
+- No remote access; it cannot be reached over the network.
+- No secrets are captured: event messages, command lines, and URLs are
+  read where readable and reported bounded; credentials and secret-bearing
+  fields are never returned.
 
 ## Quick start
 
@@ -123,111 +116,76 @@ cargo build --release
 .\target\release\winkit --help
 ```
 
-WinKit is launched by an MCP client as a stdio subprocess, either through the
-npx launcher or directly from the built binary (see
-[docs/mcp-integration.md](docs/mcp-integration.md)):
+WinKit runs as a stdio subprocess of your MCP client. Ready-made configs:
 
 - **OpenCode** — `examples/mcp/opencode.json`
 - **Claude Code** — `examples/mcp/claude-code.json`
 - **Any MCP client** — `examples/mcp/generic.json`
 
-Without a config file WinKit runs with safe defaults: `read_only` permission
-mode, both built-in providers enabled, and documented limits. See
-[config/example.toml](config/example.toml) for the full surface and
-[docs/installation.md](docs/installation.md) for the complete setup story.
-
-### Chrome inspection and the managed browser
-
-Chrome deep inspection needs Chrome to expose its DevTools endpoint. WinKit
-can do this for you: with `[chrome.managed] enabled = true` and the
-`application.browser.launch` permission, `chrome_start_managed_session` spawns
-its own isolated Chrome instance (throwaway profile, loopback-only DevTools
-endpoint), so no manual debug flags or separate browser process are needed.
-By default a **real visible Chrome window opens** on the desktop; pass
-`headless: true` only when a non-visible automation/CI session is wanted
-(that mode opens no window by design):
-
-```text
-chrome_start_managed_session(url="http://localhost:3000")  # opens a visible Chrome window
-  -> chrome_get_page_summary(session_id)     # runtime errors, failed requests, headings
-  -> chrome_capture_screenshot(session_id)   # optional visual check
-  -> chrome_stop_managed_session(session_id) # closes Chrome, removes the profile
+```json
+{
+  "mcpServers": {
+    "winkit": {
+      "command": "npx",
+      "args": ["--yes", "@winkit/mcp@latest"]
+    }
+  }
+}
 ```
 
-To inspect an already-running Chrome (for example one the developer started
-with `--remote-debugging-port`), WinKit discovers the endpoint by probing
-`fallback_port` (default 9222) and connecting over CDP. See
-[docs/chrome.md](docs/chrome.md) for the full lifecycle, states, and security
-rules.
+> On Windows, wrap `npx` with `cmd /c` in clients that need it:
+> `"command": "cmd", "args": ["/c", "npx", "--yes", "@winkit/mcp@latest"]`.
 
-## Performance
+Without a config file, WinKit runs with safe defaults: `read_only`
+permission mode, both built-in providers enabled, and documented limits.
+See [config/example.toml](config/example.toml) for the full surface and
+[docs/installation.md](docs/installation.md) for the complete setup story.
 
-End-to-end median latency, measured on a Windows 10 desktop (8 cores,
-16 GB RAM) with a release build and a fresh server process per call — so the
-numbers include process startup and the MCP initialize handshake:
+## The tools
 
-| Tool | Median | Note |
-| --- | ---: | --- |
-| `list_drives`, `system_info`, `disk_usage` | ~17 ms | instant reads |
-| `get_process`, `list_windows`, `list_services` | ~25-30 ms | |
-| `list_processes` | 71 ms | full snapshot via Toolhelp |
-| `chrome_list_tabs`, `chrome_get_tab` | ~50-65 ms | over CDP |
-| `snapshot` | 1.07 s | includes a 1 s resource-sample window |
-| `system_health` | 1.36 s | CPU sample + resource window + scoring |
-| `system_diagnose` | 1.38 s | the deepest report costs the same as health |
-| `chrome_diagnose_tab` | 3.5 s | CDP observation windows (network, runtime) |
-| `chrome_tab_trend` | 10.5 s | default 10-second trend window |
-
-Observation-window tools scale with their configured window, not with system
-size; every other tool stays sub-100 ms regardless of how many processes,
-ports, or tabs exist. Full table and methodology:
-[docs/performance.md](docs/performance.md).
-
-## The tool surface
+Every tool below is **read-only**. Full reference with argument schemas:
+[docs/tools.md](docs/tools.md).
 
 | Domain | Tools |
 | --- | --- |
 | System | `system_info`, `snapshot` |
-| Machine health | `system_health`, `system_diagnose` |
+| Machine health | `system_health`, `system_diagnose`, `system_health_trend`, `correlate_recent_failures` |
 | Processes | `list_processes`, `get_process`, `get_process_tree`, `find_process` |
-| Network | `list_listening_ports`, `find_process_on_port`, `list_network_interfaces`, `list_connections` |
-| Storage | `list_drives`, `disk_usage`, `find_large_files`, `disk_scan`, `disk_scan_start`, `disk_scan_status`, `disk_scan_cancel`, `disk_scan_largest_files`, `disk_scan_largest_folders`, `disk_scan_folder_size`, `disk_scan_find` |
+| Network | `list_listening_ports`, `find_process_on_port`, `list_network_interfaces`, `list_connections`, `network_snapshot`, `network_diagnose`, `wifi_status`, `wifi_scan` |
+| Storage | `list_drives`, `disk_usage`, `disk_health`, `disk_performance`, `find_large_files`, `disk_scan*` (bounded full-volume scanning) |
 | Services | `list_services`, `get_service` |
-| Events | `get_recent_events`, `get_application_errors`, `get_system_errors` |
+| Event logs | `get_recent_events`, `get_application_errors`, `get_system_errors`, `crash_history`, `shutdown_analysis` |
+| Registry | `registry_diagnostics` (allowlist-only reads) |
 | Windows | `list_windows` |
-| Developer env | `dev_environment` |
-| Workspace & servers | `workspace_snapshot`, `list_dev_servers`, `diagnose_workspace` |
+| Hardware & power | `hardware_snapshot`, `thermal_snapshot`, `battery_status`, `power_status` |
+| Developer env | `dev_environment`, `workspace_snapshot`, `list_dev_servers`, `diagnose_workspace` |
 | Local web apps | `diagnose_local_webapp`, `wait_for_port`, `wait_for_http`, `wait_for_process` |
-| Correlation & trends | `correlate_recent_failures`, `system_health_trend`, `privacy_info` |
 | Applications | `list_applications`, `get_application` |
-| Chrome (running) | `chrome_info`, `chrome_list_tabs`, `chrome_get_tab`, `chrome_get_active_tab`, `chrome_get_tab_performance`, `chrome_get_tab_memory`, `chrome_get_tab_network`, `chrome_get_tab_runtime`, `chrome_diagnose_tab`, `chrome_tab_trend` |
-| Managed browser | `chrome_start_managed_session`, `chrome_list_managed_sessions`, `chrome_navigate_managed_session`, `chrome_stop_managed_session`, `chrome_get_page_summary`, `chrome_capture_screenshot`, `chrome_approve_managed_action` |
+| Privacy | `privacy_info` |
 
-Full reference with argument schemas: [docs/tools.md](docs/tools.md).
+The `browser` profile adds Chrome inspection (tabs, performance, memory,
+runtime console) and an optional isolated managed-browser workflow for
+diagnosing local web apps — feature-gated, permission-gated, and off by
+default. See [docs/chrome.md](docs/chrome.md).
+
+### Try these prompts
+
+- **"Why is my disk full?"** → `list_drives` + `find_large_files`
+- **"What crashed last night?"** → `crash_history(since_minutes=720)`
+- **"Did my PC shut down cleanly?"** → `shutdown_analysis`
+- **"Why is the fan spinning?"** → `thermal_snapshot` + `hardware_snapshot`
+- **"What's eating my RAM?"** → `system_health` or `system_diagnose`
+- **"Why is my local server not reachable?"** → `diagnose_local_webapp`
 
 ## Architecture
 
-WinKit's pipeline is a three-layer separation of responsibilities — WinKit
-**measures**, WinKit **interprets** signals, WinKit **ranks** evidence-backed
-findings; the LLM explains them:
-
-```text
-                 WinKit
-                   │
-      ┌────────────┼────────────┐
-      │            │            │
-  Observation  Correlation  Diagnosis
-      │            │            │
-      ↓            ↓            ↓
-  Windows/App   Evidence    Findings
-    metrics      linking     ranking
-```
+WinKit **measures**, WinKit **interprets** signals, WinKit **ranks**
+evidence-backed findings; the LLM explains them:
 
 ```text
 server (MCP over stdio, JSON-RPC 2.0, session lifecycle)
   ├── tools        (72 tool definitions + argument handling + registry)
   │     ├── providers (WindowsBackend / ApplicationProvider traits)
-  │     │     └── chrome::managed (isolated WinKit-owned sessions)
   │     └── platform::windows (real Win32 implementations, windows-sys 0.59)
   ├── permissions  (modes, capabilities, policy, approval surface)
   ├── config       (winkit.toml, strict, deny-unknown-keys)
@@ -236,111 +194,86 @@ server (MCP over stdio, JSON-RPC 2.0, session lifecycle)
 ```
 
 Layering rules are strict: the MCP surface never touches Win32 directly, and
-the Windows layer is testable through a mock backend
-(`cargo test --features mocks`). Deep dive:
+the Windows layer is testable through a mock backend. Deep dive:
 [docs/architecture.md](docs/architecture.md).
 
-## Security model
+## Permission model
 
-- **Read-only by default** — every inspection tool is read-only; the only
-  actions (managed-browser launch/navigate/close) are feature-gated by
-  `[chrome.managed] enabled` and denied in `safe`/`read_only` modes.
-- **Permission modes gate every tool call** before dispatch, with a separate
-  action gate for managed-browser lifecycle tools.
-- **Managed browser is isolated and self-cleaning** — a throwaway profile
-  under the managed root, loopback-only DevTools, cleanup that refuses any
-  path outside the managed root, and it never attaches to the normal Chrome
-  profile.
-- **No secrets are captured** — Chrome network/runtime inspection truncates
-  output and explicitly excludes headers, cookies, and bodies; URLs are
-  redacted (query strings stripped).
-- **Bounded work everywhere** — result caps, timeouts, payload caps, frame
-  caps.
-- Full details: [SECURITY.md](SECURITY.md) and
-  [docs/security.md](docs/security.md).
+Four modes (`safe`, `read_only`, `approval`, `unrestricted`) gate 20 v1
+read capabilities, fail closed by default, and deny with a precise reason —
+an agent never guesses why a call was refused. `safe` and `read_only` grant
+every read capability; actions (none in v1 for Windows state) require the
+`approval` mode. See [docs/permissions.md](docs/permissions.md).
+
+## Performance
+
+End-to-end median latency (release build, fresh process per call, includes
+startup and the MCP handshake):
+
+| Tool | Median |
+| --- | ---: |
+| `list_drives`, `system_info`, `disk_usage` | ~17 ms |
+| `get_process`, `list_windows`, `list_services` | ~25-30 ms |
+| `list_processes` | 71 ms |
+| `snapshot` | 1.07 s |
+| `system_health` / `system_diagnose` | ~1.4 s |
+
+Observation-window tools scale with their configured window, not system
+size; every other tool stays sub-100 ms regardless of how many processes or
+ports exist. Full table and methodology:
+[docs/performance.md](docs/performance.md).
 
 ## Known limitations
 
 WinKit treats limits as first-class output, not bugs:
 
-- **Per-process CPU percent is a live sample, not a cumulative measure.** The
-  naive system-ratio calculation is misleading on multi-core machines, so
-  `list_processes` (a cheap full snapshot) reports `cpu_percent: null`. To spot
-  a runaway process, `get_process` samples a live two-sample CPU percent over a
-  300 ms window with an explicit basis (`system_capacity_all_cores`); the
-  aggregate view (`ApplicationGroupInfo`) does the same with a 1 s sample.
-- **Chrome can't always map a tab to a PID** — the adapter reports
-  `process_mapping: "none"` and continues with pure CDP evidence rather than
-  failing or guessing.
+- **Per-process CPU percent is a live sample, not a cumulative measure.**
+  `list_processes` reports `cpu_percent: null`; `get_process` samples a
+  two-sample estimate with an explicit basis; aggregate views use a 1 s
+  sample.
 - **Some Windows processes deny read access** — they are still listed with
   `null` for the fields that could not be read, never dropped silently.
-- **Diagnostics distinguish measured from unmeasured** — `system_diagnose`
-  carries `evidence_completeness`, and reports can include `limitations`
-  entries so agents do not over-read a partial view.
-- **Inspection of an already-running Chrome requires a remote-debugging
-  port.** The managed browser workflow removes that requirement for local-app
-  diagnosis: WinKit spawns its own isolated Chrome when the feature and
-  permission are enabled; normal browsing profiles always stay untouched.
+- **Some reads are elevation-gated** (e.g. some ACPI thermal zones and
+  S.M.A.R.T. attributes) — reported as `permission_denied` or `limited`
+  completeness with a reason.
+- **Diagnostics distinguish measured from unmeasured** — reports carry
+  `evidence_completeness` and `limitations` so agents do not over-read a
+  partial view.
 
 ## Development
 
 ```powershell
 cargo check                 # compile checks
-cargo build                 # debug build
-cargo test --features mocks # full test suite (408 tests)
+cargo test --features mocks # full test suite (408 tests, no machine needed)
 cargo clippy --all-targets  # lint
-
-# evaluation suite (fixture-backed failure scenarios)
-cargo test --features mocks --test eval
-
-# npm launcher + package validation (after cargo build --release)
-powershell -ExecutionPolicy Bypass -File npm/scripts/copy-native.ps1
-node --test npm/test/launcher.test.js npm/test/package.test.js
-powershell -ExecutionPolicy Bypass -File npm/scripts/test-packed.ps1
-
-# opt-in live tests (need a real Windows machine / Chrome install)
-$env:WINKIT_LIVE_WINDOWS = "1"; cargo test --features live-windows
-# live managed-Chrome lifecycle, both modes (requires an installed Google
-# Chrome on an interactive desktop; run ten consecutive isolated runs per
-# mode before any release-ready claim)
-$env:WINKIT_LIVE_CHROME = "1"; cargo test --features live-chrome --lib live_managed_chrome_headed_start_inspect_stop -- --nocapture
-$env:WINKIT_LIVE_CHROME = "1"; cargo test --features live-chrome --lib live_managed_chrome_headless_start_inspect_stop -- --nocapture
+cargo test --features mocks --test eval   # 18-scenario failure suite
 ```
 
-The live managed-Chrome tests print an explicit skip reason when
-`WINKIT_LIVE_CHROME` is not `1`; the headed test also skips (marking headed
-behavior unverified) when there is no interactive desktop. A skipped live
-test is never a pass, and without both modes passing on a real Chrome
-installation the project is not "release-ready" (see
-[docs/release.md](docs/release.md)).
-
-The integration tests exercise the MCP protocol, tool dispatch, permission
-enforcement, and fixture-backed mock providers without touching the real
-machine; the evaluation suite (`tests/eval/`) covers 18 deterministic
-failure scenarios. See [docs/development.md](docs/development.md) and
-[CONTRIBUTING.md](CONTRIBUTING.md).
+Opt-in live tests (`WINKIT_LIVE_WINDOWS=1`) run against the real machine.
+See [docs/development.md](docs/development.md) and
+[docs/release.md](docs/release.md).
 
 ## Documentation
 
 - [docs/installation.md](docs/installation.md) — build, configure, connect to an MCP client
-- [docs/architecture.md](docs/architecture.md) — layering, data flow, provider model
+- [docs/tools.md](docs/tools.md) — full tool reference with arguments
 - [docs/diagnostics.md](docs/diagnostics.md) — the evidence-first report shape and score formulas
 - [docs/security.md](docs/security.md) — threat model and mitigations
 - [docs/permissions.md](docs/permissions.md) — modes, capabilities, policy table
-- [docs/tools.md](docs/tools.md) — tool reference with arguments
+- [docs/architecture.md](docs/architecture.md) — layering, data flow, provider model
 - [docs/configuration.md](docs/configuration.md) — every config key and default
-- [docs/application-adapters.md](docs/application-adapters.md) — how adapters plug in
-- [docs/chrome.md](docs/chrome.md) — Chrome discovery, CDP, managed sessions, and caveats
+- [docs/chrome.md](docs/chrome.md) — the optional Chrome integration
 - [docs/performance.md](docs/performance.md) — benchmark methodology and full table
-- [docs/demos.md](docs/demos.md) — the three-demo script and recording guide
 - [docs/mcp-integration.md](docs/mcp-integration.md) — client setup examples
-- [docs/development.md](docs/development.md) — building, testing, contributing
-- [docs/release.md](docs/release.md) — release process and checklist
-- [tests/eval/README.md](tests/eval/README.md) — how to run the evaluation suite
-- [skills/winkit-developer-debugging/SKILL.md](skills/winkit-developer-debugging/SKILL.md) — the agent skill
+- [SECURITY.md](SECURITY.md) — security policy
+- [CHANGELOG.md](CHANGELOG.md) — release history
+
+## Contributing
+
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
 MIT — see [LICENSE](LICENSE). WinKit is local-first and open source; it
-contains no telemetry and makes no network calls except the loopback Chrome
-DevTools probe.
+contains no telemetry and makes no network calls except the loopback probe
+when you ask it to inspect a local web app.
