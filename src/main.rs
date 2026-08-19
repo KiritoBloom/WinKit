@@ -5,14 +5,16 @@
 //! winkit [--config <path>] [--help] [--version]
 //! winkit doctor [--json] [--config <path>]
 //! winkit init --client <opencode|claude-code|codex|generic> [--write] [--force]
+//! winkit install [--yes] [--list] [--json]
 //! winkit configure [--dry-run] [--write] [--set KEY=VALUE]...
 //! ```
 //!
 //! With no subcommand, WinKit runs as an MCP stdio server: all protocol
 //! traffic flows over stdin/stdout as newline-delimited JSON-RPC and
 //! diagnostics go to stderr, so stdout stays protocol-clean. When the first
-//! non-flag argument is a subcommand (`doctor`, `init`, `configure`), the
-//! CLI path runs instead and owns stdout for its human/machine output.
+//! non-flag argument is a subcommand (`doctor`, `init`, `install`,
+//! `configure`), the CLI path runs instead and owns stdout for its
+//! human/machine output.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -23,7 +25,7 @@ use winkit::server::AppState;
 use winkit::utils::log::{self, Level};
 use winkit::{log_error, log_info};
 
-const SUBCOMMANDS: [&str; 3] = ["doctor", "init", "configure"];
+const SUBCOMMANDS: [&str; 4] = ["doctor", "init", "install", "configure"];
 
 const USAGE: &str = "\
 WinKit — local Windows observability and diagnostics for AI agents (MCP server)
@@ -34,6 +36,7 @@ USAGE:
 SUBCOMMANDS:
     doctor               Check the installation and report pass/fail per check
     init                 Print an MCP client configuration for WinKit
+    install              Register WinKit as an MCP server in every installed AI agent
     configure            Read, validate, and update the configuration
 
 OPTIONS:

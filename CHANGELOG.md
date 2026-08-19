@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`winkit install` command** — detects installed AI coding agents (opencode, Claude Code, Codex CLI, Cursor, Windsurf, Gemini CLI, Zed, Cline, Roo Code, Continue) and registers WinKit as an MCP server in each one. Existing configs are merged (never overwritten): the file is parsed, the WinKit entry added, and everything else preserved, with a timestamped `.bak` backup created first and the original restored if the write fails. `--yes` installs everywhere without prompting, `--list` previews without writing, and `--json` emits a machine-readable report. Runtimes whose config cannot be parsed are skipped with a reason.
 - **`crash_history` tool** — BSOD/crash history from the event logs: bugchecks (BugCheck 1001), unclean shutdowns (Kernel-Power 41), hardware errors (WHEA-Logger 18/19/20), application crashes, and Windows Error Reporting events, with bugcheck codes extracted from the rendered message.
 - **`shutdown_analysis` tool** — boot/shutdown timeline (EventLog 6005/6006/6008/6013, User32 1074, Kernel-General 12/13, Kernel-Power 41/42/107) with last boot, current uptime, and a last-shutdown-kind summary.
 - **`registry_diagnostics` tool** — allowlist-only registry reads: OS identity, startup programs (with enabled/disabled state), and installed software.

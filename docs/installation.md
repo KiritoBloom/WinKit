@@ -90,6 +90,40 @@ WinKit exits when stdin closes. If you see an `initialize` result and a
 `tools/list` result listing the tools of the active profile — 55 tools with
 the default `developer` profile, 72 with `full` — the binary is ready.
 
+## One-shot install into installed AI agents
+
+Instead of pasting config blocks by hand, `winkit install` detects the coding
+agents already installed on the machine and registers WinKit as an MCP server
+in each one:
+
+```bash
+npx --yes @winkit/mcp@latest install --list    # preview what would be touched
+npx --yes @winkit/mcp@latest install           # confirm per runtime
+npx --yes @winkit/mcp@latest install --yes     # install everywhere, no prompts
+```
+
+It detects these runtimes (by config artifact or CLI on `PATH`):
+
+| Runtime | Config file written |
+| --- | --- |
+| OpenCode | `~\.config\opencode\opencode.json` (`mcp.winkit`) |
+| Claude Code | `~\.claude.json` (`mcpServers.winkit`) |
+| Codex CLI | `~\.codex\config.toml` (`[mcp_servers.winkit]`) |
+| Cursor | `~\.cursor\mcp.json` (`mcpServers.winkit`) |
+| Windsurf | `~\.codeium\windsurf\mcp_config.json` (`mcpServers.winkit`) |
+| Gemini CLI | `~\.gemini\settings.json` (`mcpServers.winkit`) |
+| Zed | `%APPDATA%\Zed\settings.json` (`context_servers.winkit`) |
+| Cline (VS Code) | VS Code `globalStorage` `cline_mcp_settings.json` |
+| Roo Code (VS Code) | VS Code `globalStorage` `mcp_settings.json` |
+| Continue | `~\.continue\config.json` (`mcpServers` array) |
+
+The merge is surgical: the existing file is parsed, only the WinKit entry is
+added, and everything else is left byte-for-byte untouched. Before writing,
+the original file is preserved as a timestamped `.bak` sibling; if the write
+fails the original is restored from that backup. An existing WinKit entry is
+reported as already registered and never overwritten. A runtime whose config
+file cannot be parsed is skipped with a reason — WinKit never guesses.
+
 ## Configuration
 
 WinKit is configured with a `winkit.toml` file. Every key has a documented

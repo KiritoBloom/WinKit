@@ -1,4 +1,4 @@
-//! WinKit CLI subcommands: `doctor`, `init`, and `configure`.
+//! WinKit CLI subcommands: `doctor`, `init`, `configure`, and `install`.
 //!
 //! These commands run outside the MCP stdio loop and are reachable only when
 //! the first non-flag argument is a subcommand (`winkit doctor ...`). Their
@@ -12,6 +12,7 @@ use crate::server::protocol::McpServer;
 use crate::server::AppState;
 use serde::Serialize;
 use serde_json::Value;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -23,6 +24,7 @@ pub fn run(subcommand: &str, args: &[String], global_config: Option<PathBuf>) ->
     match subcommand {
         "doctor" => doctor_run(args, global_config),
         "init" => init_run(args),
+        "install" => install_run(args),
         "configure" => configure_run(args, global_config),
         other => {
             eprintln!("error: unknown subcommand '{other}'");
@@ -1444,6 +1446,619 @@ fn set_bool(slot: &mut bool, key: &str, value: &str) -> Result<String, String> {
     Ok(format!("{key}: {old} -> {parsed}"))
 }
 
+// ---------------------------------------------------------------------------
+// install
+// ---------------------------------------------------------------------------
+
+const INSTALL_USAGE: &str = "\
+Usage: winkit install [--yes] [--list] [--json]
+
+Detects installed AI coding agents (opencode, claude-code, codex, cursor,
+windsurf, gemini-cli, zed, cline, roo-code, continue) and registers WinKit
+as an MCP server in each one. For every detected runtime the target file is
+shown and confirmation is asked before merging in the WinKit entry. The
+original file is preserved (a timestamped .bak sibling is created first) and
+restored if the write fails. An existing WinKit entry is left untouched.
+
+OPTIONS:
+    --yes                Install into every detected runtime without prompting
+    --list               Detect and list runtimes without writing anything
+    --json               Emit a machine-readable JSON report
+    --help               Print this help and exit
+";
+
+/// Coding-agent runtimes the installer can register WinKit with. The config
+/// location and merge shape are verified per target; a target whose config
+/// file cannot be parsed is skipped, never overwritten.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum InstallTarget {
+    Opencode,
+    ClaudeCode,
+    Codex,
+    Cursor,
+    Windsurf,
+    GeminiCli,
+    Zed,
+    Cline,
+    RooCode,
+    Continue,
+}
+
+impl InstallTarget {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Opencode => "opencode",
+            Self::ClaudeCode => "claude-code",
+            Self::Codex => "codex",
+            Self::Cursor => "cursor",
+            Self::Windsurf => "windsurf",
+            Self::GeminiCli => "gemini-cli",
+            Self::Zed => "zed",
+            Self::Cline => "cline",
+            Self::RooCode => "roo-code",
+            Self::Continue => "continue",
+        }
+    }
+
+    fn all() -> [Self; 10] {
+        [
+            Self::Opencode,
+            Self::ClaudeCode,
+            Self::Codex,
+            Self::Cursor,
+            Self::Windsurf,
+            Self::GeminiCli,
+            Self::Zed,
+            Self::Cline,
+            Self::RooCode,
+            Self::Continue,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum MergeOutcome {
+    Merged,
+    AlreadyPresent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum InstallStatus {
+    Detected,
+    Installed,
+    AlreadyRegistered,
+    Declined,
+    Skipped,
+    Error,
+}
+
+impl InstallStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Detected => "DETECTED",
+            Self::Installed => "INSTALLED",
+            Self::AlreadyRegistered => "ALREADY",
+            Self::Declined => "DECLINED",
+            Self::Skipped => "SKIPPED",
+            Self::Error => "ERROR",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct InstallOutcome {
+    target: String,
+    path: String,
+    status: InstallStatus,
+    detail: String,
+}
+
+impl InstallOutcome {
+    fn new(target: &str, path: String, status: InstallStatus, detail: String) -> Self {
+        Self {
+            target: target.to_string(),
+            path,
+            status,
+            detail,
+        }
+    }
+}
+
+/// Detect installed runtimes from config artifacts under the user profile
+/// and the app-data root, plus CLI binaries on PATH. Existence-only: nothing
+/// here creates or modifies anything. `which` is injected so tests can fake
+/// the PATH without touching the real environment.
+fn install_detect(home: &Path, appdata: &Path, which: &dyn Fn(&str) -> bool) -> Vec<InstallTarget> {
+    let mut found = Vec::new();
+    if home.join(".config").join("opencode").is_dir() || which("opencode") {
+        found.push(InstallTarget::Opencode);
+    }
+    if home.join(".claude.json").exists() || home.join(".claude").is_dir() || which("claude") {
+        found.push(InstallTarget::ClaudeCode);
+    }
+    if home.join(".codex").is_dir() || which("codex") {
+        found.push(InstallTarget::Codex);
+    }
+    if home.join(".cursor").is_dir() || which("cursor") {
+        found.push(InstallTarget::Cursor);
+    }
+    if home.join(".codeium").join("windsurf").is_dir() || which("windsurf") {
+        found.push(InstallTarget::Windsurf);
+    }
+    if home.join(".gemini").is_dir() || which("gemini") {
+        found.push(InstallTarget::GeminiCli);
+    }
+    if appdata.join("Zed").is_dir() || which("zed") {
+        found.push(InstallTarget::Zed);
+    }
+    if vscode_ext_settings_dir(appdata, "saoudrizwan.claude-dev").is_some() {
+        found.push(InstallTarget::Cline);
+    }
+    if vscode_ext_settings_dir(appdata, "rooveterinaryinc.roo-cline").is_some() {
+        found.push(InstallTarget::RooCode);
+    }
+    if home.join(".continue").is_dir() {
+        found.push(InstallTarget::Continue);
+    }
+    found
+}
+
+/// The VS Code extension globalStorage directory for an extension id, or
+/// `None` when neither the upstream `Code` nor the `VSCodium` variant has it.
+fn vscode_ext_settings_dir(appdata: &Path, ext: &str) -> Option<PathBuf> {
+    for root in ["Code", "VSCodium"] {
+        let dir = appdata.join(root).join("User").join("globalStorage").join(ext);
+        if dir.is_dir() {
+            return Some(dir);
+        }
+    }
+    None
+}
+
+fn bin_on_path(name: &str) -> bool {
+    let path = match std::env::var_os("PATH") {
+        Some(p) => p,
+        None => return false,
+    };
+    std::env::split_paths(&path).any(|dir| {
+        [format!("{name}.exe"), format!("{name}.cmd"), name.to_string()]
+            .iter()
+            .any(|candidate| dir.join(candidate).is_file())
+    })
+}
+
+/// Standard per-target config file to merge into, or `None` when WinKit
+/// cannot write one safely (no verified location for that target).
+fn install_config_path(target: InstallTarget, home: &Path, appdata: &Path) -> Option<PathBuf> {
+    match target {
+        InstallTarget::Opencode => Some(home.join(".config").join("opencode").join("opencode.json")),
+        InstallTarget::ClaudeCode => Some(home.join(".claude.json")),
+        InstallTarget::Codex => Some(home.join(".codex").join("config.toml")),
+        InstallTarget::Cursor => Some(home.join(".cursor").join("mcp.json")),
+        InstallTarget::Windsurf => Some(home.join(".codeium").join("windsurf").join("mcp_config.json")),
+        InstallTarget::GeminiCli => Some(home.join(".gemini").join("settings.json")),
+        InstallTarget::Zed => Some(appdata.join("Zed").join("settings.json")),
+        InstallTarget::Cline => vscode_ext_settings_dir(appdata, "saoudrizwan.claude-dev")
+            .map(|d| d.join("settings").join("cline_mcp_settings.json")),
+        InstallTarget::RooCode => vscode_ext_settings_dir(appdata, "rooveterinaryinc.roo-cline")
+            .map(|d| d.join("settings").join("mcp_settings.json")),
+        // Continue reads `config.yaml` in newer versions; writing a
+        // `config.json` beside it would be ignored, so skip when only YAML
+        // is present.
+        InstallTarget::Continue => {
+            let dir = home.join(".continue");
+            let yaml = dir.join("config.yaml");
+            if yaml.exists() && !dir.join("config.json").exists() {
+                None
+            } else {
+                Some(dir.join("config.json"))
+            }
+        }
+    }
+}
+
+/// The WinKit MCP entry for a target. The standard shape is an npx launch;
+/// opencode wants `command` as an array under its `mcp` key, and Continue
+/// stores entries as array elements that carry a `name`.
+fn winkit_json_entry(target: InstallTarget) -> Value {
+    match target {
+        InstallTarget::Opencode => serde_json::json!({
+            "type": "local",
+            "command": ["npx", "--yes", "@winkit/mcp@latest"],
+            "enabled": true,
+        }),
+        InstallTarget::Continue => serde_json::json!({
+            "name": "winkit",
+            "command": "npx",
+            "args": ["--yes", "@winkit/mcp@latest"],
+        }),
+        _ => serde_json::json!({
+            "command": "npx",
+            "args": ["--yes", "@winkit/mcp@latest"],
+        }),
+    }
+}
+
+fn merge_json_target(root: &mut Value, target: InstallTarget) -> Result<MergeOutcome, String> {
+    match target {
+        InstallTarget::Opencode => merge_json_object(root, "mcp", "winkit", winkit_json_entry(target)),
+        InstallTarget::Zed => {
+            merge_json_object(root, "context_servers", "winkit", winkit_json_entry(target))
+        }
+        InstallTarget::Continue => merge_json_array(root, winkit_json_entry(target)),
+        _ => merge_json_object(root, "mcpServers", "winkit", winkit_json_entry(target)),
+    }
+}
+
+/// Merge a named entry into a top-level object key (e.g. `mcpServers`),
+/// creating the section when absent and refusing when it exists as the wrong
+/// type.
+fn merge_json_object(
+    root: &mut Value,
+    section: &str,
+    name: &str,
+    entry: Value,
+) -> Result<MergeOutcome, String> {
+    let root_obj = root
+        .as_object_mut()
+        .ok_or_else(|| "config root is not a JSON object".to_string())?;
+    let section_obj = match root_obj.get_mut(section) {
+        Some(Value::Object(_)) => root_obj.get_mut(section).unwrap().as_object_mut().unwrap(),
+        Some(_) => return Err(format!("`{section}` exists but is not a JSON object")),
+        None => {
+            root_obj.insert(section.to_string(), serde_json::json!({}));
+            root_obj.get_mut(section).unwrap().as_object_mut().unwrap()
+        }
+    };
+    if section_obj.contains_key(name) {
+        return Ok(MergeOutcome::AlreadyPresent);
+    }
+    section_obj.insert(name.to_string(), entry);
+    Ok(MergeOutcome::Merged)
+}
+
+/// Continue's `mcpServers` is an array of entries; append unless an entry
+/// named `winkit` is already there.
+fn merge_json_array(root: &mut Value, entry: Value) -> Result<MergeOutcome, String> {
+    let root_obj = root
+        .as_object_mut()
+        .ok_or_else(|| "config root is not a JSON object".to_string())?;
+    let arr = match root_obj.get_mut("mcpServers") {
+        Some(Value::Array(a)) => a,
+        Some(_) => return Err("`mcpServers` exists but is not an array".to_string()),
+        None => {
+            root_obj.insert("mcpServers".to_string(), serde_json::json!([]));
+            root_obj.get_mut("mcpServers").unwrap().as_array_mut().unwrap()
+        }
+    };
+    if arr
+        .iter()
+        .any(|v| v.get("name").and_then(|n| n.as_str()) == Some("winkit"))
+    {
+        return Ok(MergeOutcome::AlreadyPresent);
+    }
+    arr.push(entry);
+    Ok(MergeOutcome::Merged)
+}
+
+fn merge_codex_toml(root: &mut toml::Table) -> Result<MergeOutcome, String> {
+    let servers = root
+        .entry("mcp_servers".to_string())
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+    let servers = servers
+        .as_table_mut()
+        .ok_or_else(|| "`mcp_servers` exists but is not a table".to_string())?;
+    if servers.contains_key("winkit") {
+        return Ok(MergeOutcome::AlreadyPresent);
+    }
+    let mut entry = toml::Table::new();
+    entry.insert("command".to_string(), toml::Value::String("npx".to_string()));
+    entry.insert(
+        "args".to_string(),
+        toml::Value::Array(vec![
+            toml::Value::String("--yes".to_string()),
+            toml::Value::String("@winkit/mcp@latest".to_string()),
+        ]),
+    );
+    servers.insert("winkit".to_string(), toml::Value::Table(entry));
+    Ok(MergeOutcome::Merged)
+}
+
+/// Parse the target's existing config (or start fresh), merge in the WinKit
+/// entry, and return the serialized result. `Ok(None)` means the entry is
+/// already present. An existing file that cannot be parsed is an error, not
+/// a candidate for overwrite.
+fn parse_and_merge(
+    target: InstallTarget,
+    existing: Option<&str>,
+) -> Result<Option<String>, String> {
+    match target {
+        InstallTarget::Codex => {
+            let mut root: toml::Table = match existing {
+                Some(text) if !text.trim().is_empty() => toml::from_str(text)
+                    .map_err(|e| format!("existing config is not valid TOML: {e}"))?,
+                _ => toml::Table::new(),
+            };
+            match merge_codex_toml(&mut root)? {
+                MergeOutcome::AlreadyPresent => Ok(None),
+                MergeOutcome::Merged => {
+                    let text = toml::to_string_pretty(&root)
+                        .map_err(|e| format!("cannot serialize TOML: {e}"))?;
+                    Ok(Some(text))
+                }
+            }
+        }
+        _ => {
+            let mut root: Value = match existing {
+                Some(text) if !text.trim().is_empty() => serde_json::from_str(text)
+                    .map_err(|e| format!("existing config is not valid JSON: {e}"))?,
+                _ => serde_json::json!({}),
+            };
+            match merge_json_target(&mut root, target)? {
+                MergeOutcome::AlreadyPresent => Ok(None),
+                MergeOutcome::Merged => {
+                    let mut text = serde_json::to_string_pretty(&root)
+                        .map_err(|e| format!("cannot serialize JSON: {e}"))?;
+                    text.push('\n');
+                    Ok(Some(text))
+                }
+            }
+        }
+    }
+}
+
+/// Write `content` over `dest`, keeping a timestamped `.bak` of the original
+/// and restoring it if the write fails. The backup is the guarantee: even a
+/// failed restore never loses the original bytes.
+fn write_with_restore(dest: &Path, content: &str) -> Result<Option<PathBuf>, String> {
+    if let Some(parent) = dest.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+        }
+    }
+    let backup = if dest.exists() {
+        let backup = backup_path(dest);
+        std::fs::copy(dest, &backup)
+            .map_err(|e| format!("cannot back up {}: {e}", dest.display()))?;
+        Some(backup)
+    } else {
+        None
+    };
+    if let Err(e) = std::fs::write(dest, content) {
+        let restore_note = match &backup {
+            Some(b) => match restore_backup(dest, b) {
+                Ok(()) => " (original restored from backup)".to_string(),
+                Err(r) => format!(
+                    " (restore also failed: {r}; original kept at {})",
+                    b.display()
+                ),
+            },
+            None => " (no prior file to restore)".to_string(),
+        };
+        return Err(format!("cannot write {}: {e}{restore_note}", dest.display()));
+    }
+    Ok(backup)
+}
+
+/// Put the backup back over `dest` after a failed write.
+fn restore_backup(dest: &Path, backup: &Path) -> Result<(), String> {
+    std::fs::copy(backup, dest)
+        .map(|_| ())
+        .map_err(|e| format!("cannot restore {} from {}: {e}", dest.display(), backup.display()))
+}
+
+fn install_run(args: &[String]) -> ExitCode {
+    let mut yes = false;
+    let mut list_only = false;
+    let mut json = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--help" | "-h" => {
+                println!("{INSTALL_USAGE}");
+                return ExitCode::SUCCESS;
+            }
+            "--yes" | "-y" => yes = true,
+            "--list" => list_only = true,
+            "--json" => json = true,
+            other => {
+                eprintln!("error: unknown argument '{other}'\n\n{INSTALL_USAGE}");
+                return ExitCode::FAILURE;
+            }
+        }
+        i += 1;
+    }
+
+    let home = user_profile().unwrap_or_else(|| PathBuf::from("."));
+    let appdata = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join("AppData").join("Roaming"));
+
+    let detected = install_detect(&home, &appdata, &bin_on_path);
+    if detected.is_empty() {
+        if json {
+            let report = serde_json::json!({
+                "command": "winkit install",
+                "runtimes": [],
+            });
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report)
+                    .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
+            );
+        } else {
+            println!("No supported AI coding agents detected on this machine.");
+            let supported: Vec<&str> = InstallTarget::all().iter().map(|t| t.label()).collect();
+            println!("Supported: {}", supported.join(", "));
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    let interactive = std::io::stdin().is_terminal();
+    // Safety default: without --yes, a non-interactive run or a JSON report
+    // never writes anything.
+    let plan_only = list_only || (json && !yes) || (!interactive && !yes);
+
+    let mut outcomes = Vec::new();
+    for target in InstallTarget::all() {
+        if !detected.contains(&target) {
+            continue;
+        }
+        let Some(path) = install_config_path(target, &home, &appdata) else {
+            outcomes.push(InstallOutcome::new(
+                target.label(),
+                String::new(),
+                InstallStatus::Skipped,
+                "no verifiable config location".to_string(),
+            ));
+            continue;
+        };
+
+        if plan_only {
+            outcomes.push(InstallOutcome::new(
+                target.label(),
+                path.display().to_string(),
+                InstallStatus::Detected,
+                "would merge the WinKit MCP entry".to_string(),
+            ));
+            continue;
+        }
+
+        let existing = if path.exists() {
+            match std::fs::read_to_string(&path) {
+                Ok(text) => Some(text),
+                Err(e) => {
+                    outcomes.push(InstallOutcome::new(
+                        target.label(),
+                        path.display().to_string(),
+                        InstallStatus::Error,
+                        format!("cannot read existing file: {e}"),
+                    ));
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+
+        let merged = match parse_and_merge(target, existing.as_deref()) {
+            Ok(Some(text)) => text,
+            Ok(None) => {
+                outcomes.push(InstallOutcome::new(
+                    target.label(),
+                    path.display().to_string(),
+                    InstallStatus::AlreadyRegistered,
+                    "WinKit is already registered".to_string(),
+                ));
+                continue;
+            }
+            Err(reason) => {
+                outcomes.push(InstallOutcome::new(
+                    target.label(),
+                    path.display().to_string(),
+                    InstallStatus::Skipped,
+                    reason,
+                ));
+                continue;
+            }
+        };
+
+        if !yes {
+            print!("Install WinKit for {}? [y/N] ", target.label());
+            let _ = std::io::stdout().flush();
+            let mut line = String::new();
+            match std::io::stdin().read_line(&mut line) {
+                Ok(0) | Err(_) => {
+                    outcomes.push(InstallOutcome::new(
+                        target.label(),
+                        path.display().to_string(),
+                        InstallStatus::Declined,
+                        "no answer received".to_string(),
+                    ));
+                    continue;
+                }
+                Ok(_) => {
+                    let answer = line.trim().to_ascii_lowercase();
+                    if !matches!(answer.as_str(), "y" | "yes") {
+                        outcomes.push(InstallOutcome::new(
+                            target.label(),
+                            path.display().to_string(),
+                            InstallStatus::Declined,
+                            "declined by user".to_string(),
+                        ));
+                        continue;
+                    }
+                }
+            }
+        }
+
+        match write_with_restore(&path, &merged) {
+            Ok(backup) => {
+                let detail = match backup {
+                    Some(b) => format!("written (backup: {})", b.display()),
+                    None => "written (new file)".to_string(),
+                };
+                outcomes.push(InstallOutcome::new(
+                    target.label(),
+                    path.display().to_string(),
+                    InstallStatus::Installed,
+                    detail,
+                ));
+            }
+            Err(e) => {
+                outcomes.push(InstallOutcome::new(
+                    target.label(),
+                    path.display().to_string(),
+                    InstallStatus::Error,
+                    e,
+                ));
+            }
+        }
+    }
+
+    if json {
+        let report = serde_json::json!({
+            "command": "winkit install",
+            "home": home.display().to_string(),
+            "runtimes": outcomes,
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_string())
+        );
+    } else {
+        println!("winkit install — {} runtime(s) detected", detected.len());
+        for o in &outcomes {
+            let path = if o.path.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", o.path)
+            };
+            println!(
+                "[{}] {} — {}{}",
+                o.status.label(),
+                o.target,
+                o.detail,
+                path
+            );
+        }
+    }
+
+    if outcomes
+        .iter()
+        .any(|o| o.status == InstallStatus::Error)
+    {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1652,5 +2267,272 @@ mod tests {
         let name = path.file_name().unwrap().to_string_lossy();
         assert!(name.starts_with("winkit.toml.bak-"));
         assert!(!name.contains(':'));
+    }
+
+    // install
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let dir = std::env::temp_dir().join(format!("winkit-install-test-{prefix}-{stamp}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn install_detect_finds_config_artifacts_and_path_bins() {
+        let home = temp_dir("detect-home");
+        let appdata = temp_dir("detect-appdata");
+        std::fs::create_dir_all(home.join(".config").join("opencode")).unwrap();
+        std::fs::create_dir_all(home.join(".codex")).unwrap();
+        std::fs::create_dir_all(home.join(".codeium").join("windsurf")).unwrap();
+        std::fs::create_dir_all(home.join(".gemini")).unwrap();
+        std::fs::create_dir_all(home.join(".continue")).unwrap();
+        std::fs::create_dir_all(
+            appdata
+                .join("Code")
+                .join("User")
+                .join("globalStorage")
+                .join("saoudrizwan.claude-dev"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(appdata.join("Zed")).unwrap();
+
+        let found = install_detect(&home, &appdata, &|_| false);
+        for expected in [
+            InstallTarget::Opencode,
+            InstallTarget::Codex,
+            InstallTarget::Windsurf,
+            InstallTarget::GeminiCli,
+            InstallTarget::Continue,
+            InstallTarget::Cline,
+            InstallTarget::Zed,
+        ] {
+            assert!(found.contains(&expected), "missing {expected:?}");
+        }
+        assert!(!found.contains(&InstallTarget::ClaudeCode));
+        assert!(!found.contains(&InstallTarget::Cursor));
+        assert!(!found.contains(&InstallTarget::RooCode));
+
+        // PATH binaries also count as installed.
+        let found = install_detect(&home, &appdata, &|name| name == "claude" || name == "cursor");
+        assert!(found.contains(&InstallTarget::ClaudeCode));
+        assert!(found.contains(&InstallTarget::Cursor));
+    }
+
+    #[test]
+    fn install_detect_requires_the_extension_not_bare_vscode() {
+        let home = temp_dir("detect-home2");
+        let appdata = temp_dir("detect-appdata2");
+        // A bare VS Code install without Cline or Roo Code must not produce a
+        // false positive.
+        std::fs::create_dir_all(appdata.join("Code")).unwrap();
+        let found = install_detect(&home, &appdata, &|_| false);
+        assert!(!found.contains(&InstallTarget::Cline));
+        assert!(!found.contains(&InstallTarget::RooCode));
+    }
+
+    #[test]
+    fn install_config_path_resolves_each_target() {
+        let home = Path::new("C:\\Users\\test");
+        let appdata = Path::new("C:\\Users\\test\\AppData\\Roaming");
+        assert_eq!(
+            install_config_path(InstallTarget::Opencode, home, appdata),
+            Some(PathBuf::from("C:\\Users\\test\\.config\\opencode\\opencode.json"))
+        );
+        assert_eq!(
+            install_config_path(InstallTarget::ClaudeCode, home, appdata),
+            Some(PathBuf::from("C:\\Users\\test\\.claude.json"))
+        );
+        assert_eq!(
+            install_config_path(InstallTarget::Codex, home, appdata),
+            Some(PathBuf::from("C:\\Users\\test\\.codex\\config.toml"))
+        );
+        assert_eq!(
+            install_config_path(InstallTarget::Cursor, home, appdata),
+            Some(PathBuf::from("C:\\Users\\test\\.cursor\\mcp.json"))
+        );
+        assert_eq!(
+            install_config_path(InstallTarget::Windsurf, home, appdata),
+            Some(PathBuf::from("C:\\Users\\test\\.codeium\\windsurf\\mcp_config.json"))
+        );
+        assert_eq!(
+            install_config_path(InstallTarget::GeminiCli, home, appdata),
+            Some(PathBuf::from("C:\\Users\\test\\.gemini\\settings.json"))
+        );
+        assert_eq!(
+            install_config_path(InstallTarget::Zed, home, appdata),
+            Some(PathBuf::from("C:\\Users\\test\\AppData\\Roaming\\Zed\\settings.json"))
+        );
+        // VS Code extension targets resolve only when the extension dir exists.
+        assert_eq!(install_config_path(InstallTarget::Cline, home, appdata), None);
+        assert_eq!(install_config_path(InstallTarget::RooCode, home, appdata), None);
+    }
+
+    #[test]
+    fn install_config_path_skips_continue_yaml_only() {
+        let home = temp_dir("continue-home");
+        let appdata = temp_dir("continue-appdata");
+        let dir = home.join(".continue");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.yaml"), "mcpServers: []").unwrap();
+        assert_eq!(
+            install_config_path(InstallTarget::Continue, &home, &appdata),
+            None
+        );
+        // With a config.json present it resolves.
+        std::fs::write(dir.join("config.json"), "{}").unwrap();
+        assert!(install_config_path(InstallTarget::Continue, &home, &appdata).is_some());
+    }
+
+    #[test]
+    fn merge_json_object_adds_and_keeps_existing() {
+        let mut root = serde_json::json!({ "existing": "kept" });
+        let outcome = merge_json_object(
+            &mut root,
+            "mcpServers",
+            "winkit",
+            serde_json::json!({ "command": "npx" }),
+        )
+        .unwrap();
+        assert_eq!(outcome, MergeOutcome::Merged);
+        assert_eq!(root["existing"], "kept");
+        assert_eq!(root["mcpServers"]["winkit"]["command"], "npx");
+
+        let outcome = merge_json_object(
+            &mut root,
+            "mcpServers",
+            "winkit",
+            serde_json::json!({}),
+        )
+        .unwrap();
+        assert_eq!(outcome, MergeOutcome::AlreadyPresent);
+        assert_eq!(root["mcpServers"]["winkit"]["command"], "npx");
+    }
+
+    #[test]
+    fn merge_json_object_refuses_wrong_type() {
+        let mut root = serde_json::json!({ "mcpServers": [1, 2] });
+        let err = merge_json_object(&mut root, "mcpServers", "winkit", serde_json::json!({}))
+            .unwrap_err();
+        assert!(err.contains("not a JSON object"));
+    }
+
+    #[test]
+    fn merge_json_array_appends_continue_entry() {
+        let mut root = serde_json::json!({ "models": [] });
+        let outcome = merge_json_array(&mut root, winkit_json_entry(InstallTarget::Continue))
+            .unwrap();
+        assert_eq!(outcome, MergeOutcome::Merged);
+        let arr = root["mcpServers"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["name"], "winkit");
+
+        let outcome = merge_json_array(&mut root, winkit_json_entry(InstallTarget::Continue))
+            .unwrap();
+        assert_eq!(outcome, MergeOutcome::AlreadyPresent);
+        assert_eq!(root["mcpServers"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn merge_codex_toml_adds_table_once() {
+        let mut root = toml::Table::new();
+        assert_eq!(merge_codex_toml(&mut root).unwrap(), MergeOutcome::Merged);
+        let servers = root["mcp_servers"]["winkit"].as_table().unwrap();
+        assert_eq!(servers["command"].as_str(), Some("npx"));
+        assert_eq!(merge_codex_toml(&mut root).unwrap(), MergeOutcome::AlreadyPresent);
+    }
+
+    #[test]
+    fn parse_and_merge_creates_fresh_and_merges_existing_json() {
+        let text = parse_and_merge(InstallTarget::ClaudeCode, None).unwrap().unwrap();
+        let value: JsonValue = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["mcpServers"]["winkit"]["command"], "npx");
+
+        let existing = r#"{"mcpServers":{"other":{"command":"x"}}}"#;
+        let text = parse_and_merge(InstallTarget::Cursor, Some(existing))
+            .unwrap()
+            .unwrap();
+        let value: JsonValue = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["mcpServers"]["other"]["command"], "x");
+        assert_eq!(value["mcpServers"]["winkit"]["args"][0], "--yes");
+
+        // A second run is a no-op.
+        let text = parse_and_merge(InstallTarget::Cursor, Some(&text)).unwrap();
+        assert!(text.is_none());
+    }
+
+    #[test]
+    fn parse_and_merge_opencode_uses_mcp_key() {
+        let text = parse_and_merge(InstallTarget::Opencode, None).unwrap().unwrap();
+        let value: JsonValue = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["mcp"]["winkit"]["type"], "local");
+        assert_eq!(value["mcp"]["winkit"]["enabled"], true);
+        assert_eq!(value["mcp"]["winkit"]["command"][0], "npx");
+    }
+
+    #[test]
+    fn parse_and_merge_zed_uses_context_servers() {
+        let text = parse_and_merge(InstallTarget::Zed, None).unwrap().unwrap();
+        let value: JsonValue = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["context_servers"]["winkit"]["command"], "npx");
+    }
+
+    #[test]
+    fn parse_and_merge_codex_toml() {
+        let text = parse_and_merge(InstallTarget::Codex, None).unwrap().unwrap();
+        let table: toml::Table = toml::from_str(&text).unwrap();
+        assert_eq!(table["mcp_servers"]["winkit"]["command"].as_str(), Some("npx"));
+
+        let existing = "model = \"gpt-5\"\n";
+        let text = parse_and_merge(InstallTarget::Codex, Some(existing))
+            .unwrap()
+            .unwrap();
+        let table: toml::Table = toml::from_str(&text).unwrap();
+        assert_eq!(table["model"].as_str(), Some("gpt-5"));
+        assert!(table["mcp_servers"]["winkit"].is_table());
+    }
+
+    #[test]
+    fn parse_and_merge_skips_unparseable_existing_file() {
+        let err = parse_and_merge(InstallTarget::ClaudeCode, Some("not json {")).unwrap_err();
+        assert!(err.contains("not valid JSON"));
+        let err = parse_and_merge(InstallTarget::Codex, Some("not toml [[[")).unwrap_err();
+        assert!(err.contains("not valid TOML"));
+    }
+
+    #[test]
+    fn write_with_restore_backs_up_and_writes() {
+        let dir = temp_dir("write");
+        let dest = dir.join("mcp.json");
+        std::fs::write(&dest, "original").unwrap();
+        let backup = write_with_restore(&dest, "merged")
+            .unwrap()
+            .expect("backup expected");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "merged");
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "original");
+        let name = backup.file_name().unwrap().to_string_lossy();
+        assert!(name.starts_with("mcp.json.bak-"));
+    }
+
+    #[test]
+    fn write_with_restore_creates_parents_and_new_files() {
+        let dir = temp_dir("write2");
+        let dest = dir.join("a").join("b").join("mcp.json");
+        write_with_restore(&dest, "fresh").unwrap();
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "fresh");
+    }
+
+    #[test]
+    fn restore_backup_puts_the_original_back() {
+        let dir = temp_dir("restore");
+        let dest = dir.join("mcp.json");
+        let backup = dir.join("mcp.json.bak-test");
+        std::fs::write(&dest, "corrupted").unwrap();
+        std::fs::write(&backup, "original").unwrap();
+        restore_backup(&dest, &backup).unwrap();
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "original");
     }
 }

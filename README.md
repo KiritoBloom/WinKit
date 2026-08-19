@@ -107,7 +107,14 @@ Rust 1.75+ (from source).
 
 ```bash
 npx --yes @winkit/mcp@latest doctor   # verify the install
+npx --yes @winkit/mcp@latest install --yes   # register WinKit in every installed AI agent
 ```
+
+`install` detects the coding agents already on the machine (OpenCode, Claude
+Code, Codex CLI, Cursor, Windsurf, Gemini CLI, Zed, Cline, Roo Code, Continue)
+and merges the WinKit MCP entry into each one's config — surgically, with a
+timestamped `.bak` backup of every file it edits. Run it without `--yes` to
+confirm each runtime, or with `--list` to preview first.
 
 Or build from source:
 
