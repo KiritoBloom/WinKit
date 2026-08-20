@@ -9,7 +9,7 @@ use crate::providers::{Provider, ProviderAvailability};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// The read-only Windows capability surface used by tools (§57).
+/// The read-only Windows capability surface used by tools.
 pub trait WindowsBackend: Send + Sync {
     fn system_info(&self) -> Result<SystemInfo, WinkitError>;
     fn resource_snapshot(&self, sample_interval_ms: u64) -> Result<ResourceSnapshot, WinkitError>;
@@ -59,11 +59,11 @@ pub trait WindowsBackend: Send + Sync {
     /// cross-layer correlation). Returns `None` when Chrome is not running.
     fn chrome_process_summary(&self) -> Result<Option<ChromeProcessSummary>, WinkitError>;
     /// Running processes grouped by application, with aggregate memory and
-    /// a two-sample CPU percent per group (§76). Thresholds and status flags
+    /// a two-sample CPU percent per group. Thresholds and status flags
     /// are applied by the tool layer.
     fn application_groups(&self, limit: usize) -> Result<Vec<ApplicationGroupInfo>, WinkitError>;
     fn dev_environment(&self) -> Result<DevEnvironment, WinkitError>;
-    // Hardware telemetry (§Hardware). Thresholds live in the platform
+    // Hardware telemetry. Thresholds live in the platform
     // modules; the configurable thresholds are applied by `system_diagnose`.
     fn hardware_snapshot(&self) -> Result<HardwareSnapshot, WinkitError>;
     fn thermal_snapshot(&self) -> Result<ThermalSnapshot, WinkitError>;
@@ -85,7 +85,7 @@ pub trait WindowsBackend: Send + Sync {
     ) -> Result<RegistryDiagnostics, WinkitError>;
 }
 
-/// Aggregate view of Chrome processes from the Windows layer (§28).
+/// Aggregate view of Chrome processes from the Windows layer.
 #[derive(Debug, Clone)]
 pub struct ChromeProcessSummary {
     pub processes: Vec<ProcessInfo>,
@@ -391,7 +391,7 @@ impl Provider for WindowsProvider {
     }
 }
 
-/// Find development tools on PATH and probe their versions (§21).
+/// Find development tools on PATH and probe their versions.
 ///
 /// The probe executes only the tool's own `--version` flag with a strict
 /// timeout; nothing is installed and failures are reported as `found: true,

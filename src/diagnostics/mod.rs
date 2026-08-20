@@ -1,4 +1,4 @@
-//! Deterministic diagnostic engine (§34, §73, §74, §77).
+//! Deterministic diagnostic engine.
 //!
 //! The engine converts measured evidence into signals via explicit
 //! thresholds, then correlates signals into evidence-backed possible causes

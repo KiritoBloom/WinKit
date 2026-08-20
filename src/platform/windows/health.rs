@@ -1,4 +1,4 @@
-//! Machine-wide application health aggregation (§76).
+//! Machine-wide application health aggregation.
 //!
 //! Groups all running processes by executable, rolls each group's descendant
 //! processes into a whole-tree footprint (so a terminal multiplexer like

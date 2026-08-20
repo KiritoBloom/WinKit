@@ -278,9 +278,7 @@ impl UnavailableReading {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Thermal snapshot
-// ---------------------------------------------------------------------------
 
 /// Summary of the machine's thermal state, with honest uncertainty.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -333,9 +331,7 @@ pub struct ThermalSnapshot {
     pub warnings: Vec<String>,
 }
 
-// ---------------------------------------------------------------------------
 // Hardware snapshot
-// ---------------------------------------------------------------------------
 
 /// CPU hardware information.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -458,9 +454,7 @@ pub struct HardwareSnapshot {
     pub unavailable: Vec<UnavailableReading>,
 }
 
-// ---------------------------------------------------------------------------
 // Power / battery
-// ---------------------------------------------------------------------------
 
 /// Battery health information, where the platform exposes it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -511,9 +505,7 @@ pub struct PowerStatus {
     pub unavailable: Vec<UnavailableReading>,
 }
 
-// ---------------------------------------------------------------------------
 // Storage health
-// ---------------------------------------------------------------------------
 
 /// Health of one physical storage device.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -603,9 +595,7 @@ pub struct DiskActivity {
     pub reason: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
 // Wi-Fi
-// ---------------------------------------------------------------------------
 
 /// Status of one Wi-Fi adapter.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -660,9 +650,7 @@ pub struct WifiScan {
     pub unavailable: Vec<UnavailableReading>,
 }
 
-// ---------------------------------------------------------------------------
 // Network diagnosis
-// ---------------------------------------------------------------------------
 
 /// A bounded composite network snapshot (tool `network_snapshot`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

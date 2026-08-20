@@ -9,7 +9,7 @@ use crate::permissions::capability::{is_v1_read_capability, Capability};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-/// Permission modes (§43).
+/// Permission modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PermissionMode {

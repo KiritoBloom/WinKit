@@ -1,4 +1,4 @@
-//! Machine-wide diagnosis (§77): system evidence → ranked findings.
+//! Machine-wide diagnosis: system evidence → ranked findings.
 //!
 //! `analyze_system` takes machine-wide evidence (memory, drives, application
 //! groups, memory growth), applies the same evidence-first discipline as tab
@@ -18,7 +18,7 @@ use crate::models::{
 };
 use crate::utils::time;
 
-/// System-level signal kinds (§77).
+/// System-level signal kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SystemSignalKind {
     StoragePressure,

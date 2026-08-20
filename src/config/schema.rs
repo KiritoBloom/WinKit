@@ -171,7 +171,7 @@ impl Default for TrendsConfig {
     }
 }
 
-/// Resource limits applied by tools (§49).
+/// Resource limits applied by tools.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LimitsConfig {
@@ -348,7 +348,7 @@ impl Default for HardwareConfig {
     }
 }
 
-/// Deterministic thresholds used by the diagnostic engine (§34).
+/// Deterministic thresholds used by the diagnostic engine.
 /// These are heuristics, documented in `docs/diagnostics.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -445,7 +445,7 @@ impl Default for DiagnosticsConfig {
     }
 }
 
-/// Thresholds for the machine-wide `system_health` tool (§76).
+/// Thresholds for the machine-wide `system_health` tool.
 /// Heuristics, documented in `docs/tools.md`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]

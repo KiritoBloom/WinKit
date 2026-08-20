@@ -44,7 +44,7 @@ pub fn system_info_definition() -> ToolDefinition {
     }
 }
 
-/// Concise, AI-friendly aggregate of the whole machine (§14).
+/// Concise aggregate of the whole machine.
 pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Value, WinkitError> {
     let cfg = &state.config;
     let system = state.windows.system_info()?;
@@ -80,7 +80,7 @@ pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Valu
         .list_listening_ports(cfg.limits.max_network_results)?;
     let interfaces = state.windows.list_network_interfaces()?;
 
-    // Bounded hardware evidence (§64): a failed probe degrades to `null`
+    // Bounded hardware evidence: a failed probe degrades to `null`
     // instead of failing the whole snapshot.
     let budget = cfg.hardware.probe_timeout_ms;
     let disk_state = state.clone();
@@ -102,6 +102,9 @@ pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Valu
         .await
         .ok();
 
+    let processes_truncated = processes.len() > cfg.limits.max_snapshot_processes;
+    let ports_truncated = ports.len() > 20;
+    let windows_truncated = windows.len() > 20;
     Ok(json!({
         "system": {
             "os_name": system.os_name,
@@ -116,12 +119,14 @@ pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Valu
         "resources": resources,
         "processes": {
             "count": processes.len(),
+            "truncated": processes_truncated,
             "top_by_memory": process_summary,
         },
         "storage": drives,
         "network": {
             "interfaces": interfaces.len(),
             "listening_port_count": ports.len(),
+            "listening_ports_truncated": ports_truncated,
             "listening_ports": ports.iter().take(20).map(|p| json!({
                 "port": p.port,
                 "protocol": p.protocol,
@@ -133,9 +138,11 @@ pub async fn snapshot_handler(state: Arc<AppState>, _args: Value) -> Result<Valu
         "services": {
             "count": services.len(),
             "running": running_services,
+            "truncated": services.len() == cfg.limits.max_services,
         },
         "windows": {
             "count": windows.len(),
+            "truncated": windows_truncated,
             "samples": windows.iter().take(20).map(|w| json!({
                 "hwnd": w.hwnd,
                 "title": w.title,

@@ -1,4 +1,4 @@
-//! Local URL validation for web-app tooling (§9.4, §13.2).
+//! Local URL validation for web-app tooling.
 //!
 //! WinKit's web tools accept `http`/`https` URLs bound to loopback hosts,
 //! `localhost`, and explicitly configured development hosts. Everything else

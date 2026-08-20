@@ -1,7 +1,7 @@
 //! Chrome adapter: the first deep application provider.
 //!
 //! Implements the [`ApplicationProvider`] trait against a
-//! [`ChromeSession`], distinguishing availability states honestly (§56):
+//! [`ChromeSession`], distinguishing availability states honestly:
 //! not installed → installed → running → endpoint available → connected.
 
 pub mod cdp;

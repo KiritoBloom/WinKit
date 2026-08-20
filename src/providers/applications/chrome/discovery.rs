@@ -1,4 +1,4 @@
-//! Chrome discovery (§25, §56).
+//! Chrome discovery.
 //!
 //! Distinguishes clearly between:
 //! - installed (registry App Paths or known install locations)

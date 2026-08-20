@@ -1,4 +1,4 @@
-//! Developer environment detection (§21).
+//! Developer environment detection.
 //!
 //! Locates well-known developer tools on PATH and probes their versions by
 //! executing only `--version` with a strict timeout. Missing tools are
@@ -286,7 +286,7 @@ pub fn probe_tools() -> Result<Vec<DevTool>, WinkitError> {
     Ok(out)
 }
 
-/// Summarize listening ports owned by known dev-server binaries (§21).
+/// Summarize listening ports owned by known dev-server binaries.
 pub fn development_servers() -> Result<Vec<DevServerInfo>, WinkitError> {
     let ports = crate::platform::windows::network::list_listening_ports(2000)?;
     let mut out = Vec::new();
@@ -324,7 +324,7 @@ mod tests {
         exts.iter().map(|s| s.to_string()).collect()
     }
 
-    // --- command lookup ---------------------------------------------------
+    // command lookup
 
     #[test]
     fn exe_wins_over_cmd_and_bat_on_windows() {
@@ -465,7 +465,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    // --- version probing (real subprocess shims, Windows only) -----------
+    // version probing (real subprocess shims, Windows only)
 
     #[cfg(windows)]
     fn write_cmd(dir: &Path, name: &str, body: &str) -> PathBuf {

@@ -7,6 +7,7 @@
 
 pub mod apps;
 pub mod browser;
+pub mod chrome;
 pub mod developer;
 pub mod diagnostics;
 pub mod diskscan;
@@ -55,7 +56,7 @@ pub struct ToolDefinition {
     pub handler: Handler,
 }
 
-/// Profile membership for every tool (§10). This table is the source of
+/// Profile membership for every tool. This table is the source of
 /// truth for profile filtering; tools not listed here are visible in every
 /// profile. `core` stays minimal and low-latency, `developer` (default)
 /// adds the workspace/server/webapp workflow, `browser` adds the managed
@@ -394,8 +395,27 @@ pub fn optional_string(args: &Value, key: &str) -> Option<String> {
 }
 
 pub fn required_string(args: &Value, key: &str) -> Result<String, WinkitError> {
-    optional_string(args, key)
-        .ok_or_else(|| WinkitError::invalid_argument(format!("missing required argument '{key}'")))
+    let raw = optional_string(args, key).ok_or_else(|| {
+        WinkitError::invalid_argument(format!("missing required argument '{key}'"))
+    })?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(WinkitError::invalid_argument(format!(
+            "'{key}' must not be empty"
+        )));
+    }
+    Ok(trimmed.to_string())
+}
+
+pub fn optional_non_empty_string(args: &Value, key: &str) -> Option<String> {
+    optional_string(args, key).and_then(|s| {
+        let t = s.trim();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        }
+    })
 }
 
 pub fn optional_u32(args: &Value, key: &str) -> Option<u32> {
@@ -423,13 +443,42 @@ pub fn required_u32(args: &Value, key: &str) -> Result<u32, WinkitError> {
         .ok_or_else(|| WinkitError::invalid_argument(format!("missing required argument '{key}'")))
 }
 
+pub fn required_u64(args: &Value, key: &str) -> Result<u64, WinkitError> {
+    optional_u64(args, key)
+        .ok_or_else(|| WinkitError::invalid_argument(format!("missing required argument '{key}'")))
+}
+
+/// Parse a PID (u32 > 0) with precise error.
+pub fn parse_pid(args: &Value, key: &str) -> Result<u32, WinkitError> {
+    let pid = required_u32(args, key)?;
+    if pid == 0 {
+        return Err(WinkitError::invalid_argument(format!(
+            "'{key}' must be > 0"
+        )));
+    }
+    Ok(pid)
+}
+
+pub fn optional_parse_port(args: &Value, key: &str) -> Result<Option<u16>, WinkitError> {
+    match optional_u32(args, key) {
+        Some(raw) => {
+            let port = u16::try_from(raw).ok().filter(|p| *p != 0).ok_or_else(|| {
+                WinkitError::invalid_argument(format!("'{key}' must be an integer in 1..=65535"))
+            })?;
+            Ok(Some(port))
+        }
+        None => Ok(None),
+    }
+}
+
 pub fn optional_string_array(args: &Value, key: &str) -> Option<Vec<String>> {
     args.get(key)
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
                 .filter_map(|v| v.as_str())
-                .map(|s| s.to_string())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
                 .collect()
         })
         .filter(|v: &Vec<String>| !v.is_empty())
@@ -440,10 +489,47 @@ pub fn clamp_limit(requested: Option<usize>, max: usize) -> usize {
     requested.map(|v| v.clamp(1, max)).unwrap_or(max)
 }
 
+/// Consistent paginated list envelope: `{ "<key>": [...], count, truncated }`
+/// `truncated` is true exactly when `items.len() == limit` (the provider was
+/// at its cap and more may exist). Callers should still pass the effective limit.
+pub fn list_envelope(key: &str, items: Value, count: usize, limit: usize) -> Value {
+    let truncated = count == limit && limit > 0;
+    let mut obj = serde_json::Map::new();
+    obj.insert(key.to_string(), items);
+    obj.insert("count".to_string(), Value::from(count as u64));
+    obj.insert("truncated".to_string(), Value::from(truncated));
+    Value::Object(obj)
+}
+
+/// Like `list_envelope` but merges additional fields (e.g. `running`, `skipped_*`).
+pub fn list_envelope_with(
+    key: &str,
+    items: Value,
+    count: usize,
+    limit: usize,
+    extra: Value,
+) -> Value {
+    let mut base = list_envelope(key, items, count, limit);
+    if let (Some(base_obj), Some(extra_obj)) = (base.as_object_mut(), extra.as_object()) {
+        for (k, v) in extra_obj {
+            base_obj.insert(k.clone(), v.clone());
+        }
+    }
+    base
+}
+
+/// Single-entity envelope: `{ "<key>": <value> }` — keeps successful single lookups
+/// uniform (`{ "process": {} }`, `{ "service": {} }`, ...).
+pub fn item_envelope(key: &str, value: Value) -> Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert(key.to_string(), value);
+    Value::Object(obj)
+}
+
 /// Map an event-level name to its numeric minimum severity (1..5), matching
 /// the Windows event log levels. Accepts both `information` and `info`.
 pub fn level_to_min(level: &str) -> Option<u32> {
-    match level.to_ascii_lowercase().as_str() {
+    match level.trim().to_ascii_lowercase().as_str() {
         "critical" => Some(1),
         "error" => Some(2),
         "warning" | "warn" => Some(3),
@@ -453,7 +539,52 @@ pub fn level_to_min(level: &str) -> Option<u32> {
     }
 }
 
-/// Verify the registry invariant (§8.2): every registered tool is unique,
+/// Strictly parse a port number 1..=65535 with a clean error.
+pub fn parse_port(args: &Value, key: &str) -> Result<u16, WinkitError> {
+    let raw = optional_u32(args, key).ok_or_else(|| {
+        WinkitError::invalid_argument(format!("missing required argument '{key}'"))
+    })?;
+    u16::try_from(raw).ok().filter(|p| *p != 0).ok_or_else(|| {
+        WinkitError::invalid_argument(format!("'{key}' must be an integer in 1..=65535"))
+    })
+}
+
+const MAX_VALIDATED_PATH: usize = 32_768; // Windows extended-path limit (\\?\)
+
+/// Validate and normalise a path string: trimmed, non-empty, length-bounded.
+pub fn validated_path(raw: &str) -> Result<String, WinkitError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(WinkitError::invalid_argument("'path' must not be empty"));
+    }
+    if trimmed.len() > MAX_VALIDATED_PATH {
+        return Err(WinkitError::invalid_argument("'path' is too long"));
+    }
+    Ok(trimmed.to_string())
+}
+
+pub fn required_path(args: &Value, key: &str) -> Result<String, WinkitError> {
+    let raw = required_string(args, key)?;
+    validated_path(&raw)
+}
+
+const BYTES_PER_MB_F64: f64 = 1_048_576.0;
+
+pub fn mb_to_bytes(mb: f64) -> u64 {
+    (mb * BYTES_PER_MB_F64) as u64
+}
+
+pub fn validate_min_size_mb(args: &Value, key: &str, default: f64) -> Result<u64, WinkitError> {
+    let mb = optional_f64(args, key).unwrap_or(default);
+    if mb < 0.0 || !mb.is_finite() {
+        return Err(WinkitError::invalid_argument(format!(
+            "'{key}' must be a finite number >= 0"
+        )));
+    }
+    Ok(mb_to_bytes(mb))
+}
+
+/// Verify the registry invariant: every registered tool is unique,
 /// named, described, has an object input schema, exactly one capability
 /// source (read `capability` or action capability, never both and never
 /// neither), a timeout, appears in the profile table, and is covered by a

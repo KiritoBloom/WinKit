@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-08-20
+
 ### Added
 
 - **`winkit install` command** — detects installed AI coding agents (opencode, Claude Code, Codex CLI, Cursor, Windsurf, Gemini CLI, Zed, Cline, Roo Code, Continue) and registers WinKit as an MCP server in each one. Existing configs are merged (never overwritten): the file is parsed, the WinKit entry added, and everything else preserved, with a timestamped `.bak` backup created first and the original restored if the write fails. `--yes` installs everywhere without prompting, `--list` previews without writing, and `--json` emits a machine-readable report. Runtimes whose config cannot be parsed are skipped with a reason.
@@ -14,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`shutdown_analysis` tool** — boot/shutdown timeline (EventLog 6005/6006/6008/6013, User32 1074, Kernel-General 12/13, Kernel-Power 41/42/107) with last boot, current uptime, and a last-shutdown-kind summary.
 - **`registry_diagnostics` tool** — allowlist-only registry reads: OS identity, startup programs (with enabled/disabled state), and installed software.
 - **`registry.read` capability** — promoted from declared-but-never-granted to a v1 read capability, granted in `safe` and `read_only` modes.
+- **Tool output consistency** — every paginated tool now returns `count` + `truncated` (`truncated` is `true` when the provider cap was hit). Covers `list_applications`, `chrome_list_managed_sessions`, `snapshot` (processes/network/windows slices), and `list_dev_servers`.
+
+### Changed
+
+- **Whole-codebase cleanup** — shared helpers for Chrome provider/timeout/schema (`src/tools/chrome.rs`) and blocking with timeout (`src/utils/blocking.rs`); unified `required_path` + `validate_min_size_mb` validation; consistent `list_envelope`/`item_envelope` usage; removed stale `§` spec references and decorative separators; hoisted magic numbers into named constants; pruned dead helpers.
+- **Reliability** — `required_string` now trims and rejects empty/whitespace; `optional_non_empty_string` used for `provider`/`log`/`pattern`; `parse_pid`/`required_u64` helpers; `find_large_files` and `disk_scan_*` now fail fast on non-finite `min_size_mb`.
 
 ### Fixed
 
@@ -21,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`shutdown_analysis` missed EventLog 6005/6006/6008/6013 markers** — the queries filtered on provider `Microsoft-Windows-Eventlog`, but Windows publishes these under the `EventLog` provider, so unexpected-shutdown counts and the uptime/boot markers were silently empty. The provider name is fixed, and the live regression suite now guards the real event log.
 - **`crash_history` / `shutdown_analysis` truncation under-reported** — `truncated` was computed against `queries × max_results`, a threshold that is nearly unreachable, so a single category hitting its per-query cap was reported as complete. Each category now reports its own `truncated` flag (top-level `truncated` is true when any category is capped).
 - **`get_process` description contradicted its output** — the tool description claimed per-process CPU percent is "intentionally not reported", but the tool returns a two-sample CPU percent estimate when the process is openable. The description now documents the estimate and points to `system_health` for multi-sample evidence.
+- **`list_applications` omitted `truncated`** — now always emits `truncated:false` like every other list tool.
+- **`snapshot` sliced samples without a `truncated` hint** — `top_by_memory`, `listening_ports`, and `windows` samples now report `truncated`.
+- **`wifi_status`, `list_drives`, `list_network_interfaces` used manual JSON** — now use the shared `list_envelope` helper.
+- **`hardware probe` / `diskscan` duplicate blocking logic** — unified behind `utils::blocking` so probe budgets are enforced uniformly.
 
 ## [0.1.4] - 2026-08-18
 

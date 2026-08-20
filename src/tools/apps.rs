@@ -3,27 +3,11 @@
 use crate::config::Config;
 use crate::errors::WinkitError;
 use crate::permissions::Capability;
-use crate::providers::applications::ApplicationProvider;
 use crate::server::AppState;
+use crate::tools::chrome::{chrome_provider, chrome_timeout};
 use crate::tools::{clamp_limit, optional_usize, required_string, wrap, ToolDefinition};
 use serde_json::{json, Value};
 use std::sync::Arc;
-
-/// Look up the Chrome adapter. Registration is driven by configuration, so
-/// the provider may legitimately be absent.
-fn chrome_provider(state: &AppState) -> Result<&dyn ApplicationProvider, WinkitError> {
-    state.applications.get("chrome").ok_or_else(|| {
-        WinkitError::provider_unavailable(
-            "the chrome provider is not enabled in this configuration",
-        )
-    })
-}
-
-/// The Chrome timeout override: deep inspection operations can exceed the
-/// generic tool timeout.
-fn chrome_timeout(config: &Config) -> Option<u64> {
-    Some(config.chrome.operation_timeout_ms)
-}
 
 pub async fn list_applications_handler(
     state: Arc<AppState>,
@@ -48,9 +32,11 @@ pub async fn list_applications_handler(
             })),
         }
     }
+    let count = applications.len();
     Ok(json!({
         "applications": applications,
-        "count": applications.len(),
+        "count": count,
+        "truncated": false,
         "providers": state.providers.all().iter().map(|p| p.id.clone()).collect::<Vec<_>>(),
     }))
 }
@@ -73,12 +59,12 @@ pub async fn get_application_handler(
 ) -> Result<Value, WinkitError> {
     let id = required_string(&args, "id")?;
     let provider = state.applications.get(&id).ok_or_else(|| {
-        WinkitError::invalid_argument(format!(
+        WinkitError::not_found(format!(
             "no application provider with id '{id}' (use list_applications to see registered adapters)"
         ))
     })?;
     let info = provider.info().await?;
-    Ok(json!({ "application": info }))
+    Ok(crate::tools::item_envelope("application", json!(info)))
 }
 
 pub fn get_application_definition() -> ToolDefinition {
@@ -127,7 +113,12 @@ pub async fn chrome_list_tabs_handler(
     let mut tabs = provider.list_tabs().await?;
     tabs.truncate(limit);
     let count = tabs.len();
-    Ok(json!({ "tabs": tabs, "count": count, "truncated": count == limit }))
+    Ok(crate::tools::list_envelope(
+        "tabs",
+        json!(tabs),
+        count,
+        limit,
+    ))
 }
 
 pub fn chrome_list_tabs_definition(config: &Config) -> ToolDefinition {
@@ -154,7 +145,7 @@ pub async fn chrome_get_tab_handler(
     let tab_id = required_string(&args, "tab_id")?;
     let provider = chrome_provider(&state)?;
     let tab = provider.get_tab(&tab_id).await?;
-    Ok(json!({ "tab": tab }))
+    Ok(crate::tools::item_envelope("tab", json!(tab)))
 }
 
 pub fn chrome_get_tab_definition(config: &Config) -> ToolDefinition {
@@ -181,7 +172,7 @@ pub async fn chrome_get_active_tab_handler(
 ) -> Result<Value, WinkitError> {
     let provider = chrome_provider(&state)?;
     let tab = provider.get_active_tab().await?;
-    Ok(json!({ "tab": tab }))
+    Ok(crate::tools::item_envelope("tab", json!(tab)))
 }
 
 pub fn chrome_get_active_tab_definition(config: &Config) -> ToolDefinition {

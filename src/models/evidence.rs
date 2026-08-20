@@ -6,7 +6,7 @@
 //! conclusion is a [`FindingItem`] that cites evidence IDs, and detail levels
 //! are deliberate projections of the same report.
 //!
-//! Language rules (§7.3): *confirmed* = the probe directly observed the
+//! Language rules: *confirmed* = the probe directly observed the
 //! condition; *observed* = the provider returned a signal without proving
 //! the underlying cause; *likely* = multiple supporting observations;
 //! *possible* = weakly supported; *unknown* = evidence unavailable. WinKit
@@ -30,7 +30,7 @@ pub fn stable_id(prefix: &str, parts: &[&str]) -> String {
     format!("{prefix}-{hash:016x}")
 }
 
-/// Where an evidence item came from (§7.1).
+/// Where an evidence item came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvidenceSource {
@@ -67,7 +67,7 @@ impl EvidenceSource {
     }
 }
 
-/// How certain an evidence item is about what it observes (§7.3).
+/// How certain an evidence item is about what it observes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvidenceConfidence {
@@ -95,7 +95,7 @@ impl EvidenceConfidence {
     }
 }
 
-/// One observation collected by a high-level tool (§7.1).
+/// One observation collected by a high-level tool.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EvidenceItem {
     /// Stable evidence ID, e.g. `ev-<hash>`; deterministic for the same
@@ -137,7 +137,7 @@ impl EvidenceItem {
     }
 }
 
-/// Finding severity (§7.2).
+/// Finding severity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingSeverity {
@@ -160,7 +160,7 @@ impl FindingSeverity {
     }
 }
 
-/// Finding confidence (§7.3).
+/// Finding confidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingConfidence {
@@ -183,7 +183,7 @@ impl FindingConfidence {
     }
 }
 
-/// Finding category (§7.2).
+/// Finding category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingCategory {
@@ -210,7 +210,7 @@ impl FindingCategory {
     }
 }
 
-/// One evidence-backed conclusion (§7.2).
+/// One evidence-backed conclusion.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FindingItem {
     /// Stable finding ID, e.g. `find-port-unrelated-process`.
@@ -255,7 +255,7 @@ impl FindingItem {
     }
 }
 
-/// Report status (§7.4).
+/// Report status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReportStatus {
@@ -278,7 +278,7 @@ impl ReportStatus {
     }
 }
 
-/// Detail level of a report (§7.4). `compact` is a deliberate projection of
+/// Detail level of a report. `compact` is a deliberate projection of
 /// `normal`, which is a deliberate projection of `detailed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -307,7 +307,7 @@ impl DetailLevel {
     }
 }
 
-/// The stable envelope returned by every high-level workflow tool (§7.4).
+/// The stable envelope returned by every high-level workflow tool.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReportEnvelope {
     pub schema_version: String,

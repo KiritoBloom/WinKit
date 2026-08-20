@@ -1,4 +1,4 @@
-//! Bounded HTTP probing for local web applications (§9.4).
+//! Bounded HTTP probing for local web applications.
 //!
 //! `probe_url` issues a single GET against a validated local URL and reports
 //! status, timing, content type, redirect behavior, and connection errors —

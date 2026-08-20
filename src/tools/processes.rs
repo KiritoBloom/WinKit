@@ -1,10 +1,10 @@
-//! Process tools: listing, lookup, trees, and search (§15).
+//! Process tools: listing, lookup, trees, and search.
 
 use crate::errors::WinkitError;
 use crate::permissions::Capability;
 use crate::server::AppState;
 use crate::tools::{
-    clamp_limit, optional_string, optional_u32, optional_usize, required_u32, wrap, ToolDefinition,
+    clamp_limit, optional_string, optional_u32, optional_usize, wrap, ToolDefinition,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -17,7 +17,12 @@ pub async fn list_processes_handler(
     let limit = clamp_limit(optional_usize(&args, "limit"), max);
     let processes = state.windows.list_processes(limit)?;
     let count = processes.len();
-    Ok(json!({ "processes": processes, "count": count, "truncated": count == limit }))
+    Ok(crate::tools::list_envelope(
+        "processes",
+        json!(processes),
+        count,
+        limit,
+    ))
 }
 
 pub fn list_processes_definition() -> ToolDefinition {
@@ -38,9 +43,9 @@ pub fn list_processes_definition() -> ToolDefinition {
 }
 
 pub async fn get_process_handler(state: Arc<AppState>, args: Value) -> Result<Value, WinkitError> {
-    let pid = required_u32(&args, "pid")?;
+    let pid = crate::tools::parse_pid(&args, "pid")?;
     match state.windows.get_process(pid)? {
-        Some(process) => Ok(json!({ "process": process })),
+        Some(process) => Ok(crate::tools::item_envelope("process", json!(process))),
         None => Err(WinkitError::invalid_argument(format!(
             "no process with pid {pid} is running"
         ))),
@@ -69,13 +74,16 @@ pub async fn get_process_tree_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    let pid = required_u32(&args, "pid")?;
+    let pid = crate::tools::parse_pid(&args, "pid")?;
     let max_depth = optional_u32(&args, "max_depth")
-        .map(|d| d.min(state.config.limits.max_find_depth))
+        .map(|d| d.clamp(1, state.config.limits.max_find_depth))
         .unwrap_or(state.config.limits.max_find_depth);
-    let max_nodes = optional_usize(&args, "max_nodes").unwrap_or(500);
+    const MAX_TREE_NODES: usize = 2000;
+    let max_nodes = clamp_limit(optional_usize(&args, "max_nodes"), MAX_TREE_NODES);
     match state.windows.get_process_tree(pid, max_depth, max_nodes)? {
-        Some(tree) => Ok(json!({ "root": tree })),
+        Some(tree) => {
+            Ok(json!({ "root": tree, "pid": pid, "max_depth": max_depth, "max_nodes": max_nodes }))
+        }
         None => Err(WinkitError::invalid_argument(format!(
             "no process with pid {pid} is running"
         ))),
@@ -106,14 +114,25 @@ pub async fn find_process_handler(state: Arc<AppState>, args: Value) -> Result<V
     let name = optional_string(&args, "name")
         .or_else(|| optional_string(&args, "query"))
         .ok_or_else(|| WinkitError::invalid_argument("missing required argument 'name'"))?;
-    if name.trim().is_empty() {
+    let name = name.trim();
+    if name.is_empty() {
         return Err(WinkitError::invalid_argument("'name' must not be empty"));
+    }
+    if name.len() > 256 {
+        return Err(WinkitError::invalid_argument(
+            "'name' is too long (max 256)",
+        ));
     }
     let max = state.config.limits.max_processes;
     let limit = clamp_limit(optional_usize(&args, "limit"), max);
-    let processes = state.windows.find_process(&name, limit)?;
+    let processes = state.windows.find_process(name, limit)?;
     let count = processes.len();
-    Ok(json!({ "processes": processes, "count": count }))
+    Ok(crate::tools::list_envelope(
+        "processes",
+        json!(processes),
+        count,
+        limit,
+    ))
 }
 
 pub fn find_process_definition() -> ToolDefinition {

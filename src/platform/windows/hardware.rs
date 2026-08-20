@@ -74,9 +74,7 @@ fn query_cimv2(wql: &str) -> Result<Vec<WmiObject>, WinkitError> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Thermal snapshot
-// ---------------------------------------------------------------------------
 
 /// `WBEM_E_ACCESS_DENIED` (0x80041003) and friendly variants of it.
 fn is_access_denied(e: &WinkitError) -> bool {
@@ -552,9 +550,7 @@ pub fn thermal_snapshot(opts: &HardwareOptions) -> Result<ThermalSnapshot, Winki
     })
 }
 
-// ---------------------------------------------------------------------------
 // Hardware snapshot
-// ---------------------------------------------------------------------------
 
 /// Base clock (MaxClockSpeed) from `Win32_Processor`.
 pub fn cpu_base_clock_mhz() -> Option<f64> {

@@ -64,9 +64,7 @@ use tree::{PathResolver, TopK};
 /// a rescan.
 const DEFAULT_CACHE_TTL_MS: u64 = 30_000;
 
-// ---------------------------------------------------------------------------
 // Volume identification and scanner selection
-// ---------------------------------------------------------------------------
 
 /// Normalize a user-supplied path for drive-relative, rooted, and relative
 /// inputs (`D:`, `D:\`, `d:\Games`, `D:\Games\Steam`, `.`, `..\x`).
@@ -185,9 +183,7 @@ fn capacity_for(root: &str) -> Option<ScanCapacity> {
     })
 }
 
-// ---------------------------------------------------------------------------
 // Core records
-// ---------------------------------------------------------------------------
 
 /// One enumerated directory entry. Compact by design: identity is the file
 /// reference number (`frn`), never a path string; names live in a shared
@@ -316,9 +312,7 @@ impl ScanProgress {
     }
 }
 
-// ---------------------------------------------------------------------------
 // The snapshot
-// ---------------------------------------------------------------------------
 
 /// A complete, queryable scan of one volume. Built once, cached, then
 /// queried many times in milliseconds.
@@ -672,9 +666,7 @@ fn snapshot_age_label(scanned_at: SystemTime) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Scan orchestration
-// ---------------------------------------------------------------------------
 
 /// Sorted-by-FRN record indices (used by the size pass and orphan checks).
 fn sorted_by_frn(records: &[ScanRecord]) -> Vec<u32> {
@@ -1091,9 +1083,7 @@ pub(crate) fn scan_volume_capped(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Cache + background scans
-// ---------------------------------------------------------------------------
 
 #[derive(Debug)]
 pub struct CachedSnapshot {
@@ -1803,9 +1793,7 @@ mod tests {
         let _ = DiskQueryKind::TopFiles; // keep import used
     }
 
-    // ---------------------------------------------------------------------
     // Background-scan lifecycle + progress (deterministic, real temp dirs)
-    // ---------------------------------------------------------------------
 
     /// A unique temp root for one scan test, with `dirs` subdirectories each
     /// holding `files_per_dir` empty files. Returns the normalized path.

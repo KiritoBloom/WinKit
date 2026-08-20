@@ -1,4 +1,4 @@
-//! Deterministic finding scoring (§77).
+//! Deterministic finding scoring.
 //!
 //! Every score is a pure function of measured values with a documented
 //! formula, so two identical machines always produce the same ranking.

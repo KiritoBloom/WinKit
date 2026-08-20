@@ -3,6 +3,7 @@
 //! endpoint discovery, plus secret redaction, local-URL validation, and the
 //! bounded web-app probe used by `diagnose_local_webapp`.
 
+pub mod blocking;
 pub mod http;
 pub mod limits;
 pub mod log;

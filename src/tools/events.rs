@@ -1,4 +1,4 @@
-//! Event log tools: bounded, read-only event inspection (§19).
+//! Event log tools: bounded, read-only inspection.
 //!
 //! Sensitive event data is never expanded: only the normalized fields in
 //! `EventInfo` are returned, with the result count capped by configuration.
@@ -8,8 +8,8 @@ use crate::models::EventQuery;
 use crate::permissions::Capability;
 use crate::server::AppState;
 use crate::tools::{
-    clamp_limit, level_to_min, optional_bool, optional_string, optional_u32, optional_u64,
-    optional_usize, wrap, ToolDefinition,
+    clamp_limit, level_to_min, optional_bool, optional_non_empty_string, optional_u32,
+    optional_u64, optional_usize, wrap, ToolDefinition,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -21,22 +21,23 @@ fn query_from_args(
     default_log: &str,
     default_min_level: u32,
 ) -> Result<EventQuery, WinkitError> {
-    let log = optional_string(args, "log").unwrap_or_else(|| default_log.to_string());
-    let level = optional_string(args, "level")
-        .map(|l| {
-            level_to_min(&l).ok_or_else(|| {
+    let log = optional_non_empty_string(args, "log").unwrap_or_else(|| default_log.to_string());
+    let level = optional_non_empty_string(args, "level")
+        .map(|trimmed| {
+            level_to_min(&trimmed).ok_or_else(|| {
                 WinkitError::invalid_argument(format!(
-                    "invalid level '{l}' (expected critical, error, warning, info, or verbose)"
+                    "invalid level '{trimmed}' (expected critical, error, warning, info, or verbose)"
                 ))
             })
         })
         .transpose()?
         .unwrap_or(default_min_level);
+    let provider = optional_non_empty_string(args, "provider");
     Ok(EventQuery {
         log,
         min_level: Some(level),
-        since_minutes: optional_u64(args, "since_minutes"),
-        provider: optional_string(args, "provider"),
+        since_minutes: optional_u64(args, "since_minutes").map(|v| v.clamp(1, 129_600)),
+        provider,
         event_id: optional_u32(args, "event_id"),
         max_results: clamp_limit(
             optional_usize(args, "max_results"),

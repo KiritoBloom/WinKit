@@ -78,9 +78,7 @@ OPTIONS:
     --help               Print this help and exit
 ";
 
-// ---------------------------------------------------------------------------
 // Shared config loading
-// ---------------------------------------------------------------------------
 
 /// A configuration plus where it came from. When the file fails to parse,
 /// `cfg` falls back to the built-in defaults so the rest of the CLI can
@@ -154,9 +152,7 @@ fn parse_on_off(s: &str) -> Option<bool> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // doctor
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -694,9 +690,7 @@ fn unique_stamp() -> u128 {
         .unwrap_or_default()
 }
 
-// ---------------------------------------------------------------------------
 // init
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ClientKind {
@@ -895,9 +889,7 @@ fn write_init_file(dest: &Path, content: &str, force: bool) -> Result<Option<Pat
     Ok(backup)
 }
 
-// ---------------------------------------------------------------------------
 // configure
-// ---------------------------------------------------------------------------
 
 fn configure_run(args: &[String], global_config: Option<PathBuf>) -> ExitCode {
     let mut dry_run = false;
@@ -1446,9 +1438,7 @@ fn set_bool(slot: &mut bool, key: &str, value: &str) -> Result<String, String> {
     Ok(format!("{key}: {old} -> {parsed}"))
 }
 
-// ---------------------------------------------------------------------------
 // install
-// ---------------------------------------------------------------------------
 
 const INSTALL_USAGE: &str = "\
 Usage: winkit install [--yes] [--list] [--json]
@@ -1610,7 +1600,11 @@ fn install_detect(home: &Path, appdata: &Path, which: &dyn Fn(&str) -> bool) -> 
 /// `None` when neither the upstream `Code` nor the `VSCodium` variant has it.
 fn vscode_ext_settings_dir(appdata: &Path, ext: &str) -> Option<PathBuf> {
     for root in ["Code", "VSCodium"] {
-        let dir = appdata.join(root).join("User").join("globalStorage").join(ext);
+        let dir = appdata
+            .join(root)
+            .join("User")
+            .join("globalStorage")
+            .join(ext);
         if dir.is_dir() {
             return Some(dir);
         }
@@ -1624,9 +1618,13 @@ fn bin_on_path(name: &str) -> bool {
         None => return false,
     };
     std::env::split_paths(&path).any(|dir| {
-        [format!("{name}.exe"), format!("{name}.cmd"), name.to_string()]
-            .iter()
-            .any(|candidate| dir.join(candidate).is_file())
+        [
+            format!("{name}.exe"),
+            format!("{name}.cmd"),
+            name.to_string(),
+        ]
+        .iter()
+        .any(|candidate| dir.join(candidate).is_file())
     })
 }
 
@@ -1634,11 +1632,17 @@ fn bin_on_path(name: &str) -> bool {
 /// cannot write one safely (no verified location for that target).
 fn install_config_path(target: InstallTarget, home: &Path, appdata: &Path) -> Option<PathBuf> {
     match target {
-        InstallTarget::Opencode => Some(home.join(".config").join("opencode").join("opencode.json")),
+        InstallTarget::Opencode => {
+            Some(home.join(".config").join("opencode").join("opencode.json"))
+        }
         InstallTarget::ClaudeCode => Some(home.join(".claude.json")),
         InstallTarget::Codex => Some(home.join(".codex").join("config.toml")),
         InstallTarget::Cursor => Some(home.join(".cursor").join("mcp.json")),
-        InstallTarget::Windsurf => Some(home.join(".codeium").join("windsurf").join("mcp_config.json")),
+        InstallTarget::Windsurf => Some(
+            home.join(".codeium")
+                .join("windsurf")
+                .join("mcp_config.json"),
+        ),
         InstallTarget::GeminiCli => Some(home.join(".gemini").join("settings.json")),
         InstallTarget::Zed => Some(appdata.join("Zed").join("settings.json")),
         InstallTarget::Cline => vscode_ext_settings_dir(appdata, "saoudrizwan.claude-dev")
@@ -1684,7 +1688,9 @@ fn winkit_json_entry(target: InstallTarget) -> Value {
 
 fn merge_json_target(root: &mut Value, target: InstallTarget) -> Result<MergeOutcome, String> {
     match target {
-        InstallTarget::Opencode => merge_json_object(root, "mcp", "winkit", winkit_json_entry(target)),
+        InstallTarget::Opencode => {
+            merge_json_object(root, "mcp", "winkit", winkit_json_entry(target))
+        }
         InstallTarget::Zed => {
             merge_json_object(root, "context_servers", "winkit", winkit_json_entry(target))
         }
@@ -1731,7 +1737,11 @@ fn merge_json_array(root: &mut Value, entry: Value) -> Result<MergeOutcome, Stri
         Some(_) => return Err("`mcpServers` exists but is not an array".to_string()),
         None => {
             root_obj.insert("mcpServers".to_string(), serde_json::json!([]));
-            root_obj.get_mut("mcpServers").unwrap().as_array_mut().unwrap()
+            root_obj
+                .get_mut("mcpServers")
+                .unwrap()
+                .as_array_mut()
+                .unwrap()
         }
     };
     if arr
@@ -1755,7 +1765,10 @@ fn merge_codex_toml(root: &mut toml::Table) -> Result<MergeOutcome, String> {
         return Ok(MergeOutcome::AlreadyPresent);
     }
     let mut entry = toml::Table::new();
-    entry.insert("command".to_string(), toml::Value::String("npx".to_string()));
+    entry.insert(
+        "command".to_string(),
+        toml::Value::String("npx".to_string()),
+    );
     entry.insert(
         "args".to_string(),
         toml::Value::Array(vec![
@@ -1839,16 +1852,23 @@ fn write_with_restore(dest: &Path, content: &str) -> Result<Option<PathBuf>, Str
             },
             None => " (no prior file to restore)".to_string(),
         };
-        return Err(format!("cannot write {}: {e}{restore_note}", dest.display()));
+        return Err(format!(
+            "cannot write {}: {e}{restore_note}",
+            dest.display()
+        ));
     }
     Ok(backup)
 }
 
 /// Put the backup back over `dest` after a failed write.
 fn restore_backup(dest: &Path, backup: &Path) -> Result<(), String> {
-    std::fs::copy(backup, dest)
-        .map(|_| ())
-        .map_err(|e| format!("cannot restore {} from {}: {e}", dest.display(), backup.display()))
+    std::fs::copy(backup, dest).map(|_| ()).map_err(|e| {
+        format!(
+            "cannot restore {} from {}: {e}",
+            dest.display(),
+            backup.display()
+        )
+    })
 }
 
 fn install_run(args: &[String]) -> ExitCode {
@@ -2039,20 +2059,11 @@ fn install_run(args: &[String]) -> ExitCode {
             } else {
                 format!(" ({})", o.path)
             };
-            println!(
-                "[{}] {} — {}{}",
-                o.status.label(),
-                o.target,
-                o.detail,
-                path
-            );
+            println!("[{}] {} — {}{}", o.status.label(), o.target, o.detail, path);
         }
     }
 
-    if outcomes
-        .iter()
-        .any(|o| o.status == InstallStatus::Error)
-    {
+    if outcomes.iter().any(|o| o.status == InstallStatus::Error) {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
@@ -2317,7 +2328,9 @@ mod tests {
         assert!(!found.contains(&InstallTarget::RooCode));
 
         // PATH binaries also count as installed.
-        let found = install_detect(&home, &appdata, &|name| name == "claude" || name == "cursor");
+        let found = install_detect(&home, &appdata, &|name| {
+            name == "claude" || name == "cursor"
+        });
         assert!(found.contains(&InstallTarget::ClaudeCode));
         assert!(found.contains(&InstallTarget::Cursor));
     }
@@ -2340,7 +2353,9 @@ mod tests {
         let appdata = Path::new("C:\\Users\\test\\AppData\\Roaming");
         assert_eq!(
             install_config_path(InstallTarget::Opencode, home, appdata),
-            Some(PathBuf::from("C:\\Users\\test\\.config\\opencode\\opencode.json"))
+            Some(PathBuf::from(
+                "C:\\Users\\test\\.config\\opencode\\opencode.json"
+            ))
         );
         assert_eq!(
             install_config_path(InstallTarget::ClaudeCode, home, appdata),
@@ -2356,7 +2371,9 @@ mod tests {
         );
         assert_eq!(
             install_config_path(InstallTarget::Windsurf, home, appdata),
-            Some(PathBuf::from("C:\\Users\\test\\.codeium\\windsurf\\mcp_config.json"))
+            Some(PathBuf::from(
+                "C:\\Users\\test\\.codeium\\windsurf\\mcp_config.json"
+            ))
         );
         assert_eq!(
             install_config_path(InstallTarget::GeminiCli, home, appdata),
@@ -2364,11 +2381,19 @@ mod tests {
         );
         assert_eq!(
             install_config_path(InstallTarget::Zed, home, appdata),
-            Some(PathBuf::from("C:\\Users\\test\\AppData\\Roaming\\Zed\\settings.json"))
+            Some(PathBuf::from(
+                "C:\\Users\\test\\AppData\\Roaming\\Zed\\settings.json"
+            ))
         );
         // VS Code extension targets resolve only when the extension dir exists.
-        assert_eq!(install_config_path(InstallTarget::Cline, home, appdata), None);
-        assert_eq!(install_config_path(InstallTarget::RooCode, home, appdata), None);
+        assert_eq!(
+            install_config_path(InstallTarget::Cline, home, appdata),
+            None
+        );
+        assert_eq!(
+            install_config_path(InstallTarget::RooCode, home, appdata),
+            None
+        );
     }
 
     #[test]
@@ -2401,13 +2426,8 @@ mod tests {
         assert_eq!(root["existing"], "kept");
         assert_eq!(root["mcpServers"]["winkit"]["command"], "npx");
 
-        let outcome = merge_json_object(
-            &mut root,
-            "mcpServers",
-            "winkit",
-            serde_json::json!({}),
-        )
-        .unwrap();
+        let outcome =
+            merge_json_object(&mut root, "mcpServers", "winkit", serde_json::json!({})).unwrap();
         assert_eq!(outcome, MergeOutcome::AlreadyPresent);
         assert_eq!(root["mcpServers"]["winkit"]["command"], "npx");
     }
@@ -2423,15 +2443,15 @@ mod tests {
     #[test]
     fn merge_json_array_appends_continue_entry() {
         let mut root = serde_json::json!({ "models": [] });
-        let outcome = merge_json_array(&mut root, winkit_json_entry(InstallTarget::Continue))
-            .unwrap();
+        let outcome =
+            merge_json_array(&mut root, winkit_json_entry(InstallTarget::Continue)).unwrap();
         assert_eq!(outcome, MergeOutcome::Merged);
         let arr = root["mcpServers"].as_array().unwrap();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["name"], "winkit");
 
-        let outcome = merge_json_array(&mut root, winkit_json_entry(InstallTarget::Continue))
-            .unwrap();
+        let outcome =
+            merge_json_array(&mut root, winkit_json_entry(InstallTarget::Continue)).unwrap();
         assert_eq!(outcome, MergeOutcome::AlreadyPresent);
         assert_eq!(root["mcpServers"].as_array().unwrap().len(), 1);
     }
@@ -2442,12 +2462,17 @@ mod tests {
         assert_eq!(merge_codex_toml(&mut root).unwrap(), MergeOutcome::Merged);
         let servers = root["mcp_servers"]["winkit"].as_table().unwrap();
         assert_eq!(servers["command"].as_str(), Some("npx"));
-        assert_eq!(merge_codex_toml(&mut root).unwrap(), MergeOutcome::AlreadyPresent);
+        assert_eq!(
+            merge_codex_toml(&mut root).unwrap(),
+            MergeOutcome::AlreadyPresent
+        );
     }
 
     #[test]
     fn parse_and_merge_creates_fresh_and_merges_existing_json() {
-        let text = parse_and_merge(InstallTarget::ClaudeCode, None).unwrap().unwrap();
+        let text = parse_and_merge(InstallTarget::ClaudeCode, None)
+            .unwrap()
+            .unwrap();
         let value: JsonValue = serde_json::from_str(&text).unwrap();
         assert_eq!(value["mcpServers"]["winkit"]["command"], "npx");
 
@@ -2466,7 +2491,9 @@ mod tests {
 
     #[test]
     fn parse_and_merge_opencode_uses_mcp_key() {
-        let text = parse_and_merge(InstallTarget::Opencode, None).unwrap().unwrap();
+        let text = parse_and_merge(InstallTarget::Opencode, None)
+            .unwrap()
+            .unwrap();
         let value: JsonValue = serde_json::from_str(&text).unwrap();
         assert_eq!(value["mcp"]["winkit"]["type"], "local");
         assert_eq!(value["mcp"]["winkit"]["enabled"], true);
@@ -2482,9 +2509,14 @@ mod tests {
 
     #[test]
     fn parse_and_merge_codex_toml() {
-        let text = parse_and_merge(InstallTarget::Codex, None).unwrap().unwrap();
+        let text = parse_and_merge(InstallTarget::Codex, None)
+            .unwrap()
+            .unwrap();
         let table: toml::Table = toml::from_str(&text).unwrap();
-        assert_eq!(table["mcp_servers"]["winkit"]["command"].as_str(), Some("npx"));
+        assert_eq!(
+            table["mcp_servers"]["winkit"]["command"].as_str(),
+            Some("npx")
+        );
 
         let existing = "model = \"gpt-5\"\n";
         let text = parse_and_merge(InstallTarget::Codex, Some(existing))

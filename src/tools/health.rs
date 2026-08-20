@@ -1,4 +1,4 @@
-//! `system_health` and `system_diagnose`: machine-wide health (§76, §77).
+//! Machine-wide health: `system_health` and `system_diagnose`.
 //!
 //! `system_health` aggregates per-application resource groups from the
 //! Windows backend, adds system-level facts (memory pressure, disk space),
@@ -222,7 +222,7 @@ pub fn system_health_definition(_config: &Config) -> ToolDefinition {
     }
 }
 
-// --- system_diagnose -------------------------------------------------------
+// system_diagnose
 
 pub async fn system_diagnose_handler(
     state: Arc<AppState>,
@@ -248,7 +248,7 @@ pub async fn system_diagnose_handler(
         .map_err(|e| WinkitError::internal(format!("health collection failed: {e}")))?
     };
 
-    // Bounded hardware evidence (§64, §77): each probe runs under the
+    // Bounded hardware evidence: each probe runs under the
     // configured budget and degrades to `None`/empty instead of failing.
     let budget = state.config.hardware.probe_timeout_ms;
     let thermal_state = state.clone();

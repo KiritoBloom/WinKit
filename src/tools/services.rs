@@ -1,4 +1,4 @@
-//! Service tools: read-only listing and lookup (§18). No modification.
+//! Service tools: read-only listing and lookup.
 
 use crate::errors::WinkitError;
 use crate::permissions::Capability;
@@ -16,12 +16,13 @@ pub async fn list_services_handler(
     let services = state.windows.list_services(limit)?;
     let count = services.len();
     let running = services.iter().filter(|s| s.state == "running").count();
-    Ok(json!({
-        "services": services,
-        "count": count,
-        "running": running,
-        "truncated": count == limit,
-    }))
+    Ok(crate::tools::list_envelope_with(
+        "services",
+        json!(services),
+        count,
+        limit,
+        json!({ "running": running }),
+    ))
 }
 
 pub fn list_services_definition() -> ToolDefinition {
@@ -44,7 +45,7 @@ pub fn list_services_definition() -> ToolDefinition {
 pub async fn get_service_handler(state: Arc<AppState>, args: Value) -> Result<Value, WinkitError> {
     let name = required_string(&args, "name")?;
     match state.windows.get_service(&name)? {
-        Some(service) => Ok(json!({ "service": service })),
+        Some(service) => Ok(crate::tools::item_envelope("service", json!(service))),
         None => Err(WinkitError::invalid_argument(format!(
             "no service named '{name}' was found"
         ))),

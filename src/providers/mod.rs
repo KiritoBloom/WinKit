@@ -3,7 +3,7 @@
 //! Providers are the capability-bearing backends of WinKit. A provider
 //! declares its identity and capabilities; the MCP tool layer dispatches
 //! into providers behind the [`WindowsBackend`] / application-provider
-//! abstractions so everything is mockable (§46, §57).
+//! abstractions so everything is mockable.
 
 pub mod applications;
 pub mod mock;

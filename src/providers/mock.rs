@@ -1,4 +1,4 @@
-//! Mock providers and fixture-backed backends (§57).
+//! Mock providers and fixture-backed backends.
 //!
 //! Compiled only with the `mocks` feature (`cargo test --features mocks`).
 //! All data here is synthetic fixture data — it is never collected from a

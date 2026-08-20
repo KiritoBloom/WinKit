@@ -1,7 +1,5 @@
-//! Disk-space analysis tools (§ storage): whole-volume scan with an
-//! NTFS metadata fast path, background scanning with cancellation, and
-//! cheap snapshot queries (largest files, largest folders, folder size,
-//! pattern find).
+//! Disk-space analysis: whole-volume scan with NTFS fast path, background
+//! scanning, and snapshot queries for largest files, folders, and finds.
 //!
 //! All tools share one per-volume snapshot: `disk_scan` (or
 //! `disk_scan_start`) builds it; the query tools reuse it in milliseconds.
@@ -13,8 +11,8 @@ use crate::models::{DiskQueryKind, DiskQueryRequest, DiskQueryResult, DiskScanRe
 use crate::permissions::Capability;
 use crate::server::AppState;
 use crate::tools::{
-    clamp_limit, optional_bool, optional_f64, optional_string, optional_string_array, optional_u64,
-    optional_usize, required_string, wrap, ToolDefinition,
+    clamp_limit, optional_bool, optional_string_array, optional_u64, optional_usize, required_path,
+    required_string, validate_min_size_mb, wrap, ToolDefinition,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -26,9 +24,7 @@ where
     F: FnOnce() -> Result<T, WinkitError> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::spawn_blocking(f)
-        .await
-        .map_err(|e| WinkitError::internal(format!("background task failed: {e}")))?
+    crate::utils::blocking::run_blocking(f).await
 }
 
 fn diagnostics_json(
@@ -47,12 +43,10 @@ fn diagnostics_json(
     })
 }
 
-// ---------------------------------------------------------------------------
 // disk_scan (synchronous, cached)
-// ---------------------------------------------------------------------------
 
 pub async fn disk_scan_handler(state: Arc<AppState>, args: Value) -> Result<Value, WinkitError> {
-    let path = required_string(&args, "path")?;
+    let path = required_path(&args, "path")?;
     let refresh = optional_bool(&args, "refresh").unwrap_or(false);
     let max_age_ms = optional_u64(&args, "max_age_ms").unwrap_or(0);
     let request = DiskScanRequest {
@@ -85,15 +79,13 @@ pub fn disk_scan_definition() -> ToolDefinition {
     }
 }
 
-// ---------------------------------------------------------------------------
 // disk_scan_start / disk_scan_status / disk_scan_cancel
-// ---------------------------------------------------------------------------
 
 pub async fn disk_scan_start_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    let path = required_string(&args, "path")?;
+    let path = required_path(&args, "path")?;
     let request = DiskScanRequest {
         path,
         refresh: true,
@@ -127,6 +119,9 @@ pub async fn disk_scan_status_handler(
     args: Value,
 ) -> Result<Value, WinkitError> {
     let scan_id = required_string(&args, "scan_id")?;
+    if scan_id.trim().len() < 4 {
+        return Err(WinkitError::invalid_argument("'scan_id' is too short"));
+    }
     let status = state.windows.disk_scan_status(&scan_id)?;
     match status {
         Some(s) => Ok(json!({ "status": s })),
@@ -159,6 +154,9 @@ pub async fn disk_scan_cancel_handler(
     args: Value,
 ) -> Result<Value, WinkitError> {
     let scan_id = required_string(&args, "scan_id")?;
+    if scan_id.trim().len() < 4 {
+        return Err(WinkitError::invalid_argument("'scan_id' is too short"));
+    }
     let cancelled = state.windows.disk_scan_cancel(&scan_id)?;
     Ok(json!({ "cancelled": cancelled, "scan_id": scan_id }))
 }
@@ -181,22 +179,18 @@ pub fn disk_scan_cancel_definition() -> ToolDefinition {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Snapshot queries
-// ---------------------------------------------------------------------------
 
 pub async fn disk_scan_largest_files_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    let path = required_string(&args, "path")?;
+    let path = required_path(&args, "path")?;
     let limit = clamp_limit(
         optional_usize(&args, "limit"),
         state.config.limits.max_storage_results,
     );
-    let min_size_bytes = optional_f64(&args, "min_size_mb")
-        .map(|mb| (mb * 1024.0 * 1024.0) as u64)
-        .unwrap_or(0);
+    let min_size_bytes = validate_min_size_mb(&args, "min_size_mb", 0.0)?;
     let extensions = optional_string_array(&args, "extensions");
     let request = DiskQueryRequest {
         path,
@@ -260,7 +254,7 @@ pub async fn disk_scan_largest_folders_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    let path = required_string(&args, "path")?;
+    let path = required_path(&args, "path")?;
     let limit = clamp_limit(
         optional_usize(&args, "limit"),
         state.config.limits.max_storage_results,
@@ -325,7 +319,7 @@ pub async fn disk_scan_folder_size_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    let path = required_string(&args, "path")?;
+    let path = required_path(&args, "path")?;
     let request = DiskQueryRequest {
         path,
         kind: DiskQueryKind::FolderSize,
@@ -380,15 +374,13 @@ pub async fn disk_scan_find_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    let path = required_string(&args, "path")?;
-    let pattern = optional_string(&args, "pattern");
+    let path = required_path(&args, "path")?;
+    let pattern = crate::tools::optional_non_empty_string(&args, "pattern");
     let limit = clamp_limit(
         optional_usize(&args, "limit"),
         state.config.limits.max_storage_results,
     );
-    let min_size_bytes = optional_f64(&args, "min_size_mb")
-        .map(|mb| (mb * 1024.0 * 1024.0) as u64)
-        .unwrap_or(0);
+    let min_size_bytes = validate_min_size_mb(&args, "min_size_mb", 0.0)?;
     let extensions = optional_string_array(&args, "extensions");
     let request = DiskQueryRequest {
         path,

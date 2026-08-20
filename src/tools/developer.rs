@@ -1,4 +1,4 @@
-//! Developer environment tool (§21): structured info for coding agents.
+//! Developer environment: structured info for coding agents.
 
 use crate::errors::WinkitError;
 use crate::permissions::Capability;

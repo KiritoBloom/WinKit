@@ -1,20 +1,14 @@
-//! Managed-browser tools (§12.6): `chrome_start_managed_session`,
-//! `chrome_list_managed_sessions`, `chrome_navigate_managed_session`,
-//! `chrome_stop_managed_session`, `chrome_get_page_summary`,
-//! `chrome_capture_screenshot`, and `chrome_approve_managed_action`.
+//! Managed-browser tools: owned Chrome sessions WinKit creates and inspects.
 //!
-//! These tools operate exclusively on sessions WinKit owns. Lifecycle tools
-//! are action-capability gated (`application.browser.launch` /
-//! `.navigate` / `.close`) and additionally feature-gated by
-//! `[chrome.managed] enabled`. Inspection tools (`page summary`,
-//! `screenshot`, `list`) are read-only and permission-gated like every other
-//! read tool. No tool accepts arbitrary executable paths, profile paths,
-//! Chrome flags, CDP methods, WebSocket endpoints, or JavaScript.
+//! Lifecycle tools are action-capability gated and feature-gated by
+//! `[chrome.managed] enabled`. Inspection tools are read-only and
+//! permission-gated. No tool accepts arbitrary paths, flags, CDP methods,
+//! or JavaScript.
 
 use crate::errors::WinkitError;
 use crate::permissions::Capability;
 use crate::server::AppState;
-use crate::tools::{optional_bool, optional_u64, wrap, ToolDefinition};
+use crate::tools::{optional_bool, optional_u64, required_u64, wrap, ToolDefinition};
 use crate::utils::url::{validate_url, UrlPolicy};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -29,7 +23,7 @@ fn managed_url_policy(state: &AppState) -> UrlPolicy {
     }
 }
 
-// --- chrome_start_managed_session -----------------------------------------
+// chrome_start_managed_session
 
 pub async fn chrome_start_managed_session_handler(
     state: Arc<AppState>,
@@ -74,7 +68,7 @@ pub fn chrome_start_managed_session_definition() -> ToolDefinition {
     }
 }
 
-// --- chrome_list_managed_sessions ------------------------------------------
+// chrome_list_managed_sessions
 
 pub async fn chrome_list_managed_sessions_handler(
     state: Arc<AppState>,
@@ -85,6 +79,7 @@ pub async fn chrome_list_managed_sessions_handler(
         "enabled": state.managed.enabled(),
         "sessions": sessions,
         "count": sessions.len(),
+        "truncated": false,
     }))
 }
 
@@ -103,7 +98,7 @@ pub fn chrome_list_managed_sessions_definition() -> ToolDefinition {
     }
 }
 
-// --- chrome_navigate_managed_session ---------------------------------------
+// chrome_navigate_managed_session
 
 pub async fn chrome_navigate_managed_session_handler(
     state: Arc<AppState>,
@@ -135,7 +130,7 @@ pub fn chrome_navigate_managed_session_definition() -> ToolDefinition {
     }
 }
 
-// --- chrome_stop_managed_session -------------------------------------------
+// chrome_stop_managed_session
 
 pub async fn chrome_stop_managed_session_handler(
     state: Arc<AppState>,
@@ -163,7 +158,7 @@ pub fn chrome_stop_managed_session_definition() -> ToolDefinition {
     }
 }
 
-// --- chrome_get_page_summary -----------------------------------------------
+// chrome_get_page_summary
 
 pub async fn chrome_get_page_summary_handler(
     state: Arc<AppState>,
@@ -194,7 +189,7 @@ pub fn chrome_get_page_summary_definition() -> ToolDefinition {
     }
 }
 
-// --- chrome_capture_screenshot ----------------------------------------------
+// chrome_capture_screenshot
 
 pub async fn chrome_capture_screenshot_handler(
     state: Arc<AppState>,
@@ -223,14 +218,13 @@ pub fn chrome_capture_screenshot_definition() -> ToolDefinition {
     }
 }
 
-// --- chrome_approve_managed_action -----------------------------------------
+// chrome_approve_managed_action
 
 pub async fn chrome_approve_managed_action_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    let request_id = optional_u64(&args, "request_id")
-        .ok_or_else(|| WinkitError::invalid_argument("missing required argument 'request_id'"))?;
+    let request_id = required_u64(&args, "request_id")?;
     state.permissions.grant_approval(request_id)?;
     let pending = state.permissions.pending_approvals();
     Ok(json!({

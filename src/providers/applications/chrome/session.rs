@@ -1,7 +1,7 @@
 //! Chrome session orchestration: discovery + CDP operations.
 //!
 //! All tab-level inspection flows through one browser WebSocket with
-//! attached page sessions (§27-§33). Operations are serialized through an
+//! attached page sessions. Operations are serialized through an
 //! op-lock, and every operation is bounded by the configured timeout.
 //!
 //! Security posture: URLs are sanitized (query strings stripped), request
@@ -219,7 +219,7 @@ impl ChromeSession {
         Ok(targets)
     }
 
-    /// List page targets as tabs (§27).
+    /// List page targets as tabs.
     pub async fn list_tabs(&self) -> Result<Vec<TabInfo>, WinkitError> {
         let targets = self.targets().await?;
         let mut tabs: Vec<TabInfo> = targets
@@ -276,7 +276,7 @@ impl ChromeSession {
     /// Determine the active tab id.
     ///
     /// Strategy 1 (cheap, deterministic): match the foreground window title
-    /// from the Windows layer against tab titles (§28 correlation).
+    /// from the Windows layer against tab titles.
     /// Strategy 2: evaluate `document.hasFocus()` on a bounded number of
     /// tabs. If neither yields a unique answer, return `None` — WinKit does
     /// not guess.
@@ -597,9 +597,9 @@ impl ChromeSession {
         Ok(info)
     }
 
-    // --- Result builders ---------------------------------------------------
+    // Result builders
 
-    /// Build a `PerformanceMetrics` from a bundle (§29).
+    /// Build a `PerformanceMetrics` from a bundle.
     pub fn to_performance(&self, bundle: &TabMetricsBundle) -> PerformanceMetrics {
         let mut deltas = BTreeMap::new();
         for (name, v1) in &bundle.metrics_t1 {
@@ -618,7 +618,7 @@ impl ChromeSession {
         }
     }
 
-    /// Build a `MemoryInfo` from a bundle (§30).
+    /// Build a `MemoryInfo` from a bundle.
     pub fn to_memory(&self, bundle: &TabMetricsBundle) -> MemoryInfo {
         let (growth, growth_rate) = match (&bundle.heap, &bundle.heap_after) {
             (Some(a), Some(b)) => {
@@ -644,7 +644,7 @@ impl ChromeSession {
         }
     }
 
-    /// Build a `NetworkSummary` from a bundle (§31).
+    /// Build a `NetworkSummary` from a bundle.
     pub fn to_network(&self, bundle: &TabMetricsBundle) -> NetworkSummary {
         let total = bundle.requests.len();
         let completed = bundle
@@ -704,7 +704,7 @@ impl ChromeSession {
         }
     }
 
-    /// Build a `RuntimeInfo` from a bundle (§32).
+    /// Build a `RuntimeInfo` from a bundle.
     pub fn to_runtime(&self, bundle: &TabMetricsBundle) -> RuntimeInfo {
         let errors = bundle.console.iter().filter(|c| c.level == "error").count();
         let warnings = bundle
@@ -740,7 +740,7 @@ impl ChromeSession {
         }
     }
 
-    /// Full cross-layer diagnostics for a tab (§33, §28).
+    /// Full cross-layer diagnostics for a tab.
     pub async fn tab_diagnostics(
         &self,
         tab_id: &str,
@@ -860,7 +860,7 @@ fn summarize_trend(samples: &[TrendSample], duration_ms: u64) -> (TrendMemory, f
     )
 }
 
-// --- Data types ---------------------------------------------------------
+// Data types
 
 /// Data collected in one attached session.
 #[derive(Debug, Default)]
@@ -937,7 +937,7 @@ impl ChromeSession {
     }
 }
 
-// --- CDP helpers --------------------------------------------------------
+// CDP helpers
 
 pub(crate) async fn fetch_targets(
     conn: &mut CdpConnection,
@@ -1399,7 +1399,7 @@ mod tests {
         assert!(!memory.sustained_growth);
     }
 
-    // --- Discovery hardening (§8.4) ------------------------------------
+    // Discovery hardening
 
     /// A scriptable discovery I/O surface with interior mutability so the
     /// endpoint can "disappear" between calls.

@@ -1,4 +1,4 @@
-//! Signal computation: thresholds over evidence (§73).
+//! Signal computation: thresholds over evidence.
 //!
 //! Every signal is produced by a deterministic rule with documented
 //! thresholds. Threshold defaults live in `DiagnosticsConfig`.

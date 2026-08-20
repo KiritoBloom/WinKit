@@ -1,4 +1,4 @@
-//! Window tools: read-only window listing (§20).
+//! Window tools: read-only listing.
 
 use crate::errors::WinkitError;
 use crate::permissions::Capability;
@@ -13,7 +13,12 @@ pub async fn list_windows_handler(state: Arc<AppState>, args: Value) -> Result<V
     let include_hidden = optional_bool(&args, "include_hidden").unwrap_or(false);
     let windows = state.windows.list_windows(limit, !include_hidden)?;
     let count = windows.len();
-    Ok(json!({ "windows": windows, "count": count }))
+    Ok(crate::tools::list_envelope(
+        "windows",
+        json!(windows),
+        count,
+        limit,
+    ))
 }
 
 pub fn list_windows_definition() -> ToolDefinition {

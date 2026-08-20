@@ -1,4 +1,4 @@
-//! Machine-wide health models (§76).
+//! Machine-wide health models.
 //!
 //! `system_health` groups running processes by application, aggregates each
 //! group's memory and CPU, adds system-level facts (memory pressure, disk

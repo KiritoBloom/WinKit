@@ -1,13 +1,12 @@
-//! Storage tools: drives, usage, and the explicit-path large-file scan
-//! (§17). `find_large_files` never scans a whole drive implicitly.
+//! Storage tools: drives, usage, and explicit-path large-file scans.
 
 use crate::errors::WinkitError;
 use crate::models::FindLargeFilesRequest;
 use crate::permissions::Capability;
 use crate::server::AppState;
 use crate::tools::{
-    clamp_limit, optional_f64, optional_string_array, optional_u32, optional_usize,
-    required_string, wrap, ToolDefinition,
+    clamp_limit, optional_string_array, optional_u32, optional_usize, required_path,
+    validate_min_size_mb, wrap, ToolDefinition,
 };
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -16,7 +15,12 @@ use std::sync::Arc;
 pub async fn list_drives_handler(state: Arc<AppState>, _args: Value) -> Result<Value, WinkitError> {
     let drives = state.windows.list_drives()?;
     let count = drives.len();
-    Ok(json!({ "drives": drives, "count": count }))
+    Ok(crate::tools::list_envelope(
+        "drives",
+        json!(drives),
+        count,
+        count,
+    ))
 }
 
 pub fn list_drives_definition() -> ToolDefinition {
@@ -31,9 +35,9 @@ pub fn list_drives_definition() -> ToolDefinition {
 }
 
 pub async fn disk_usage_handler(state: Arc<AppState>, args: Value) -> Result<Value, WinkitError> {
-    let path = required_string(&args, "path")?;
+    let path = required_path(&args, "path")?;
     let usage = state.windows.disk_usage(&path)?;
-    Ok(json!({ "usage": usage }))
+    Ok(json!({ "path": path, "usage": usage }))
 }
 
 pub fn disk_usage_definition() -> ToolDefinition {
@@ -58,7 +62,8 @@ pub async fn find_large_files_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    let path = PathBuf::from(required_string(&args, "path")?);
+    let path_str = required_path(&args, "path")?;
+    let path = PathBuf::from(&path_str);
     if !path.is_dir() {
         return Err(WinkitError::invalid_argument(format!(
             "'path' must be an existing directory (got '{}')",
@@ -66,15 +71,13 @@ pub async fn find_large_files_handler(
         )));
     }
     let max_depth = optional_u32(&args, "max_depth")
-        .map(|d| d.min(state.config.limits.max_find_depth))
+        .map(|d| d.clamp(1, state.config.limits.max_find_depth))
         .unwrap_or(state.config.limits.max_find_depth);
     let max_results = clamp_limit(
         optional_usize(&args, "max_results"),
         state.config.limits.max_storage_results,
     );
-    let min_size_bytes = optional_f64(&args, "min_size_mb")
-        .map(|mb| (mb * 1024.0 * 1024.0) as u64)
-        .unwrap_or(50 * 1024 * 1024);
+    let min_size_bytes = validate_min_size_mb(&args, "min_size_mb", 50.0)?;
     let extensions = optional_string_array(&args, "extensions");
 
     let request = FindLargeFilesRequest {
@@ -86,7 +89,12 @@ pub async fn find_large_files_handler(
     };
     let files = state.windows.find_large_files(request)?;
     let count = files.len();
-    Ok(json!({ "files": files, "count": count, "truncated": count == max_results }))
+    Ok(crate::tools::list_envelope(
+        "files",
+        json!(files),
+        count,
+        max_results,
+    ))
 }
 
 pub fn find_large_files_definition() -> ToolDefinition {

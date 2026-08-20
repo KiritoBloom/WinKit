@@ -1,6 +1,4 @@
-//! Hardware telemetry tools: hardware/thermal snapshots, battery and power
-//! status, storage health and activity, Wi-Fi status/scan, and network
-//! diagnosis (§19, §20).
+//! Hardware telemetry: sensors, power, storage health, Wi-Fi, and network diagnosis.
 //!
 //! Every reading is either measured or explicitly reported as unavailable
 //! with a reason. Probes run under the configured `hardware.probe_timeout_ms`
@@ -12,11 +10,9 @@ use crate::server::AppState;
 use crate::tools::{optional_u64, wrap, ToolDefinition};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use std::time::Duration;
 
 /// Run a blocking provider call under the configured probe budget on a
-/// worker thread, so a WMI/battery/thermal call that runs long cannot block
-/// the async runtime (and the timeout can actually preempt it).
+/// worker thread — thin wrapper around `crate::utils::blocking`.
 pub(crate) async fn probe<T>(
     budget_ms: u64,
     f: impl FnOnce() -> Result<T, WinkitError> + Send + 'static,
@@ -24,16 +20,17 @@ pub(crate) async fn probe<T>(
 where
     T: Send + 'static,
 {
-    let budget = Duration::from_millis(budget_ms.max(1));
-    let task = tokio::task::spawn_blocking(f);
-    tokio::time::timeout(budget, task)
+    crate::utils::blocking::run_blocking_with_timeout(budget_ms, f)
         .await
-        .map_err(|_| {
-            WinkitError::timeout(format!(
-                "hardware probe exceeded the {budget_ms} ms probe budget"
-            ))
-        })?
-        .map_err(|e| WinkitError::internal(format!("hardware probe task failed: {e}")))?
+        .map_err(|e| {
+            if e.kind == crate::errors::ErrorKind::Timeout {
+                WinkitError::timeout(format!(
+                    "hardware probe exceeded the {budget_ms} ms probe budget"
+                ))
+            } else {
+                e
+            }
+        })
 }
 
 /// Clamp a requested sample window into `1..=max`.
@@ -229,7 +226,12 @@ pub async fn wifi_status_handler(state: Arc<AppState>, _args: Value) -> Result<V
     let budget = state.config.hardware.probe_timeout_ms;
     let adapters = probe(budget, move || state.windows.wifi_status()).await?;
     let count = adapters.len();
-    Ok(json!({ "adapters": adapters, "count": count }))
+    Ok(crate::tools::list_envelope(
+        "adapters",
+        json!(adapters),
+        count,
+        count,
+    ))
 }
 
 pub fn wifi_status_definition() -> ToolDefinition {

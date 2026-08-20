@@ -1,4 +1,4 @@
-//! Managed Chrome sessions (§12).
+//! Managed Chrome sessions.
 //!
 //! WinKit can spawn its own isolated Chrome instance — a dedicated,
 //! WinKit-owned profile under the managed profile root, a loopback-only
@@ -156,7 +156,7 @@ impl LaunchMode {
     }
 }
 
-/// The lifecycle state of a managed session (§12.6).
+/// The lifecycle state of a managed session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ManagedState {
@@ -591,7 +591,7 @@ impl ManagedIo for RealManagedIo {
     }
 }
 
-// --- Pure helpers (unit-tested) -------------------------------------------
+// Pure helpers (unit-tested)
 
 /// Opaque WinKit-owned session id: `wk-<unix-ms>-<8 hex>`.
 pub(crate) fn make_session_id() -> String {
@@ -1080,7 +1080,7 @@ impl Drop for ProfileGuard {
     }
 }
 
-// --- Managed session ------------------------------------------------------
+// Managed session
 
 /// One WinKit-owned Chrome session.
 pub struct ManagedSession {
@@ -1356,7 +1356,7 @@ impl ManagedSession {
     }
 }
 
-// --- Manager --------------------------------------------------------------
+// Manager
 
 /// Owns and coordinates every WinKit-managed Chrome session.
 pub struct ManagedChromeManager {
@@ -2358,7 +2358,7 @@ mod tests {
     use std::process::Stdio;
     use std::sync::atomic::AtomicBool;
 
-    // --- Fakes -------------------------------------------------------------
+    // Fakes
 
     #[derive(Clone)]
     struct FakeChild {
@@ -2606,7 +2606,7 @@ mod tests {
         ManagedChromeManager::with_io(cfg, io, None)
     }
 
-    // --- Pure helpers ------------------------------------------------------
+    // Pure helpers
 
     #[test]
     fn build_chrome_args_are_fixed_and_safe() {
@@ -2837,7 +2837,7 @@ mod tests {
         );
     }
 
-    // --- Lifecycle ---------------------------------------------------------
+    // Lifecycle
 
     #[tokio::test]
     async fn start_fails_when_feature_disabled() {
@@ -3196,7 +3196,7 @@ mod tests {
         assert!(!dir.exists());
     }
 
-    // --- Diagnostics capture ----------------------------------------------
+    // Diagnostics capture
 
     #[test]
     fn stderr_tail_is_bounded_and_keeps_recent_entries() {
@@ -3371,7 +3371,7 @@ mod tests {
         assert!(diag.chars().count() <= DIAG_TAIL_MAX);
     }
 
-    // --- Startup failure paths --------------------------------------------
+    // Startup failure paths
 
     #[tokio::test]
     async fn port_selection_failure_cleans_the_profile() {
@@ -3521,7 +3521,7 @@ mod tests {
         assert!(leftovers.is_empty(), "both failed modes must be cleaned");
     }
 
-    // --- Unexpected exit lifecycle ----------------------------------------
+    // Unexpected exit lifecycle
 
     #[tokio::test]
     async fn unexpected_exit_reaps_tree_and_removes_profile() {
@@ -3696,7 +3696,7 @@ mod tests {
         ));
     }
 
-    // --- Live Chrome (opt-in) ---------------------------------------------
+    // Live Chrome (opt-in)
 
     /// A minimal loopback HTTP server for the live test. Serves one fixed
     /// HTML page to every request on 127.0.0.1:<ephemeral port>; the test
@@ -3764,7 +3764,7 @@ mod tests {
         }
     }
 
-    // --- Live Chrome (opt-in): headed and headless modes -------------------
+    // Live Chrome (opt-in): headed and headless modes
 
     /// Shared live-test gate: `WINKIT_LIVE_CHROME=1` must be set. A skipped
     /// live test prints an explicit reason and is never counted as a pass.

@@ -1,4 +1,4 @@
-//! Progressive tool profiles (§10).
+//! Progressive tool profiles.
 //!
 //! A coding agent receives a focused `tools/list` instead of every low-level
 //! capability by default. `core` is the safe low-latency essentials,

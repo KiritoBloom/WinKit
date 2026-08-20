@@ -1,5 +1,5 @@
 //! Diagnostics models: measurements, signals, correlations, possible causes,
-//! and machine-wide diagnosis (§73, §74, §77).
+//! and machine-wide diagnosis.
 //!
 //! The diagnostic engine is deterministic and heuristic. It never claims a
 //! root cause it cannot support; it separates raw measurements from signal
@@ -81,7 +81,7 @@ pub struct PossibleCause {
     pub reasoning: String,
 }
 
-/// A complete deterministic diagnostic report (§33, §73).
+/// A complete deterministic diagnostic report.
 ///
 /// Evidence-first shape: `measurements` (facts) are always separated from
 /// `signals` (interpretations) and `possible_causes` (hypotheses), so an
@@ -135,7 +135,7 @@ pub struct TabDiagnosticData {
     pub heap_growth_sustained: bool,
 }
 
-// --- Machine-wide diagnosis (§77) -----------------------------------------
+// Machine-wide diagnosis
 
 /// One drive's evidence for a machine-wide diagnosis.
 #[derive(Debug, Clone, Default)]
@@ -239,7 +239,7 @@ pub struct SystemDiagnosticData {
     pub wifi: Vec<SystemWifiEvidence>,
 }
 
-/// One deterministically ranked finding (§77).
+/// One deterministically ranked finding.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RankedFinding {
     /// 1-based position after sorting by `score` descending.
@@ -265,7 +265,7 @@ pub struct RankedFinding {
     pub detail: String,
 }
 
-/// The machine-wide diagnosis result (§77).
+/// The machine-wide diagnosis result.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SystemDiagnosis {
     /// Same evidence-first shape as tab reports.

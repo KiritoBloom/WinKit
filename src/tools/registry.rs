@@ -1,4 +1,4 @@
-//! Registry diagnostics tool: allowlist-only reads (§Registry).
+//! Registry diagnostics: allowlist-only reads.
 
 use crate::errors::WinkitError;
 use crate::permissions::Capability;

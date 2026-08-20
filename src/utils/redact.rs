@@ -2,7 +2,7 @@
 //!
 //! WinKit never exposes cookies, authorization headers, request bodies, form
 //! values, credentials, tokens, raw environment blocks, private keys, or
-//! secret-bearing command lines (§13.3, §13.4). This module provides a
+//! secret-bearing command lines. This module provides a
 //! deterministic, best-effort masker for the few surfaces where a caller-
 //! or provider-supplied string could smuggle a secret (URLs, command lines,
 //! configuration values).

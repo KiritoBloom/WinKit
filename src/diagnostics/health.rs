@@ -1,4 +1,4 @@
-//! Shared application-group classification (§8.3).
+//! Shared application-group classification.
 //!
 //! `system_health` and `system_diagnose` must agree on every threshold,
 //! status label, CPU basis, and missing-evidence behavior. The single source
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn system_health_and_system_diagnose_agree_on_group_classification() {
-        // Prove the regression contract of §8.3 with real consumer data:
+        // Prove the regression contract of 8.3 with real consumer data:
         // both tools must flag the same groups and produce the same labels.
         let health = cfg();
         let groups_data: Vec<(f64, u64)> = vec![

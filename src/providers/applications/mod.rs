@@ -1,4 +1,4 @@
-//! Application provider architecture (§22, §35, §36).
+//! Application provider architecture.
 //!
 //! An application provider understands one user-facing application (Chrome,
 //! and later Edge, VS Code, ...). Providers declare capabilities and
@@ -30,7 +30,7 @@ pub struct TabDiagnostics {
     pub report: crate::models::DiagnosticReport,
 }
 
-/// Application adapter interface (§22). Async operations return boxed
+/// Application adapter interface. Async operations return boxed
 /// futures so implementors can drive WebSocket clients.
 pub trait ApplicationProvider: Send + Sync {
     fn id(&self) -> &'static str;

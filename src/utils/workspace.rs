@@ -1,5 +1,5 @@
 //! Bounded workspace scanning for `workspace_snapshot` and `diagnose_workspace`
-//! (§9.1, §13.1).
+//!.
 //!
 //! This module is pure `std` — it never touches Win32 and never executes shell
 //! commands. It walks a workspace directory with hard depth/file budgets,

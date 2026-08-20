@@ -1,4 +1,4 @@
-//! Correlation rules: signal combinations → possible causes (§34).
+//! Correlation rules: signal combinations → possible causes.
 //!
 //! These are documented heuristics. Confidence values are conservative:
 //! a two-signal correlation gets `medium`, three or more mutually
@@ -17,7 +17,7 @@ pub struct CorrelationRule {
     pub confidence: f64,
 }
 
-/// The ordered possible-cause rule set (§34).
+/// The ordered possible-cause rule set.
 pub const POSSIBLE_CAUSE_RULES: &[CorrelationRule] = &[
     CorrelationRule {
         hypothesis: "Possible main-thread JavaScript pressure (heavy script execution with long tasks)",

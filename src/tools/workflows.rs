@@ -1,4 +1,4 @@
-//! High-level developer workflow tools (§9): `workspace_snapshot`,
+//! High-level developer workflow tools: `workspace_snapshot`,
 //! `list_dev_servers`, `diagnose_workspace`, `diagnose_local_webapp`, the
 //! bounded wait tools, `correlate_recent_failures`, `system_health_trend`,
 //! and `privacy_info`.
@@ -6,7 +6,7 @@
 //! These tools solve complete developer problems by composing bounded
 //! evidence from the workspace, servers, ports, processes, machine health,
 //! and local HTTP probes. High-level tools return the shared
-//! [`ReportEnvelope`] (§7.4) with stable evidence and finding IDs; they
+//! [`ReportEnvelope`] with stable evidence and finding IDs; they
 //! never claim causality from timing proximity alone and never read secret
 //! files, raw environments, cookies, headers, or bodies by default.
 
@@ -41,7 +41,7 @@ const PORT_NEIGHBORHOOD: u16 = 12;
 /// A slow HTTP response threshold used to flag "slow response" findings.
 const SLOW_RESPONSE_MS: u64 = 2_000;
 
-// --- Shared helpers --------------------------------------------------------
+// Shared helpers
 
 fn parse_detail(args: &Value) -> DetailLevel {
     optional_string(args, "detail")
@@ -228,7 +228,7 @@ async fn run_probe(validated: &crate::utils::url::ValidatedUrl, cfg: &ProbeConfi
     }
 }
 
-// --- workspace_snapshot ---------------------------------------------------
+// workspace_snapshot
 
 fn project_workspace_scan(scan: &WorkspaceScan, detail: DetailLevel) -> Value {
     let compact = detail == DetailLevel::Compact;
@@ -319,7 +319,7 @@ pub fn workspace_snapshot_definition() -> ToolDefinition {
     }
 }
 
-// --- list_dev_servers ------------------------------------------------------
+// list_dev_servers
 
 /// One listener entry with its workspace relationship and optional probe.
 async fn listener_entry(
@@ -418,8 +418,14 @@ pub async fn list_dev_servers_handler(
     };
 
     let ports_requested = !requested.is_empty();
+    let mut truncated = false;
     let ports: Vec<u16> = if ports_requested {
-        requested
+        if requested.len() > MAX_PORTS_PER_CALL {
+            truncated = true;
+        }
+        let mut p = requested;
+        p.truncate(MAX_PORTS_PER_CALL);
+        p
     } else {
         let mut set: Vec<u16> = match state.windows.list_listening_ports(limit) {
             Ok(all) => all
@@ -436,6 +442,9 @@ pub async fn list_dev_servers_handler(
         };
         set.sort_unstable();
         set.dedup();
+        if set.len() > MAX_PORTS_PER_CALL {
+            truncated = true;
+        }
         set.truncate(MAX_PORTS_PER_CALL);
         set
     };
@@ -450,6 +459,7 @@ pub async fn list_dev_servers_handler(
         "workspace": scan.as_ref().map(|s| s.display_name.clone()),
         "listeners": listeners,
         "count": listeners.len(),
+        "truncated": truncated,
         "ports_requested": ports_requested,
         "elapsed_ms": started.elapsed().as_millis() as u64,
     }))
@@ -476,7 +486,7 @@ pub fn list_dev_servers_definition() -> ToolDefinition {
     }
 }
 
-// --- diagnose_workspace ----------------------------------------------------
+// diagnose_workspace
 
 fn workspace_evidence(scan: &WorkspaceScan) -> EvidenceItem {
     EvidenceItem::new(
@@ -1002,7 +1012,7 @@ pub fn diagnose_workspace_definition() -> ToolDefinition {
     }
 }
 
-// --- diagnose_local_webapp -------------------------------------------------
+// diagnose_local_webapp
 
 /// Map a probe outcome to a finding. Returns (severity, id, explanation,
 /// confirm_disprove). `None` when the outcome does not warrant a finding.
@@ -1561,7 +1571,7 @@ pub fn diagnose_local_webapp_definition() -> ToolDefinition {
     }
 }
 
-// --- wait tools -------------------------------------------------------------
+// wait tools
 
 pub async fn wait_for_port_handler(
     state: Arc<AppState>,
@@ -1809,7 +1819,7 @@ pub fn wait_for_process_definition() -> ToolDefinition {
     }
 }
 
-// --- correlate_recent_failures ---------------------------------------------
+// correlate_recent_failures
 
 pub async fn correlate_recent_failures_handler(
     state: Arc<AppState>,
@@ -2081,7 +2091,7 @@ pub fn correlate_recent_failures_definition() -> ToolDefinition {
     }
 }
 
-// --- system_health_trend ----------------------------------------------------
+// system_health_trend
 
 fn classify_trend(values: &[f64]) -> &'static str {
     if values.len() < 2 {
@@ -2408,7 +2418,7 @@ pub fn system_health_trend_definition() -> ToolDefinition {
     }
 }
 
-// --- privacy_info -----------------------------------------------------------
+// privacy_info
 
 pub async fn privacy_info_handler(
     state: Arc<AppState>,
@@ -2795,7 +2805,7 @@ mod tests {
         assert_eq!(listeners[0]["related_to_workspace"], false);
     }
 
-    // --- system_health_trend ------------------------------------------------
+    // system_health_trend
 
     fn trends_config() -> crate::config::TrendsConfig {
         crate::config::TrendsConfig {

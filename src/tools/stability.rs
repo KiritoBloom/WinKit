@@ -1,4 +1,4 @@
-//! Stability tools: crash history and shutdown analysis (§Stability).
+//! Stability tools: crash history and shutdown analysis.
 //!
 //! Both tools are read-only classifications over the existing bounded event
 //! query path. Each query targets a fixed (log, provider, event id) pair, so

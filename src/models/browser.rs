@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Availability states shared by all application adapters (§55).
+/// Availability states shared by all application adapters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApplicationState {
@@ -41,7 +41,7 @@ pub struct ApplicationInfo {
     pub display_name: String,
     pub version: String,
     pub state: ApplicationState,
-    /// Capability names this adapter declares (§23).
+    /// Capability names this adapter declares.
     pub capabilities: Vec<String>,
     /// Extra adapter-specific details (paths, endpoints, counts).
     pub details: serde_json::Value,
@@ -116,7 +116,7 @@ pub struct PerformanceMetrics {
     pub script_ms: f64,
 }
 
-/// Memory picture of one tab (§30).
+/// Memory picture of one tab.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MemoryInfo {
     pub js_heap_used_bytes: Option<u64>,
@@ -168,7 +168,7 @@ pub struct ConsoleMessage {
     pub text: String,
 }
 
-/// Runtime/console picture of one tab (§32).
+/// Runtime/console picture of one tab.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RuntimeInfo {
     pub observation_ms: u64,
@@ -182,7 +182,7 @@ pub struct RuntimeInfo {
     pub exception_samples: Vec<String>,
 }
 
-/// One sample in a tab time-series (§75).
+/// One sample in a tab time-series.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrendSample {
     /// Milliseconds since the first sample.
@@ -208,7 +208,7 @@ pub struct TrendMemory {
     pub sustained_growth: bool,
 }
 
-/// What changed in one tab over an observation window (§75).
+/// What changed in one tab over an observation window.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrendInfo {
     pub tab_id: String,

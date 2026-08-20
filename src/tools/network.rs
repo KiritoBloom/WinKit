@@ -1,5 +1,4 @@
-//! Network tools: listening ports, port ownership, interfaces, connections
-//! (§16). Local developer troubleshooting only — no scanning, no probing.
+//! Network tools: listening ports, port ownership, interfaces, and connections.
 
 use crate::errors::WinkitError;
 use crate::permissions::Capability;
@@ -16,7 +15,12 @@ pub async fn list_listening_ports_handler(
     let limit = clamp_limit(optional_usize(&args, "limit"), max);
     let ports = state.windows.list_listening_ports(limit)?;
     let count = ports.len();
-    Ok(json!({ "ports": ports, "count": count, "truncated": count == limit }))
+    Ok(crate::tools::list_envelope(
+        "ports",
+        json!(ports),
+        count,
+        limit,
+    ))
 }
 
 pub fn list_listening_ports_definition() -> ToolDefinition {
@@ -41,15 +45,16 @@ pub async fn find_process_on_port_handler(
     state: Arc<AppState>,
     args: Value,
 ) -> Result<Value, WinkitError> {
-    let port = crate::tools::optional_u32(&args, "port")
-        .and_then(|p| u16::try_from(p).ok())
-        .filter(|p| *p != 0)
-        .ok_or_else(|| WinkitError::invalid_argument("'port' must be an integer in 1..=65535"))?;
+    let port = crate::tools::parse_port(&args, "port")?;
     match state.windows.find_process_on_port(port)? {
-        Some(info) => Ok(json!({ "port": info })),
-        None => Ok(
-            json!({ "port": port, "message": format!("no process is listening on port {port}") }),
-        ),
+        Some(info) => Ok(json!({ "port": info, "found": true, "port_number": port })),
+        None => Ok(json!({
+            "port": port,
+            "port_number": port,
+            "found": false,
+            "process": null,
+            "message": format!("no process is listening on port {port}")
+        })),
     }
 }
 
@@ -77,7 +82,12 @@ pub async fn list_network_interfaces_handler(
 ) -> Result<Value, WinkitError> {
     let interfaces = state.windows.list_network_interfaces()?;
     let count = interfaces.len();
-    Ok(json!({ "interfaces": interfaces, "count": count }))
+    Ok(crate::tools::list_envelope(
+        "interfaces",
+        json!(interfaces),
+        count,
+        count,
+    ))
 }
 
 pub fn list_network_interfaces_definition() -> ToolDefinition {
@@ -99,7 +109,12 @@ pub async fn list_connections_handler(
     let limit = clamp_limit(optional_usize(&args, "limit"), max);
     let connections = state.windows.list_connections(limit)?;
     let count = connections.len();
-    Ok(json!({ "connections": connections, "count": count, "truncated": count == limit }))
+    Ok(crate::tools::list_envelope(
+        "connections",
+        json!(connections),
+        count,
+        limit,
+    ))
 }
 
 pub fn list_connections_definition() -> ToolDefinition {

@@ -1,37 +1,13 @@
-//! Chrome tab inspection tools: performance, memory, network, runtime, and
-//! the combined `chrome_diagnose_tab` (§29-§33).
+//! Chrome tab inspection: performance, memory, network, runtime, and diagnostics.
 
 use crate::config::Config;
 use crate::errors::WinkitError;
 use crate::permissions::Capability;
-use crate::providers::applications::ApplicationProvider;
 use crate::server::AppState;
+use crate::tools::chrome::{chrome_provider, chrome_timeout, tab_id_schema};
 use crate::tools::{optional_u64, required_string, wrap, ToolDefinition};
 use serde_json::{json, Value};
 use std::sync::Arc;
-
-fn chrome_provider(state: &AppState) -> Result<&dyn ApplicationProvider, WinkitError> {
-    state.applications.get("chrome").ok_or_else(|| {
-        WinkitError::provider_unavailable(
-            "the chrome provider is not enabled in this configuration",
-        )
-    })
-}
-
-fn chrome_timeout(config: &Config) -> Option<u64> {
-    Some(config.chrome.operation_timeout_ms)
-}
-
-fn tab_id_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "tab_id": { "type": "string", "description": "Tab target id (from chrome_list_tabs) or exact URL." },
-        },
-        "required": ["tab_id"],
-        "additionalProperties": false,
-    })
-}
 
 pub async fn chrome_get_tab_performance_handler(
     state: Arc<AppState>,
