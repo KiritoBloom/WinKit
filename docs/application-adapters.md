@@ -1,4 +1,4 @@
-# Application Adapters
+﻿# Application Adapters
 
 Application adapters give WinKit deep, structured visibility into user-facing
 applications. The first adapter is Chrome (deep tab inspection over CDP).
@@ -20,7 +20,7 @@ pub trait ApplicationProvider: Send + Sync {
     fn state(&self) -> ApplicationState;   // cheap, re-evaluated availability
     fn info(&self) -> BoxFuture<Result<ApplicationInfo, WinkitError>>;
 
-    // Capability dispatch — default implementations return
+    // Capability dispatch - default implementations return
     // `UnsupportedCapability`; override what you implement:
     fn list_tabs(&self) -> BoxFuture<Result<Vec<TabInfo>, WinkitError>>;
     fn get_tab(&self, tab_id: &str) -> BoxFuture<Result<TabInfo, WinkitError>>;
@@ -47,7 +47,7 @@ Key design rules:
   surface this so agents never assume a browser is inspectable.
 - **Cross-layer diagnostics get the Windows backend.** `tab_diagnostics`
   receives `&dyn WindowsBackend` so an adapter can correlate application
-  state with OS-level evidence (e.g. Chrome process memory) — always through
+  state with OS-level evidence (e.g. Chrome process memory) - always through
   the trait, never Win32 directly.
 
 ## Registration
@@ -56,8 +56,8 @@ Adapters register in two registries built by `AppState::build`
 (`src/server/mod.rs`):
 
 ```rust
-providers.register(&chrome);      // ProviderRegistry — metadata for system_info
-applications.register(chrome);    // ApplicationRegistry — capability-bearing adapter
+providers.register(&chrome);      // ProviderRegistry - metadata for system_info
+applications.register(chrome);    // ApplicationRegistry - capability-bearing adapter
 ```
 
 Provider activation is config-driven: `[providers] enabled = ["chrome"]`.

@@ -1,4 +1,4 @@
-# MCP Integration
+﻿# MCP Integration
 
 WinKit speaks the Model Context Protocol over stdio: it is launched by an MCP
 client as a subprocess, and all protocol traffic flows as newline-delimited
@@ -15,7 +15,7 @@ stays protocol-clean.
 
 ### Via npm (recommended)
 
-WinKit ships as two npm packages — `@winkit/mcp` (launcher) and
+WinKit ships as two npm packages - `@winkit/mcp` (launcher) and
 `@winkit/win32-x64-msvc` (Windows x64 native runtime, pulled in as an
 optional dependency). The launcher spawns the native binary directly (no
 shell, no install scripts) and inherits stdio, so the MCP protocol flows
@@ -64,7 +64,7 @@ The standard launch is npx-based, so no manual binary path is needed.
 }
 ```
 
-The `timeout.startup` (default is often 5000 ms) is the time opencode waits for the `initialize` handshake. On Windows with Defender or a cold npm cache the first launch can take 5–10 s — raise it to `15000` if you see intermittent `operation timeout` / `MCP startup timed out` errors. `catalog` covers `tools/list`. See [examples/mcp/opencode.json](../examples/mcp/opencode.json).
+The `timeout.startup` (default is often 5000 ms) is the time opencode waits for the `initialize` handshake. On Windows with Defender or a cold npm cache the first launch can take 5–10 s - raise it to `15000` if you see intermittent `operation timeout` / `MCP startup timed out` errors. `catalog` covers `tools/list`. See [examples/mcp/opencode.json](../examples/mcp/opencode.json).
 
 ### Claude Code
 

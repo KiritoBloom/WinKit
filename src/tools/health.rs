@@ -14,9 +14,10 @@ use crate::diagnostics::findings::{
 };
 use crate::errors::WinkitError;
 use crate::models::{
-    ApplicationGroupInfo, DriveHealth, DriveInfo, HealthIssue, ResourceSnapshot, SystemAppEvidence,
-    SystemBatteryEvidence, SystemDiagnosticData, SystemDriveEvidence, SystemHealth,
-    SystemHealthReport, SystemStorageHealthEvidence, SystemThermalEvidence, SystemWifiEvidence,
+    ApplicationGroupInfo, DriveHealth, DriveInfo, HealthIssue, ResourceSnapshot, SensorKind,
+    SystemAppEvidence, SystemBatteryEvidence, SystemDiagnosticData, SystemDriveEvidence,
+    SystemHealth, SystemHealthReport, SystemStorageHealthEvidence, SystemThermalEvidence,
+    SystemWifiEvidence,
 };
 use crate::permissions::Capability;
 use crate::server::AppState;
@@ -49,7 +50,10 @@ pub fn build_health_report(
                 layer: "application".into(),
                 subject: g.display_name.clone(),
                 kind: "high_cpu".into(),
-                value: format!("{cpu:.1}% of system CPU capacity"),
+                value: format!(
+                    "{cpu:.1}% of system CPU capacity across {} processes (tree-inclusive)",
+                    g.tree_process_count
+                ),
                 threshold: format!(">= {:.0}% of system CPU capacity", config.high_cpu_percent),
                 score,
                 category: "app_cpu".into(),
@@ -64,10 +68,15 @@ pub fn build_health_report(
                 subject: g.display_name.clone(),
                 kind: "high_memory".into(),
                 value: format!(
-                    "{} MB total working set",
-                    g.total_working_set_bytes / (1024 * 1024)
+                    "{:.1} GB tree ({} MB own) across {} processes — tree-inclusive working set",
+                    g.total_working_set_bytes as f64 / 1e9,
+                    g.own_working_set_bytes / (1024 * 1024),
+                    g.tree_process_count
                 ),
-                threshold: format!(">= {} MB", config.high_memory_bytes / (1024 * 1024)),
+                threshold: format!(
+                    ">= {} MB tree working set",
+                    config.high_memory_bytes / (1024 * 1024)
+                ),
                 score,
                 category: "app_memory".into(),
                 severity: severity.into(),
@@ -261,6 +270,7 @@ pub async fn system_diagnose_handler(
                     .sensors
                     .iter()
                     .filter(|s| s.availability.is_available())
+                    .filter(|s| s.kind == SensorKind::Temperature)
                     .filter(|s| {
                         matches!(
                             s.class,
@@ -592,6 +602,74 @@ mod tests {
             .possible_causes
             .iter()
             .any(|c| c.hypothesis.contains("storage pressure")));
+    }
+
+    #[test]
+    fn thermal_sensor_filter_ignores_frequency_clock_rate() {
+        use crate::models::{
+            SensorClass, SensorKind, SensorQuality, SensorReading, SensorSource,
+            ThermalSnapshot, ThermalStateSummary,
+        };
+        let thermal = ThermalSnapshot {
+            status: "ok".into(),
+            timestamp: "2026-08-20T07:33:11Z".into(),
+            duration_ms: 15,
+            sensors: vec![
+                SensorReading::available(
+                    "thermal_zone-CPUZ",
+                    "Thermal zone CPUZ",
+                    SensorClass::CpuPackage,
+                    SensorKind::Temperature,
+                    "CPUZ",
+                    82.9,
+                    "temperature_c",
+                    SensorSource::PerformanceCounter,
+                    SensorQuality::High,
+                    None,
+                    None,
+                ),
+                SensorReading::available(
+                    "cpu_frequency",
+                    "CPU current frequency",
+                    SensorClass::CpuPackage,
+                    SensorKind::ClockRate,
+                    "cpu_package",
+                    3194.8,
+                    "mhz",
+                    SensorSource::PerformanceCounter,
+                    SensorQuality::Medium,
+                    None,
+                    Some(2712.0),
+                ),
+            ],
+            thermal_state: ThermalStateSummary {
+                cpu_thermal_pressure: "low".into(),
+                cpu_throttling: "not_observed".into(),
+                cpu_frequency_reduced: Some(false),
+                gpu_thermal_pressure: "unknown".into(),
+                ..ThermalStateSummary::default()
+            },
+            completeness: "limited".into(),
+            unavailable: vec![],
+            warnings: vec![],
+        };
+        let mut temps: Vec<f64> = thermal
+            .sensors
+            .iter()
+            .filter(|s| s.availability.is_available())
+            .filter(|s| s.kind == SensorKind::Temperature)
+            .filter(|s| {
+                matches!(
+                    s.class,
+                    crate::models::SensorClass::CpuPackage | crate::models::SensorClass::CpuCore
+                )
+            })
+            .filter_map(|s| s.value)
+            .collect();
+        temps.sort_by(|a, b| a.total_cmp(b));
+        let cpu_temp = temps.last().copied();
+        assert_eq!(cpu_temp, Some(82.9));
+        assert_ne!(cpu_temp, Some(3194.8), "frequency must never be mistaken for temperature");
     }
 
     fn cfg_default() -> HealthConfig {

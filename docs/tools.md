@@ -1,4 +1,4 @@
-# Tool Reference
+﻿# Tool Reference
 
 WinKit registers 72 MCP tools: read-only Windows diagnostics (system,
 processes, network, storage, hardware, power) plus the approval-gated
@@ -10,8 +10,8 @@ filtered to the effective profile.
 
 Argument conventions:
 
-- `limit` — optional integer, clamped to the domain's configured maximum.
-- `tab_id` — a Chrome target id from `chrome_list_tabs`, or an exact URL.
+- `limit` - optional integer, clamped to the domain's configured maximum.
+- `tab_id` - a Chrome target id from `chrome_list_tabs`, or an exact URL.
 
 ## System
 
@@ -25,7 +25,7 @@ Arguments: none.
 ### `snapshot`
 
 A concise aggregate view of the machine: system, resources, top memory
-processes, drives, network ports, services, windows, and — when readable —
+processes, drives, network ports, services, windows, and - when readable -
 storage health, Wi-Fi, thermals, and power summaries.
 
 Arguments: none.
@@ -36,7 +36,7 @@ Arguments: none.
 
 Complete hardware snapshot: CPU, GPU, memory, storage devices, network
 adapters, battery, power state, and every sensor that could be read. Each
-unavailable reading is reported explicitly with a reason — never silently
+unavailable reading is reported explicitly with a reason - never silently
 omitted and never fabricated.
 
 Arguments: none.
@@ -138,7 +138,7 @@ Arguments: none.
 
 Connectivity diagnosis per interface: gateway reachability and latency
 (ICMP), Wi-Fi signal and link speed, plus structured findings. Never
-conflates Wi-Fi weakness with an "Internet broken" conclusion — the report
+conflates Wi-Fi weakness with an "Internet broken" conclusion - the report
 separates interface-level reachability from radio conditions.
 
 Arguments: `sample_window_ms` (default 1000, clamped to the operation
@@ -148,7 +148,7 @@ timeout).
 
 Wi-Fi adapter status: state (connected/disconnected), SSID, signal, RSSI,
 link speed, channel and band. Returns `{ "adapters": [...], "count": n }`.
-Not a scan — no radio probing.
+Not a scan - no radio probing.
 
 Arguments: none.
 
@@ -214,7 +214,7 @@ Semantics worth knowing:
 
 - **Size** is logical size (`EndOfFile`), matching Windows Explorer. On-disk
   allocated size (relevant for sparse/compressed files) is measured only for
-  materialized top-K results via a targeted handle query — it is never
+  materialized top-K results via a targeted handle query - it is never
   faked.
 - **Reparse points** (junctions, symlinks, cloud placeholders) are never
   followed: no cycles, no double counting, no escapes to other volumes.
@@ -226,10 +226,10 @@ Semantics worth knowing:
   1. the filesystem *is* NTFS (`filesystem`);
   2. the fast path *is implemented* for it (`scanner = ntfs_mft_fast` when
      it runs);
-  3. the fast path was *unavailable at runtime* — typically
+  3. the fast path was *unavailable at runtime* - typically
      `ERROR_ACCESS_DENIED` (Win32 error 5) on a `GENERIC_READ` volume
      open, which needs an elevated (administrator) token on modern
-     Windows — carried verbatim in `fast_path_unavailable`;
+     Windows - carried verbatim in `fast_path_unavailable`;
   4. the *fallback* was used (`scanner = recursive_fallback`).
   The MCP never claims the fast path ran when it did not.
 - **Fallback scope**: the recursive fallback walks the requested directory
@@ -238,7 +238,7 @@ Semantics worth knowing:
   root (`D:`, `D:\`) scans the whole volume, as documented. Results
   describe the scanned scope; `fast_path_unavailable` names the exact
   reason when a fallback happened.
-- **Fallback performance** — the fallback enumerates directories in parallel
+- **Fallback performance** - the fallback enumerates directories in parallel
   (workers pull from a shared queue; each directory is read with
   `FindFirstFileExW` plus `FIND_FIRST_EX_LARGE_FETCH`, so sizes, attributes,
   and timestamps arrive with the enumeration). A whole-volume fallback scan
@@ -246,7 +246,7 @@ Semantics worth knowing:
   (≈4.2 M entries, ≈544 K directories) it takes roughly 100 seconds, versus
   about 18 minutes if the enumeration were serialized. Setting
   `WINKIT_FALLBACK_WALKER=jwalk` opts into the `jwalk` parallel walker (the
-  engine behind `dua-cli`) for comparison — it measured slower here, so it
+  engine behind `dua-cli`) for comparison - it measured slower here, so it
   is opt-in and never the default. The elevated MFT fast path remains the
   only scanner that completes a whole volume in seconds.
 - **Background lifecycle**: finished, failed, and cancelled scans are
@@ -282,7 +282,7 @@ for `disk_scan_status` / `disk_scan_cancel`.
 ### `disk_scan_largest_files`
 
 Largest files on the volume containing a path, or under that path when it
-is a directory. Uses a bounded top-K heap — never a full sort. A snapshot
+is a directory. Uses a bounded top-K heap - never a full sort. A snapshot
 is scanned automatically on first use.
 
 Arguments: `path` (required), `limit`, `min_size_mb`, `extensions`.
@@ -322,7 +322,7 @@ Arguments: `limit` (default: `max_services`).
 Detailed read-only information about one Windows service by name, including
 binary path and start type.
 
-Arguments: `name` (required) — service name (e.g. `Spooler`) or display name.
+Arguments: `name` (required) - service name (e.g. `Spooler`) or display name.
 
 ## Events
 
@@ -371,12 +371,12 @@ Crash history grouped by category: `bugcheck` (WER-SystemErrorReporting
 .NET Runtime 1026), and `wer_report` (WER 1001). Each crash carries its
 category, event id, provider, timestamp, record id, and rendered message.
 A `bugcheck_code` is included only when the 1001 message actually carries one
-— never inferred or synthesized.
+- never inferred or synthesized.
 
 Arguments: `since_minutes` (default 43200 = 30 days, clamped to 90 days),
 `max_results` (per-query cap, defaults to the configured event limit).
 
-Each category block reports `truncated` — `true` when any query feeding that
+Each category block reports `truncated` - `true` when any query feeding that
 category returned exactly `max_results` events, meaning more events may exist
 beyond the window. The top-level `truncated` flag is `true` when any category
 is truncated.
@@ -396,7 +396,7 @@ initiated shutdowns and restarts (User32 1074), power losses (Kernel-Power
 The 6005/6006/6008/6013 markers are matched under the `EventLog` provider
 (the name Windows uses for its own Event Log service). The `summary` includes
 per-category counts, per-category `truncated` flags (same convention as
-`crash_history`), and `last_shutdown_kind` — the newest shutdown-class event
+`crash_history`), and `last_shutdown_kind` - the newest shutdown-class event
 that precedes the newest boot in the window, or `null` when there is no such
 evidence.
 
@@ -465,8 +465,8 @@ Arguments: `id` (required).
 
 ## Chrome
 
-All Chrome tools require the Chrome provider to be enabled and — except
-`chrome_info` — a reachable DevTools endpoint. Chrome must be launched with
+All Chrome tools require the Chrome provider to be enabled and - except
+`chrome_info` - a reachable DevTools endpoint. Chrome must be launched with
 `--remote-debugging-port` (see [chrome.md](chrome.md)).
 
 ### `chrome_info`
@@ -540,7 +540,7 @@ Time-series view of one Chrome tab. Samples JS heap plus script and long-task
 deltas every `trend_sample_interval_ms` (default 2 s) across an observation
 window, then reduces the series to what changed: start/end heap, growth in
 bytes, growth rate, a `sustained_growth` flag (repeated upward movement with
-growth still happening at the end — not a single spike), and a deterministic
+growth still happening at the end - not a single spike), and a deterministic
 evidence-based report that includes the `sustained_heap_growth` signal when
 the rate crosses its threshold. Network and runtime activity are **not**
 measured during trend sampling; the report says so in its limitations.
@@ -554,7 +554,7 @@ between 2000 and `trend_max_ms`).
 
 One-call answer to "what is currently unhealthy on this machine". Groups
 running processes by executable, aggregates each group's memory and a
-two-sample CPU percent (basis: `system_capacity_all_cores` — 100% means all
+two-sample CPU percent (basis: `system_capacity_all_cores` - 100% means all
 logical processors fully busy), adds system memory pressure and drive free
 space, and applies configured thresholds (`[health]` section) to emit an
 explicit `issues` list. Every issue carries a deterministic `score` (0-100),
@@ -572,8 +572,8 @@ One-call answer to "why is my computer unhealthy". Collects machine evidence
 (application groups, drives, memory, a system memory-growth rate from two
 samples ~1 s apart) plus hardware evidence (thermal pressure, throttling,
 storage health, battery health, Wi-Fi signal) and runs it through the
-diagnostic engine. Returns `diagnosis.findings` — ranked findings with
-deterministic scores, severities, and the measurements backing each one —
+diagnostic engine. Returns `diagnosis.findings` - ranked findings with
+deterministic scores, severities, and the measurements backing each one -
 plus `diagnosis.checked_clean`, the dimensions that were measured and found
 healthy ("no evidence of ..."). The same evidence-first report shape as tab
 diagnosis applies: `measurements`, `signals`, `possible_causes` are separate
@@ -617,8 +617,8 @@ Samples are scheduled on absolute times from the start of the observation:
 sample *i* targets `i * interval_ms`, so a slow measurement delays later
 samples but never compounds drift. Every `elapsed_ms` is the real time at
 which that measurement finished (a fast measurement may therefore be stamped
-near 0 ms — the value is honest, not a fixed schedule offset). Sampling stops
-at the absolute `window_ms` deadline and never busy-waits — if a target has
+near 0 ms - the value is honest, not a fixed schedule offset). Sampling stops
+at the absolute `window_ms` deadline and never busy-waits - if a target has
 already passed, the next sample is taken immediately and the overrun is
 reported once. A measurement already in flight when the deadline expires is
 allowed to finish and is recorded with its real elapsed time; the deadline

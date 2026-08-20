@@ -33,11 +33,18 @@ pub async fn list_applications_handler(
         }
     }
     let count = applications.len();
+    let hint = if count == 0 {
+        Some("No application adapters are registered — currently only Chrome is adapter-wrapped. For OS-level per-application memory/CPU (explorer, Chrome, Node, etc.) use system_health or system_diagnose.")
+    } else {
+        None
+    };
     Ok(json!({
         "applications": applications,
         "count": count,
         "truncated": false,
         "providers": state.providers.all().iter().map(|p| p.id.clone()).collect::<Vec<_>>(),
+        "note": "Application adapters are deep Chrome integrations (tabs, performance, memory). For all running Windows process groups by executable, use system_health / system_diagnose.",
+        "hint": hint,
     }))
 }
 
@@ -45,7 +52,7 @@ pub fn list_applications_definition() -> ToolDefinition {
     ToolDefinition {
         name: "list_applications",
         description:
-            "List registered application adapters with their availability state and capabilities.",
+            "List registered application adapters (currently Chrome) with availability and capabilities. This is NOT the Windows process-group list — for per-executable memory/CPU groups (explorer, Chrome, Spotify, Node, etc.) use system_health or system_diagnose.",
         input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         capability: Some(Capability::ApplicationDiscover),
         timeout_ms: None,

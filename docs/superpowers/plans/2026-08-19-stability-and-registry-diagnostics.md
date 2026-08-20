@@ -1,4 +1,4 @@
-# Crash History, Shutdown Analysis, and Registry Diagnostics Implementation Plan
+﻿# Crash History, Shutdown Analysis, and Registry Diagnostics Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -32,7 +32,7 @@
 - Modify: `src/models/mod.rs:8-21` (module list) and `:58-61` (re-export list)
 
 **Interfaces:**
-- Produces: `SystemIdentity`, `StartupProgram`, `InstalledSoftware`, `RegistryCounts`, `RegistryDiagnostics` — plain serde data structs used by Task 3 (platform reader), Task 4 (backend/mock), and Task 8 (tool).
+- Produces: `SystemIdentity`, `StartupProgram`, `InstalledSoftware`, `RegistryCounts`, `RegistryDiagnostics` - plain serde data structs used by Task 3 (platform reader), Task 4 (backend/mock), and Task 8 (tool).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -174,7 +174,7 @@ git commit -m "feat: add registry diagnostics models"
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `pub fn parse_rfc3339_epoch_secs(s: &str) -> Option<u64>` — parses the exact timestamps `format_rfc3339` produces (`YYYY-MM-DDTHH:MM:SS.mmmZ`) back into Unix epoch seconds. Used by Task 4 (mock `since_minutes` filter).
+- Produces: `pub fn parse_rfc3339_epoch_secs(s: &str) -> Option<u64>` - parses the exact timestamps `format_rfc3339` produces (`YYYY-MM-DDTHH:MM:SS.mmmZ`) back into Unix epoch seconds. Used by Task 4 (mock `since_minutes` filter).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -333,7 +333,7 @@ mod tests {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cargo test --features mocks platform::windows::registry`
-Expected: FAIL — module `registry` not registered in `platform/windows/mod.rs`.
+Expected: FAIL - module `registry` not registered in `platform/windows/mod.rs`.
 
 - [ ] **Step 3: Write the module implementation**
 
@@ -793,7 +793,7 @@ In `src/providers/windows.rs`:
 
 - [ ] **Step 2: Write the failing mock tests**
 
-Append to `src/providers/mock.rs` a test module (it does not exist yet — create one) that drives the mock `get_recent_events` filters and the `registry_diagnostics` projection:
+Append to `src/providers/mock.rs` a test module (it does not exist yet - create one) that drives the mock `get_recent_events` filters and the `registry_diagnostics` projection:
 
 ```rust
 #[cfg(test)]
@@ -879,7 +879,7 @@ mod tests {
 - [ ] **Step 3: Run tests to verify they fail**
 
 Run: `cargo test --features mocks providers::mock`
-Expected: FAIL — trait method missing, `events` field collisions, or `registry` field missing.
+Expected: FAIL - trait method missing, `events` field collisions, or `registry` field missing.
 
 - [ ] **Step 4: Add the mock struct field, fixture, filter fix, and impl**
 
@@ -891,7 +891,7 @@ In `src/providers/mock.rs`:
     pub registry: RegistryDiagnostics,
 ```
 
-2. In `with_fixtures()`, add a `registry:` entry to the `Self { ... }` literal (after the existing `events: vec![EventInfo { ... }],` entry — the events entry stays exactly as it is today):
+2. In `with_fixtures()`, add a `registry:` entry to the `Self { ... }` literal (after the existing `events: vec![EventInfo { ... }],` entry - the events entry stays exactly as it is today):
 
 ```rust
             registry: RegistryDiagnostics {
@@ -1072,7 +1072,7 @@ Append to the `#[cfg(test)]` module in `src/permissions/policy.rs`:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --features mocks permissions::policy`
-Expected: FAIL — `allows(RegistryRead)` is false today because `RegistryRead` is not in `V1_READ_CAPABILITIES` (and `is_v1_read_capability` fails closed).
+Expected: FAIL - `allows(RegistryRead)` is false today because `RegistryRead` is not in `V1_READ_CAPABILITIES` (and `is_v1_read_capability` fails closed).
 
 - [ ] **Step 3: Promote the capability**
 
@@ -1240,7 +1240,7 @@ mod tests {
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --features mocks tools::stability`
-Expected: FAIL with "module `stability` not found" (module not registered yet — see Step 4).
+Expected: FAIL with "module `stability` not found" (module not registered yet - see Step 4).
 
 - [ ] **Step 3: Implement the crash_history half**
 
@@ -1372,7 +1372,7 @@ struct CrashEntry {
 
 /// Extract the bugcheck code from the rendered BugCheck-1001 message
 /// ("The bugcheck was: 0xNNNNNNNN (...)"). Returns `None` when the message
-/// is absent or does not carry a code — never fabricated.
+/// is absent or does not carry a code - never fabricated.
 pub fn extract_bugcheck_code(message: Option<&str>) -> Option<String> {
     let text = message?;
     let marker = "The bugcheck was:";
@@ -1504,7 +1504,7 @@ pub fn crash_history_definition() -> ToolDefinition {
 
 - [ ] **Step 4: Register the module in `tools/mod.rs`**
 
-Add `pub mod stability;` to the `src/tools/mod.rs` module list (alphabetical: after `services`, before `storage`). Do NOT register the tool definitions or profile entries yet — that is Task 9.
+Add `pub mod stability;` to the `src/tools/mod.rs` module list (alphabetical: after `services`, before `storage`). Do NOT register the tool definitions or profile entries yet - that is Task 9.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -1586,7 +1586,7 @@ Append to the test module in `src/tools/stability.rs`:
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test --features mocks tools::stability`
-Expected: FAIL — `shutdown_analysis_handler` not found.
+Expected: FAIL - `shutdown_analysis_handler` not found.
 
 - [ ] **Step 3: Implement the shutdown half**
 
@@ -1944,7 +1944,7 @@ git commit -m "feat: registry_diagnostics tool"
 ### Task 9: Register the Three Tools in the Registry
 
 **Files:**
-- Modify: `src/tools/mod.rs` — `build()` (`:202-286`), `tool_profiles()` (`:61-145`), `EXPECTED_TOOLS` (`:509-579`), `profile_exposed_tool_counts_are_exact` (`:647-666`)
+- Modify: `src/tools/mod.rs` - `build()` (`:202-286`), `tool_profiles()` (`:61-145`), `EXPECTED_TOOLS` (`:509-579`), `profile_exposed_tool_counts_are_exact` (`:647-666`)
 
 **Interfaces:**
 - Consumes: `crash_history_definition`, `shutdown_analysis_definition` (Tasks 6-7), `registry_diagnostics_definition` (Task 8).
@@ -1953,7 +1953,7 @@ git commit -m "feat: registry_diagnostics tool"
 - [ ] **Step 1: Run the failing integrity test**
 
 Run: `cargo test --features mocks tools::mod`
-Expected: FAIL — `EXPECTED_TOOLS` diverges (three names missing) and `profile_exposed_tool_counts_are_exact` reports 52/55/69 instead of the new counts.
+Expected: FAIL - `EXPECTED_TOOLS` diverges (three names missing) and `profile_exposed_tool_counts_are_exact` reports 52/55/69 instead of the new counts.
 
 - [ ] **Step 2: Register the definitions**
 
@@ -1970,7 +1970,7 @@ And after the `windows::list_windows_definition()` registration add:
         registry.register(registry::registry_diagnostics_definition());
 ```
 
-The path `registry::` resolves to the `pub mod registry;` child module declared at the top of `src/tools/mod.rs` — no import or alias is needed, and it does not collide with the `ToolRegistry.registry` field (that is accessed via `self.`).
+The path `registry::` resolves to the `pub mod registry;` child module declared at the top of `src/tools/mod.rs` - no import or alias is needed, and it does not collide with the `ToolRegistry.registry` field (that is accessed via `self.`).
 
 - [ ] **Step 3: Add the profile entries**
 
@@ -2026,7 +2026,7 @@ git commit -m "feat: register crash_history, shutdown_analysis, registry_diagnos
 - Modify (count sweep only): `README.md:38`, `docs/installation.md:90`, `docs/mcp-integration.md:104-105`, `docs/performance.md:15`, `docs/release.md:82`
 
 **Interfaces:**
-- Consumes: nothing — this documents the tools built in Tasks 6-9.
+- Consumes: nothing - this documents the tools built in Tasks 6-9.
 
 - [ ] **Step 1: Update `docs/tools.md`**
 
@@ -2132,7 +2132,7 @@ absent means enabled). Caller-supplied registry paths are not accepted.
 - [ ] **Step 3: Update `docs/architecture.md`**
 
 1. Line 140-141: `14 read capabilities are implemented in v1` → `15 read capabilities are implemented in v1`.
-2. Line 12: `(59 tool definitions + ...)` → `(72 tool definitions + ...)`. (`README.md:228` has the identical `(59 tool definitions ...)` line — update it too.)
+2. Line 12: `(59 tool definitions + ...)` → `(72 tool definitions + ...)`. (`README.md:228` has the identical `(59 tool definitions ...)` line - update it too.)
 3. In the `### platform/windows/` section (after the `services.rs` line), add:
 
 ```markdown
@@ -2169,10 +2169,10 @@ Replace the empty `## [Unreleased]` section:
 
 ### Added
 
-- **`crash_history` tool** — BSOD/crash history from the event logs: bugchecks (BugCheck 1001), unclean shutdowns (Kernel-Power 41), hardware errors (WHEA-Logger 18/19/20), application crashes, and Windows Error Reporting events, with bugcheck codes extracted from the rendered message.
-- **`shutdown_analysis` tool** — boot/shutdown timeline (EventLog 6005/6006/6008/6013, User32 1074, Kernel-General 12/13, Kernel-Power 41/42/107) with last boot, current uptime, and a last-shutdown-kind summary.
-- **`registry_diagnostics` tool** — allowlist-only registry reads: OS identity, startup programs (with enabled/disabled state), and installed software.
-- **`registry.read` capability** — promoted from declared-but-never-granted to a v1 read capability, granted in `safe` and `read_only` modes.
+- **`crash_history` tool** - BSOD/crash history from the event logs: bugchecks (BugCheck 1001), unclean shutdowns (Kernel-Power 41), hardware errors (WHEA-Logger 18/19/20), application crashes, and Windows Error Reporting events, with bugcheck codes extracted from the rendered message.
+- **`shutdown_analysis` tool** - boot/shutdown timeline (EventLog 6005/6006/6008/6013, User32 1074, Kernel-General 12/13, Kernel-Power 41/42/107) with last boot, current uptime, and a last-shutdown-kind summary.
+- **`registry_diagnostics` tool** - allowlist-only registry reads: OS identity, startup programs (with enabled/disabled state), and installed software.
+- **`registry.read` capability** - promoted from declared-but-never-granted to a v1 read capability, granted in `safe` and `read_only` modes.
 ```
 
 - [ ] **Step 7: Run the count sweep**
@@ -2189,7 +2189,7 @@ Update the hard-coded tool counts to the new values (72 full / 55 developer / 58
 - `CONTRIBUTING.md:53` `registry (69 tools)` → `registry (72 tools)`
 - `skills/winkit-developer-debugging/SKILL.md:117` `full is the complete v1 tool set (69 tools)` → `(72 tools)`
 
-`CHANGELOG.md:161` ("The registry is now 69 tools") is a historical entry for a past release — do NOT change it.
+`CHANGELOG.md:161` ("The registry is now 69 tools") is a historical entry for a past release - do NOT change it.
 
 - [ ] **Step 8: Commit**
 
@@ -2221,7 +2221,7 @@ Expected: all tests PASS, including the integrity tests (`registry_builds_every_
 
 - [ ] **Step 4: Check for stale tool-count references**
 
-Run: `Select-String -Path "README.md","docs\*.md","CONTRIBUTING.md","skills\winkit-developer-debugging\SKILL.md" -Pattern "69 tools|52 in the default|52 tools|55 in|all 69|59 tool definitions"` — the only remaining matches should be intentional historical notes (e.g. in `release.md` and `CHANGELOG.md` describing a past release). If a *current-state* count is still wrong, fix it.
+Run: `Select-String -Path "README.md","docs\*.md","CONTRIBUTING.md","skills\winkit-developer-debugging\SKILL.md" -Pattern "69 tools|52 in the default|52 tools|55 in|all 69|59 tool definitions"` - the only remaining matches should be intentional historical notes (e.g. in `release.md` and `CHANGELOG.md` describing a past release). If a *current-state* count is still wrong, fix it.
 
 - [ ] **Step 5: Commit any stragglers**
 

@@ -1,8 +1,8 @@
-# Installation
+﻿# Installation
 
 WinKit is a read-only, local-first Windows observability MCP server. It runs as
 a stdio subprocess launched by an MCP client (OpenCode, Claude Code, or any MCP
-host). There are two installation paths: **npm** (recommended for end users —
+host). There are two installation paths: **npm** (recommended for end users -
 no Rust toolchain needed) and **build from source** (for contributors and
 anyone tracking `main`). Both end with the same thing: a `winkit` process the
 MCP client spawns. This page walks the whole path: install, smoke test,
@@ -13,7 +13,7 @@ configuration, Chrome deep inspection, client setup, and troubleshooting.
 WinKit ships as two npm packages: `@winkit/mcp` (a thin Node launcher) and
 `@winkit/win32-x64-msvc` (the Windows x64 native runtime, pulled in as an
 optional dependency). The launcher resolves the native binary and spawns it
-directly with an argument array — no shell, no install scripts, no browser-
+directly with an argument array - no shell, no install scripts, no browser-
 automation dependencies. The native executable is an implementation detail;
 you never handle `winkit.exe` by hand.
 
@@ -87,8 +87,8 @@ after `initialize` to complete the handshake; it is not needed for this check.)
 ```
 
 WinKit exits when stdin closes. If you see an `initialize` result and a
-`tools/list` result listing the tools of the active profile — 55 tools with
-the default `developer` profile, 72 with `full` — the binary is ready.
+`tools/list` result listing the tools of the active profile - 55 tools with
+the default `developer` profile, 72 with `full` - the binary is ready.
 
 ## One-shot install into installed AI agents
 
@@ -122,7 +122,7 @@ added, and everything else is left byte-for-byte untouched. Before writing,
 the original file is preserved as a timestamped `.bak` sibling; if the write
 fails the original is restored from that backup. An existing WinKit entry is
 reported as already registered and never overwritten. A runtime whose config
-file cannot be parsed is skipped with a reason — WinKit never guesses.
+file cannot be parsed is skipped with a reason - WinKit never guesses.
 
 ## Configuration
 
@@ -133,7 +133,7 @@ the standard limits.
 
 Configuration is resolved in this order (`src/config/loader.rs`):
 
-1. `winkit --config <path>` — explicit command-line flag (also
+1. `winkit --config <path>` - explicit command-line flag (also
    `--config=<path>`).
 2. `WIN_KIT_CONFIG` environment variable pointing at a file.
 3. `./winkit.toml` or `./config/winkit.toml` in the working directory.
@@ -163,7 +163,7 @@ fallback_port = 9222
 auto_connect = true
 ```
 
-Every key above is optional — omit what you do not need. A fully commented
+Every key above is optional - omit what you do not need. A fully commented
 example with every key and its default lives in
 [config/example.toml](../config/example.toml), and the complete reference is
 [docs/configuration.md](configuration.md).
@@ -171,7 +171,7 @@ example with every key and its default lives in
 Unknown keys are rejected, not ignored: `deny_unknown_fields` is set on every
 section, so a typo (`log_levels` instead of `log_level`) fails startup with a
 clear message on stderr. An invalid permission mode also fails startup. An
-invalid `log_level` is the one lenient case — it falls back to `info`.
+invalid `log_level` is the one lenient case - it falls back to `info`.
 
 ## Chrome deep inspection setup
 
@@ -180,7 +180,7 @@ diagnosing local web apps) need no manual setup: WinKit spawns its own
 isolated Chrome with a throwaway profile and a loopback-only DevTools
 endpoint when `[chrome.managed] enabled = true` and the permission mode
 allows it (see [docs/chrome.md](chrome.md)). **Inspecting an already-running
-Chrome** needs the browser launched with remote debugging enabled — the rest
+Chrome** needs the browser launched with remote debugging enabled - the rest
 of this section covers that.
 
 Launch Chrome with the debugging port and a dedicated profile:
@@ -274,7 +274,7 @@ For a locally built binary instead of npx, replace the command with the
 absolute path to `winkit.exe` (for example
 `C:\dev\WinKit\target\release\winkit.exe`) and optionally add
 `["--config", "C:\\path\\to\\winkit.toml"]` as args. The config file is
-optional in every snippet — without it WinKit runs on its documented
+optional in every snippet - without it WinKit runs on its documented
 defaults. After the client connects, `initialize` completes the handshake,
 `tools/list` returns the tools of the active profile with their JSON schemas,
 and each `tools/call` is enforced by the permission policy for the session.
@@ -284,17 +284,17 @@ The full protocol contract is in [docs/mcp-integration.md](mcp-integration.md).
 
 | Symptom | Likely cause and fix |
 | --- | --- |
-| The client reports it cannot start `winkit` | With npx, Node.js must be installed and on `PATH`. When launching the binary directly instead, the binary is not on `PATH` — use the absolute path to `winkit.exe` (for example `C:\dev\WinKit\target\release\winkit.exe`) in the client config. |
-| `chrome_info` reports `running` / `endpoint_unavailable` | Chrome was launched without `--remote-debugging-port`, or the port you chose differs from `[chrome] fallback_port`. Relaunch Chrome with the flag on the matching port. Chrome already running against the same profile silently ignores the flag — use a dedicated `--user-data-dir` and restart it. |
+| The client reports it cannot start `winkit` | With npx, Node.js must be installed and on `PATH`. When launching the binary directly instead, the binary is not on `PATH` - use the absolute path to `winkit.exe` (for example `C:\dev\WinKit\target\release\winkit.exe`) in the client config. |
+| `chrome_info` reports `running` / `endpoint_unavailable` | Chrome was launched without `--remote-debugging-port`, or the port you chose differs from `[chrome] fallback_port`. Relaunch Chrome with the flag on the matching port. Chrome already running against the same profile silently ignores the flag - use a dedicated `--user-data-dir` and restart it. |
 | Startup prints `error: invalid config ...` and exits | A config file was found but does not parse: a typo'd key (unknown keys are rejected), an invalid permission mode, or malformed TOML. The message names the file and the problem; fix the key or remove the file to fall back to defaults. |
-| Application tools return permission denied | The session runs in `safe` permission mode, which limits the server to Windows-level read tools — application adapters are discoverable but deep inspection is denied. Set `[permissions] mode = "read_only"` for all v1 read capabilities (see [docs/permissions.md](permissions.md)). |
+| Application tools return permission denied | The session runs in `safe` permission mode, which limits the server to Windows-level read tools - application adapters are discoverable but deep inspection is denied. Set `[permissions] mode = "read_only"` for all v1 read capabilities (see [docs/permissions.md](permissions.md)). |
 | Nothing appears on stdout when you run `winkit.exe` directly | Expected. Stdout is reserved for MCP frames only; all diagnostics and log output go to stderr. Run an MCP client against the binary, or pipe frames in as in the smoke test above, and check stderr for the startup log line. |
 
 ## Further reading
 
-- [README.md](../README.md) — overview, quick start, and tool surface
-- [docs/mcp-integration.md](mcp-integration.md) — protocol version, frame format, session lifecycle
-- [docs/configuration.md](configuration.md) — every config key and default
-- [docs/permissions.md](permissions.md) — modes, capabilities, policy table
-- [docs/chrome.md](chrome.md) — Chrome discovery, CDP, and caveats
-- [docs/security.md](security.md) — threat model and mitigations
+- [README.md](../README.md) - overview, quick start, and tool surface
+- [docs/mcp-integration.md](mcp-integration.md) - protocol version, frame format, session lifecycle
+- [docs/configuration.md](configuration.md) - every config key and default
+- [docs/permissions.md](permissions.md) - modes, capabilities, policy table
+- [docs/chrome.md](chrome.md) - Chrome discovery, CDP, and caveats
+- [docs/security.md](security.md) - threat model and mitigations

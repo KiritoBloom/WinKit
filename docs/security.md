@@ -1,4 +1,4 @@
-# Security
+﻿# Security
 
 WinKit's security model is the product: a local-first, read-only MCP server
 for Windows. This document describes the threat model, the invariants, and
@@ -27,8 +27,8 @@ honest about what it does.**
 ### 1. Read-only by default
 
 Every inspection tool performs reads only. The **only** actions WinKit can
-take are the managed-browser lifecycle tools — launching, navigating, and
-closing Chrome sessions that WinKit itself spawned — and even those are
+take are the managed-browser lifecycle tools - launching, navigating, and
+closing Chrome sessions that WinKit itself spawned - and even those are
 feature-gated, permission-gated, and scoped to WinKit-owned resources:
 
 - Action capabilities in the model (`filesystem.write`, `process.terminate`,
@@ -56,7 +56,7 @@ feature-gated, permission-gated, and scoped to WinKit-owned resources:
   **`headed-software` fallback** opens the same visible window with
   software rendering (`--disable-gpu --disable-gpu-compositing
   --disable-gpu-rasterization --use-angle=swiftshader
-  --disable-gpu-program-cache --disable-gpu-shader-disk-cache`) — it never
+  --disable-gpu-program-cache --disable-gpu-shader-disk-cache`) - it never
   becomes hidden or headless. **Headless** sessions (opt-in) render on the
   software path with safe fixed arguments: `headless-software` uses
   `--disable-gpu --disable-gpu-compositing --use-angle=swiftshader
@@ -66,10 +66,10 @@ feature-gated, permission-gated, and scoped to WinKit-owned resources:
   and never weaken a security boundary; forbidden flags (`--no-sandbox`,
   `--disable-web-security`, non-loopback debugging addresses) are never
   used.
-- A session is only `ready` after a stable interaction is proven — the
+- A session is only `ready` after a stable interaction is proven - the
   DevTools endpoint responds, a page target exists and is attachable, a CDP
   connection is established, `Browser.getVersion` succeeds, and (with a
-  URL) a page-level evaluation succeeds — all within the absolute startup
+  URL) a page-level evaluation succeeds - all within the absolute startup
   deadline, followed by a short quiescence period in which the browser
   process and page target must still be present (DevTools can become
   reachable moments before an intermittent GPU-process crash takes Chrome
@@ -78,10 +78,10 @@ feature-gated, permission-gated, and scoped to WinKit-owned resources:
   read-only Win32 calls: `EnumWindows`, `GetWindowThreadProcessId`,
   `IsWindowVisible`, `IsIconic`).
 - When a managed browser exits unexpectedly or must be force-killed, WinKit
-  reaps the owned process tree — the crashpad/GPU/utility/renderer children
+  reaps the owned process tree - the crashpad/GPU/utility/renderer children
   are matched by the exact canonical profile path in their command lines
   (a path-boundary match, so sibling profile names cannot collide) and
-  would otherwise linger forever on Windows and pin the profile — and
+  would otherwise linger forever on Windows and pin the profile - and
   removes the owned profile. Only processes referencing a WinKit-owned
   profile path are terminated and only canonical, session-named,
   contained directories are deleted; the user's normal Chrome and its
@@ -106,7 +106,7 @@ Anything not explicitly granted is denied:
 - Request before `initialize` → `-32002` server-not-initialized.
 - Unknown JSON-RPC method → `-32601`. Malformed JSON → `-32600`.
 - Oversized frame (> 8 MiB) → `-32700` parse error, never buffered.
-- `unrestricted` mode still only enables implemented reads — it cannot grant
+- `unrestricted` mode still only enables implemented reads - it cannot grant
   anything that does not exist.
 
 ### 3. No secret capture
@@ -138,7 +138,7 @@ Every broad query is capped:
   handlers truncate before returning.
 - `operation_timeout_ms` (30,000) and per-tool overrides (e.g. Chrome
   operations get `chrome.operation_timeout_ms`) kill slow calls.
-- Client-requested limits are clamped with `clamp_limit(requested, max)` —
+- Client-requested limits are clamped with `clamp_limit(requested, max)` -
   a client cannot ask for more than the cap.
 - Event queries take `since_minutes` and `max_results`; log reads are bounded.
 - `system_diagnose` is honest about gaps: a dimension that could not be
@@ -178,7 +178,7 @@ any browser session. Even in `unrestricted`, the managed browser only ever
 launches WinKit's own isolated Chrome with a throwaway profile and a
 loopback-only DevTools endpoint.
 
-## Chrome remote debugging — the one real caveat
+## Chrome remote debugging - the one real caveat
 
 Chrome deep inspection requires Chrome to run with
 `--remote-debugging-port`. A remote-debugging-enabled Chrome publishes a

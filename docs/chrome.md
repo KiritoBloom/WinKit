@@ -1,4 +1,4 @@
-# Chrome Adapter
+﻿# Chrome Adapter
 
 The Chrome adapter is WinKit's first deep application adapter. It connects to
 a running Chrome instance over the Chrome DevTools Protocol (CDP) and exposes
@@ -43,10 +43,10 @@ adapter says so instead of pretending.
 
 ## Connection model
 
-- `src/providers/applications/chrome/cdp.rs` — the CDP client: WebSocket
+- `src/providers/applications/chrome/cdp.rs` - the CDP client: WebSocket
   transport (tokio-tungstenite), JSON-RPC-style command/response over the
   session, and event handling.
-- `src/providers/applications/chrome/session.rs` — per-tab sessions that
+- `src/providers/applications/chrome/session.rs` - per-tab sessions that
   subscribe to the domains the inspection tools need
   (`Performance`, `Memory`, `Network`, `Runtime`, `Log`) during a bounded
   observation window, then collect and normalize events.
@@ -73,7 +73,7 @@ evidence with Windows-side Chrome process resource usage (via the
 
 ## Privacy behavior
 
-- Network inspection records only counts, status classes, and latency —
+- Network inspection records only counts, status classes, and latency -
   never request headers, cookies, or bodies.
 - Console/runtime output is truncated; the adapter never enables raw network
   inspection.
@@ -84,19 +84,19 @@ evidence with Windows-side Chrome process resource usage (via the
 
 All under `[chrome]` (see [configuration.md](configuration.md)):
 
-- `fallback_port` (9222) — the port probed for the DevTools endpoint.
-- `auto_connect` (true) — connect automatically on first use; when false, the
+- `fallback_port` (9222) - the port probed for the DevTools endpoint.
+- `auto_connect` (true) - connect automatically on first use; when false, the
   adapter reports availability without connecting.
-- `connection_timeout_ms` (5000) — WebSocket connect timeout.
-- `operation_timeout_ms` (25000) — per-tool timeout for Chrome operations.
-- `observation_window_ms` (3000) — how long one tab inspection observes.
-- `sample_interval_ms` (500) — gap between the two performance/memory samples.
-- `max_tabs` (200) — cap on tab listings.
+- `connection_timeout_ms` (5000) - WebSocket connect timeout.
+- `operation_timeout_ms` (25000) - per-tool timeout for Chrome operations.
+- `observation_window_ms` (3000) - how long one tab inspection observes.
+- `sample_interval_ms` (500) - gap between the two performance/memory samples.
+- `max_tabs` (200) - cap on tab listings.
 
 ## Managed Chrome sessions
 
-When the goal is *diagnosing a local web app* — not inspecting the developer's
-already-running browser — WinKit can spawn its own isolated Chrome instance
+When the goal is *diagnosing a local web app* - not inspecting the developer's
+already-running browser - WinKit can spawn its own isolated Chrome instance
 through the managed-browser workflow. This removes the need to manually start
 Chrome with `--remote-debugging-port` and never touches the normal Chrome
 profile.
@@ -125,7 +125,7 @@ and the response reports `window_mode: "headed"`.
 
 → **no window opens by design**; the response reports
 `window_mode: "headless"` and the selected rendering mode. If the installed
-Chrome cannot support headless mode, the start fails explicitly — it never
+Chrome cannot support headless mode, the start fails explicitly - it never
 pretends to succeed.
 
 `diagnose_local_webapp` can drive the whole flow in one call via
@@ -138,10 +138,10 @@ Managed Chrome is **Windows x64 only** (the crate links the Windows API and
 ships in the `@winkit/win32-x64-msvc` npm package). Chrome is **never
 downloaded**: the executable always comes from the machine's own installation
 (registry App Paths / known install locations). Every managed session uses an
-**isolated profile** under the managed root — the user's normal Chrome
+**isolated profile** under the managed root - the user's normal Chrome
 profile is never opened or modified.
 
-### Headed vs headless — two separate product modes
+### Headed vs headless - two separate product modes
 
 Managed sessions have **two clearly separated modes**, and WinKit never
 silently switches between them:
@@ -153,7 +153,7 @@ silently switches between them:
   loopback-only DevTools as every managed session. If the default headed
   launch crashes during startup (typically a GPU-process failure), a
   **verified headed software-rendering fallback** (`headed-software`)
-  starts instead — still a real visible window, never a hidden or headless
+  starts instead - still a real visible window, never a hidden or headless
   session. A session is only reported `ready` after a real visible
   top-level window belonging to the exact WinKit-owned process tree is
   observed on the desktop and the browser survives a short stability
@@ -162,7 +162,7 @@ silently switches between them:
   It is intended for automation and CI, uses a software-rendering
   configuration, and fails explicitly with an honest capability result if
   the installed Chrome cannot support it. Never describe headless mode as
-  "opening Chrome" — it deliberately opens nothing.
+  "opening Chrome" - it deliberately opens nothing.
 
 The selected mode is always reported back in the session summary:
 
@@ -185,7 +185,7 @@ wanted.
 ### Isolation rules
 
 - The executable comes from trusted discovery (registry App Paths / known
-  install locations) — never from the caller, and never an arbitrary path.
+  install locations) - never from the caller, and never an arbitrary path.
 - Each session gets a unique profile under the managed root (the configured
   `profile_root`, or `%TEMP%\winkit-managed`), canonicalized and verified
   strictly contained under that root.
@@ -200,10 +200,10 @@ wanted.
 - **Readiness is proven before a session is Ready.** A session is only
   reported `ready` after the DevTools endpoint responds, a page target
   exists and is attachable, a CDP connection is established, a bounded
-  `Browser.getVersion` round-trip succeeds, and — when a URL was supplied —
+  `Browser.getVersion` round-trip succeeds, and - when a URL was supplied -
   a bounded page-level evaluation succeeds. The browser must then survive a
   short quiescence period (~750 ms) with its process **and** page target
-  still present — DevTools can become reachable moments before Chrome dies
+  still present - DevTools can become reachable moments before Chrome dies
   (e.g. a GPU-process crash), so `ready` is never returned just because
   `/json/version` answered once. If the browser exits during readiness the
   attempt fails with `browser_exited` and is cleaned up. Every step runs
@@ -219,7 +219,7 @@ WinKit-owned-only argument array; none weakens a security boundary (no
 `--no-sandbox`, no `--disable-web-security`, no non-loopback debugging
 address), and none is ever applied to the user's normal Chrome.
 
-**Headed primary** — `headed-default`:
+**Headed primary** - `headed-default`:
 
 ```text
 --remote-debugging-port=<loopback port> --user-data-dir=<owned profile>
@@ -232,7 +232,7 @@ No `--headless` flag, no `--disable-gpu`/`--in-process-gpu` workarounds,
 nothing that hides or minimizes the window. The window is visible on the
 interactive desktop and sized 1280x900.
 
-**Headed fallback** — `headed-software` (when the primary crashes during
+**Headed fallback** - `headed-software` (when the primary crashes during
 startup, e.g. a GPU-process failure):
 
 ```text
@@ -250,7 +250,7 @@ removed), and it must independently open and verify its visible window
 before the session is Ready. (The same fixed base flags above apply to both
 headless modes, plus the rendering flags below.)
 
-**Headless primary** — `headless-software`:
+**Headless primary** - `headless-software`:
 
 ```text
 --headless=new --disable-gpu --disable-gpu-compositing --use-angle=swiftshader
@@ -264,7 +264,7 @@ denial that commonly surfaces as `GPU process exited unexpectedly:
 exit_code=-1073741790` (`STATUS_ACCESS_DENIED`) when the GPU process is
 killed during headless startup on RDP/VM sessions.
 
-**Headless fallback** — `headless-in-process-gpu`:
+**Headless fallback** - `headless-in-process-gpu`:
 
 ```text
 --headless=new --in-process-gpu --disable-gpu-program-cache
@@ -280,8 +280,8 @@ fully cleaned up (owned tree reaped, profile removed); two owned attempts
 never run simultaneously, and **all attempts for one request share one
 absolute startup deadline** so the combined worst case never exceeds the
 configured timeout. When both headless modes fail, the returned error is an
-honest capability result — `headless managed Chrome is unavailable on this
-installation` — naming each attempted mode with its exit code (main and
+honest capability result - `headless managed Chrome is unavailable on this
+installation` - naming each attempted mode with its exit code (main and
 GPU-process when Chrome reported one) and bounded redacted stderr tail, and
 pointing to headed mode as the alternative. If the headed mode itself
 fails, the error says so explicitly and recommends checking the GPU driver
@@ -296,8 +296,8 @@ and its profile removed before the next attempt or the final error.
   never block on an unread stdin.
 - **stderr is captured into a bounded, redacted tail** (64 KiB internal
   buffer, oldest bytes dropped; at most ~4 KiB exposed). This makes
-  production failures diagnosable — e.g. `GPU process exited unexpectedly`
-  — without ever writing Chrome output to MCP stdout. Captured output is
+  production failures diagnosable - e.g. `GPU process exited unexpectedly`
+  - without ever writing Chrome output to MCP stdout. Captured output is
   secret-redacted, URL query strings are stripped, and it is only surfaced
   through WinKit's stderr log, error messages, and session summaries
   (`exit_code`, `last_diagnostics`). Cookies, headers, tokens, full URLs
@@ -313,7 +313,7 @@ A monitor observes every owned browser. When the browser exits on its own
 - the CDP connection is dropped and the session can never be reused;
 - the WinKit-owned process tree for the exact canonical profile is reaped
   (crashpad handler, GPU, utility, renderer), which would otherwise linger
-  forever on Windows and keep the profile locked — only processes whose
+  forever on Windows and keep the profile locked - only processes whose
   command line references a WinKit-owned profile path are ever terminated;
 - the owned profile is removed, and a cleanup failure is recorded
   separately (the `browser_exited` state is never erased by a successful
@@ -360,7 +360,7 @@ read tools. See [permissions.md](permissions.md) and
 
 Real managed lifecycles are verified against an installed Chrome with opt-in
 live tests (loopback-only HTTP fixture, no external network). There are
-**separate tests for the two modes** — a headless test can never prove that a
+**separate tests for the two modes** - a headless test can never prove that a
 visible window opens:
 
 ```powershell
@@ -399,13 +399,13 @@ A single failed run means the mode is still unreliable, and a skipped live
 test (no `WINKIT_LIVE_CHROME=1`, or no interactive desktop) is never a
 pass.
 
-**Headed additionally verifies** — via real Win32 inspection
+**Headed additionally verifies** - via real Win32 inspection
 (`EnumWindows` / `GetWindowThreadProcessId` / `IsWindowVisible` / `IsIconic`)
 restricted to the exact WinKit-owned process tree: a visible top-level
 window exists, is not minimized or hidden, belongs to an owned PID, and **no
 `--headless` flag was passed**.
 
-**Headless additionally verifies** — no visible window appears for the
+**Headless additionally verifies** - no visible window appears for the
 owned profile, and `--headless=new` is present on the owned command lines.
 
 The standalone **diagnostic harness** launches the exact Chrome executable
@@ -428,7 +428,7 @@ retained.
 
 **When a live test is skipped** (no `WINKIT_LIVE_CHROME=1`, or the headed
 test finds no interactive desktop), it prints an explicit reason and the real
-behavior is **unverified — a skip is never a pass**. The headed test is
+behavior is **unverified - a skip is never a pass**. The headed test is
 skipped (not failed) only when there is no interactive desktop (session 0,
 e.g. a CI service runner); on any interactive Windows desktop it must pass.
 The deterministic fake-I/O unit suite covers the same lifecycle contracts
@@ -439,18 +439,18 @@ without Chrome.
 | Symptom | Likely cause |
 | --- | --- |
 | `chrome_info` reports `running`/`endpoint_unavailable` | Chrome launched without `--remote-debugging-port`, or the port differs from `fallback_port`. |
-| `chrome_info` reports `not_installed` | Registry App Paths miss — pass an explicit install location in the adapter config. |
+| `chrome_info` reports `not_installed` | Registry App Paths miss - pass an explicit install location in the adapter config. |
 | Tools error with "provider is not enabled" | Chrome removed from `[providers] enabled`. |
 | `chrome_start_managed_session` returns `feature_disabled` | `[chrome.managed] enabled = false` (the default). |
 | `chrome_start_managed_session` returns a permission error | The permission mode does not grant `application.browser.launch` (`safe`/`read_only` never do). |
 | `chrome_start_managed_session` reports `application_unavailable` | Chrome is not installed on the machine. |
 | Session stuck `starting` then `endpoint_unavailable` | Chrome could not expose DevTools within `startup_timeout_ms`; check for AV/firewall interference on loopback ports. |
 | Session reports `browser_exited` | The browser exited on its own (user closed the window, or a GPU-process crash took it down). The owned tree is reaped and the owned profile is removed by the monitor; the exit code and a bounded redacted stderr tail are recorded on the session. |
-| Session reports `cleanup_failed` | The profile could not be removed; the refusal reason is included. This only happens for paths WinKit owns — unrelated directories are never deleted. |
-| Headed session never reaches `ready`; no window appears | A headed session is only declared ready after a visible owned window is observed. If readiness times out with no window, the desktop may be non-interactive (session 0) or the window failed to create — check `window_mode` in the summary and re-run on an interactive desktop. |
+| Session reports `cleanup_failed` | The profile could not be removed; the refusal reason is included. This only happens for paths WinKit owns - unrelated directories are never deleted. |
+| Headed session never reaches `ready`; no window appears | A headed session is only declared ready after a visible owned window is observed. If readiness times out with no window, the desktop may be non-interactive (session 0) or the window failed to create - check `window_mode` in the summary and re-run on an interactive desktop. |
 | Headless start fails with `browser_exited` naming both headless modes | Both verified headless configurations failed; the error names each mode with its exit code (main and GPU-process when reported) and bounded stderr tail and points to headed mode. See GPU troubleshooting below. |
 | Headed start fails with `browser_exited` naming `headed-default` and `headed-software` | The default headed configuration crashed during startup (typically a GPU-process failure) and the software fallback failed too. The error names each mode with its exit code and bounded stderr tail. See GPU troubleshooting below. |
-| `GPU process exited unexpectedly: exit_code=-1073741790` in the diagnostics | The GPU process was killed during startup (`STATUS_ACCESS_DENIED` — typical on RDP/VM sessions, often when the shader cache cannot be written). WinKit's software modes keep the GPU off hardware drivers and disable the GPU disk caches; headed mode falls back to `headed-software` (still a visible window), headless mode falls back to `headless-in-process-gpu` (no separate GPU process to crash). The GPU exit code is recorded separately on the session summary (`gpu_exit_code`). |
+| `GPU process exited unexpectedly: exit_code=-1073741790` in the diagnostics | The GPU process was killed during startup (`STATUS_ACCESS_DENIED` - typical on RDP/VM sessions, often when the shader cache cannot be written). WinKit's software modes keep the GPU off hardware drivers and disable the GPU disk caches; headed mode falls back to `headed-software` (still a visible window), headless mode falls back to `headless-in-process-gpu` (no separate GPU process to crash). The GPU exit code is recorded separately on the session summary (`gpu_exit_code`). |
 | Inspection tools time out | `operation_timeout_ms` too small for the configured `observation_window_ms`; or a large page with heavy traffic. |
 | WebSocket connection refused | A firewall/AV is blocking loopback WebSocket, or the endpoint is gone (Chrome closed). |
-| Wrong tabs listed | The debugging profile differs from your normal profile — use the dedicated `--user-data-dir`. |
+| Wrong tabs listed | The debugging profile differs from your normal profile - use the dedicated `--user-data-dir`. |

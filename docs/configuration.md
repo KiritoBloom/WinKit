@@ -1,4 +1,4 @@
-# Configuration
+﻿# Configuration
 
 WinKit is configured with a `winkit.toml` file. Every key has a documented
 default, so a missing file is fine. Unknown keys and unknown sections are
@@ -8,7 +8,7 @@ A fully commented example lives in [config/example.toml](../config/example.toml)
 
 ## Resolution order
 
-1. `winkit --config <path>` — explicit flag (also `--config=<path>`).
+1. `winkit --config <path>` - explicit flag (also `--config=<path>`).
 2. `WIN_KIT_CONFIG` environment variable pointing at a file.
 3. `./winkit.toml` or `./config/winkit.toml` in the working directory.
 4. Built-in defaults (no file needed).

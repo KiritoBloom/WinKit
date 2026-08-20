@@ -1,4 +1,4 @@
-# Permissions
+﻿# Permissions
 
 WinKit's permission system answers one question before every tool call: *is
 this capability granted under the current mode?* If not, the tool is denied
@@ -42,10 +42,10 @@ Configuration: `[permissions] mode = "..."`. The default is `read_only`.
 
 | Mode | Windows reads | Application reads | Action capabilities |
 | --- | --- | --- | --- |
-| `safe` | Yes | **No** — all application tools, adapter discovery included, are denied | Never |
+| `safe` | Yes | **No** - all application tools, adapter discovery included, are denied | Never |
 | `read_only` | Yes | Yes | Never |
-| `approval` | Yes | Yes | Never — reserved; future action capabilities will require interactive approval |
-| `unrestricted` | Yes | Yes | Never — only enables the reads that actually exist |
+| `approval` | Yes | Yes | Never - reserved; future action capabilities will require interactive approval |
+| `unrestricted` | Yes | Yes | Never - only enables the reads that actually exist |
 
 `approval` and `unrestricted` exist for forward compatibility. In v1 they
 grant exactly the read capabilities that exist and nothing else; they can
@@ -85,7 +85,7 @@ capability.
 - `system_info` reports the active permission mode and the granted
   capability set.
 - `list_applications` / `get_application` are gated by `application.discover`
-  like any other capability — denied in `safe` mode, granted in `read_only`
+  like any other capability - denied in `safe` mode, granted in `read_only`
   and above.
 
 ## Configuring
@@ -96,4 +96,4 @@ mode = "safe"   # safe | read_only | approval | unrestricted
 ```
 
 Mode parsing is lenient (`read-only` and `READ_ONLY` both work). An unknown
-mode is a startup error — WinKit refuses to start rather than guess.
+mode is a startup error - WinKit refuses to start rather than guess.

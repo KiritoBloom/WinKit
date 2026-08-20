@@ -1,4 +1,4 @@
-# Architecture
+﻿# Architecture
 
 WinKit is a Rust crate with two targets: a library (`winkit`) that contains
 everything, and a binary (`winkit`) that runs the MCP server over stdio. The
@@ -53,20 +53,20 @@ MCP client --stdio JSON-RPC--> transport::run --frame--> protocol::handle_messag
 
 ### `server/`
 
-- `transport.rs` — the stdio loop. Reads newline-delimited JSON frames
+- `transport.rs` - the stdio loop. Reads newline-delimited JSON frames
   (capped at 8 MiB, oversized frames get a `-32700` reply), dispatches to
   `McpServer`, writes replies as single lines, and exits when stdin closes or
   the client sends `exit`.
-- `protocol.rs` — JSON-RPC 2.0 handling. Implements `initialize`, `ping`,
+- `protocol.rs` - JSON-RPC 2.0 handling. Implements `initialize`, `ping`,
   `tools/list`, `tools/call`, `shutdown`, `exit`, and the
   `notifications/initialized` notification. Unknown methods return `-32601`;
   malformed JSON returns `-32600`; uninitialized sessions are rejected with
   `-32002`. The advertised protocol version is `2024-11-05`.
-- `lifecycle.rs` — the initialize handshake state, including the client's
+- `lifecycle.rs` - the initialize handshake state, including the client's
   reported name/version for logging.
-- `registry.rs` — `call_tool`: permission enforcement, disabled-tool checks,
+- `registry.rs` - `call_tool`: permission enforcement, disabled-tool checks,
   unknown-tool errors, and dispatch into the registry.
-- `mod.rs` — `AppState`, the shared state handed to every tool: config,
+- `mod.rs` - `AppState`, the shared state handed to every tool: config,
   permission manager, provider metadata registry, application registry, the
   Windows backend, the diagnostics engine, and the tool registry.
 
@@ -80,80 +80,80 @@ shape the JSON response. Tools never call Win32 directly.
 
 ### `providers/`
 
-- `mod.rs` — the `Provider` trait (id, name, version, availability,
+- `mod.rs` - the `Provider` trait (id, name, version, availability,
   capabilities) and `ProviderRegistry` metadata. `BoxFuture` is the async
   plumbing used by provider traits.
-- `windows.rs` — `WindowsBackend`, the trait behind every OS-level read, and
+- `windows.rs` - `WindowsBackend`, the trait behind every OS-level read, and
   `RealWindowsBackend`, the Win32 implementation (a unit struct wrapping the
   platform layer). `WindowsProvider` adapts it into the provider registry.
-- `applications/mod.rs` — `ApplicationProvider`, the adapter contract, and
+- `applications/mod.rs` - `ApplicationProvider`, the adapter contract, and
   `ApplicationRegistry`. Default trait methods return
   `unsupported_capability`, so adapters only implement what they truly
   support.
-- `applications/chrome/` — the Chrome adapter: discovery, CDP connection,
+- `applications/chrome/` - the Chrome adapter: discovery, CDP connection,
   session, and the `ChromeProvider` that implements `ApplicationProvider`.
-- `mock.rs` — the fixture-backed mock backend used by tests.
+- `mock.rs` - the fixture-backed mock backend used by tests.
 
 ### `platform/windows/`
 
 The Win32 layer (`windows-sys 0.59`), split by domain:
 
-- `processes.rs` — snapshot via Toolhelp, process trees, working-set/memory
+- `processes.rs` - snapshot via Toolhelp, process trees, working-set/memory
   queries, and CPU time pairs for the diagnostics engine (per-process CPU
   *percent* is intentionally not reported).
-- `network.rs` — listening ports and connections via `GetExtendedTcpTable` /
+- `network.rs` - listening ports and connections via `GetExtendedTcpTable` /
   `GetExtendedUdpTable`, interfaces, ownership resolution.
-- `storage.rs` — drives, volume sizes, large-file scans.
-- `services.rs` — service enumeration and detail via the SCM.
-- `events.rs` — Windows event log reads.
-- `registry.rs` — allowlist-only registry reads (OS identity, startup
+- `storage.rs` - drives, volume sizes, large-file scans.
+- `services.rs` - service enumeration and detail via the SCM.
+- `events.rs` - Windows event log reads.
+- `registry.rs` - allowlist-only registry reads (OS identity, startup
   programs with enabled/disabled state, installed software); arbitrary keys
   are never read.
-- `windows.rs` — top-level window enumeration.
-- `system.rs` — OS version, uptime, resource snapshots, computer name.
-- `hardware.rs` — CPU/GPU/memory/storage/network device enumeration, battery
+- `windows.rs` - top-level window enumeration.
+- `system.rs` - OS version, uptime, resource snapshots, computer name.
+- `hardware.rs` - CPU/GPU/memory/storage/network device enumeration, battery
   and AC state, and a thermal sensor survey (WMI `MSAcpi_ThermalZoneTemperature`,
   PDH frequency counters) reduced to a deterministic throttle/pressure
   interpretation. ACPI thermal zones are permission-checked per WMI class, so
   hosts that gate them report `permission_denied` rather than guessing.
-- `storage_health.rs` — NVMe S.M.A.R.T. health-log reads (IOCTL
+- `storage_health.rs` - NVMe S.M.A.R.T. health-log reads (IOCTL
   `IOCTL_STORAGE_QUERY_PROPERTY`) plus a non-elevated OS storage-stack health
   status (`MSFT_PhysicalDisk` in `root\Microsoft\Windows\Storage`); ATA
   S.M.A.R.T. reads are gated by config.
-- `power.rs` — battery/AC status via `GetSystemPowerStatus` and battery
+- `power.rs` - battery/AC status via `GetSystemPowerStatus` and battery
   capacity/health via WMI `Win32_Battery`.
-- `wifi.rs` — Wi-Fi adapter status and scan via the Wlan API
+- `wifi.rs` - Wi-Fi adapter status and scan via the Wlan API
   (`wlan_intf_opcode_current_connection`, scan lists).
-- `network_diag.rs` — per-interface gateway reachability via ICMP
+- `network_diag.rs` - per-interface gateway reachability via ICMP
   (`IcmpSendEcho`) and latency, plus Wi-Fi signal/link-speed facts, reduced
   to structured connectivity findings.
-- `pdh.rs` — PDH counter queries used for CPU frequency and per-disk storage
+- `pdh.rs` - PDH counter queries used for CPU frequency and per-disk storage
   activity sampling.
-- `wmi.rs` — a hand-rolled COM/WMI client (no crate dependency) used by the
+- `wmi.rs` - a hand-rolled COM/WMI client (no crate dependency) used by the
   thermal, power, and network-disks diagnostics above. Each connection sets
   the proxy security blanket (`CoSetProxyBlanket`) before querying, and the
   `IWbemServices` proxy is released while the COM apartment is still alive.
-- `ffi.rs` — hand-declared ABI-stable FFI bindings absent from `windows-sys`
+- `ffi.rs` - hand-declared ABI-stable FFI bindings absent from `windows-sys`
   (oleaut32 BSTR helpers, ntdll version/process queries, iphlpapi, wevtapi).
 
 All unsafe blocks are confined to this layer.
 
 ### `permissions/`
 
-- `capability.rs` — the full capability enum. 15 read capabilities are
+- `capability.rs` - the full capability enum. 15 read capabilities are
   implemented in v1; the action capabilities (`filesystem.write`,
   `process.terminate`, `powershell.execute`, ...) are declared for policy
   stability and can never be granted.
-- `policy.rs` — `PermissionMode` → granted capability set. `approval` and
+- `policy.rs` - `PermissionMode` → granted capability set. `approval` and
   `unrestricted` behave like `read_only` in v1 because there is nothing else
   to enable.
-- `approval.rs` — the approval request surface reserved for future action
+- `approval.rs` - the approval request surface reserved for future action
   capabilities. In v1 every capability resolves to `Allowed` (granted reads)
   or `Denied` (everything else).
 
 ### `config/`
 
-`Config` and sub-configs with `#[serde(default, deny_unknown_fields)]` — a
+`Config` and sub-configs with `#[serde(default, deny_unknown_fields)]` - a
 missing file is fine, a typo is not. `loader.rs` resolves the file in the
 documented order and `schema.rs` documents every key and default.
 
@@ -175,7 +175,7 @@ application layer produce consistent output.
 
 ### `diagnostics/`
 
-The engine, organized as an evidence-first pipeline with three layers —
+The engine, organized as an evidence-first pipeline with three layers -
 **observation, correlation, diagnosis**:
 
 ```text
@@ -190,21 +190,21 @@ The engine, organized as an evidence-first pipeline with three layers —
    metrics      linking      ranking
 ```
 
-- `mod.rs` — `DiagnosticsEngine` and the report shape. Every report starts
+- `mod.rs` - `DiagnosticsEngine` and the report shape. Every report starts
   from raw **measurements** (`Measurement`), then **signals** interpret them
   (`DiagnosticSignal` with evidence links back to the measurement that fired
   it), then **possible causes** tie signals together (`PossibleCause`). A
   `status` field (derived from the highest-severity signal) gives agents a
   single answer to "is this healthy?".
-- `scoring.rs` — 10 deterministic signal rules over measured evidence, with
+- `scoring.rs` - 10 deterministic signal rules over measured evidence, with
   explicit thresholds from `DiagnosticsConfig`. Pure functions: no LLM, no
   randomness.
-- `correlation.rs` — 10 possible-cause rules matching signal combinations,
+- `correlation.rs` - 10 possible-cause rules matching signal combinations,
   with conservative confidence levels (a single signal never exceeds
   `medium`).
-- `findings.rs` — the deterministic 0-100 scoring functions and severity
+- `findings.rs` - the deterministic 0-100 scoring functions and severity
   bands (≥90 critical, ≥70 high, ≥50 medium, else low) used to rank findings.
-- `system.rs` — the machine-wide diagnosis engine behind `system_diagnose`:
+- `system.rs` - the machine-wide diagnosis engine behind `system_diagnose`:
   system measurements (CPU, memory, storage, Chrome app evidence) become
   ranked findings. Failed dimensions are reported as limited
   (`evidence_completeness: "limited"`) instead of being hidden or guessed.

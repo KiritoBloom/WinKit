@@ -1,4 +1,4 @@
-# Diagnostics
+﻿# Diagnostics
 
 The diagnostics engine (`src/diagnostics/`) converts measured evidence into
 signals, and signal combinations into possible causes with confidence levels.
@@ -30,7 +30,7 @@ machine evidence (SystemDiagnosticData)
 
 ## Evidence-first report shape
 
-Every `DiagnosticReport` — tab or machine-wide — separates three layers:
+Every `DiagnosticReport` - tab or machine-wide - separates three layers:
 
 ```json
 {
@@ -67,18 +67,18 @@ The distinction is load-bearing:
 
 ### Status fields
 
-- `status` — `signals_detected` or `no_supported_signal_detected`. A negative
+- `status` - `signals_detected` or `no_supported_signal_detected`. A negative
   result is an explicit statement, never an absence.
-- `evidence_completeness` — `full` or `limited`. `limited` means a core
+- `evidence_completeness` - `full` or `limited`. `limited` means a core
   measurement (JS heap or process CPU for tabs; memory or application
   evidence for the machine) was unavailable, so the report is weaker than
   usual.
-- `agent_guidance` — a direct instruction. When no signal fired it says: "No
+- `agent_guidance` - a direct instruction. When no signal fired it says: "No
   supported evidence was found. Do not infer a cause from resource usage
   alone." When signals fired it reminds the agent they are heuristics, not
   verified root causes.
 
-The intent: the model must not fill the gap when WinKit reports nothing —
+The intent: the model must not fill the gap when WinKit reports nothing -
 the report itself tells it not to.
 
 ### CPU percentage basis
@@ -93,7 +93,7 @@ cpu_percent_basis: "system_capacity_all_cores"
 
 100% means *every* core is fully busy; a single busy core on an 8-core
 machine reports 12.5%. Every place a CPU percent appears in the API carries
-this basis field or the "of system CPU capacity" wording — the value is
+this basis field or the "of system CPU capacity" wording - the value is
 never presented as "of one core".
 
 ## Signals
@@ -134,7 +134,7 @@ pairwise correlations; they rank findings instead (below).
 Possible-cause rules map signal combinations to documented hypotheses. The
 confidence labels are conservative: `high` ≥ 0.75, `medium` ≥ 0.55, `low`
 below that. Confidence is a heuristic score for how well the observed signal
-set matches a known pattern — it is **not** a probability of root cause.
+set matches a known pattern - it is **not** a probability of root cause.
 
 | Hypothesis | Supporting signals | Confidence |
 | --- | --- | --- |
@@ -199,12 +199,12 @@ Score formulas (all pure functions of measured values):
 every threshold ("no evidence of ..."). Only dimensions actually measured
 appear; a failed collection yields `evidence_completeness: "limited"` and the
 dimension is not claimed clean. Service instability is not part of machine
-diagnosis in this release; network failure is not inferred — Wi-Fi signal
+diagnosis in this release; network failure is not inferred - Wi-Fi signal
 weakness is reported as a radio-condition finding, never as an "Internet
 broken" claim.
 
 `system_health` applies the same thresholds to the same evidence and returns
-`issues` with the same `score` / `category` / `severity`, sorted by score —
+`issues` with the same `score` / `category` / `severity`, sorted by score -
 so both tools answer "what is the biggest problem" the same way.
 
 ## Configuration
@@ -228,11 +228,11 @@ Groups crash-class events into five fixed categories: `bugcheck`
 `hardware_error` (WHEA-Logger 18/19/20), `app_crash` (Application Error
 1000/1002, .NET Runtime 1026), and `wer_report` (Windows Error Reporting
 1001). The `categories` block reports count, first/last timestamp, and a
-`truncated` flag per category — `true` when any feeding query hit its
+`truncated` flag per category - `true` when any feeding query hit its
 `max_results` cap, meaning more events may exist beyond the window. The flat
 `crashes` list is sorted newest-first. `bugcheck_code` is populated only when
 the 1001 message actually contains one (`The bugcheck was: 0x…`); the
-Kernel-Power 41 code lives in EventData, so it is never reported — the tool
+Kernel-Power 41 code lives in EventData, so it is never reported - the tool
 does not read raw XML.
 
 Note that `total` counts event-log records, not distinct incidents: an
@@ -247,7 +247,7 @@ shutdowns (6008), user-initiated shutdowns and restarts (User32 1074),
 power losses (Kernel-Power 41), sleep (42) and hibernate (107) transitions,
 and uptime reports (6013). The 6005/6006/6008/6013 markers come from the
 `EventLog` provider. `summary.last_shutdown_kind` is the newest shutdown-class
-event strictly before the newest boot in the window — or `null` when there is
+event strictly before the newest boot in the window - or `null` when there is
 no such evidence, never a guess. `current_uptime_seconds` comes from
 `system_info`; a failure there is a warning, not a fatal error. Per-category
 `truncated` flags in `summary` follow the same cap convention as
@@ -255,15 +255,15 @@ no such evidence, never a guess. `current_uptime_seconds` comes from
 
 ## Design guarantees
 
-1. **Deterministic** — same evidence, same report, same scores, every time.
-2. **Evidence-first** — measurements, signals, and possible causes are
+1. **Deterministic** - same evidence, same report, same scores, every time.
+2. **Evidence-first** - measurements, signals, and possible causes are
    separate fields; every signal traces to a measurement in the same report.
-3. **Evidence-backed** — every signal references the exact measurement and
+3. **Evidence-backed** - every signal references the exact measurement and
    threshold that fired.
-4. **Conservative** — single-signal patterns only reach low confidence;
+4. **Conservative** - single-signal patterns only reach low confidence;
    multi-signal reinforcing patterns can reach high.
-5. **Honest limits** — every report carries the limitations list; the
+5. **Honest limits** - every report carries the limitations list; the
    reasoning text repeats that hypotheses are not verified root causes.
-6. **Testable** — unit tests assert that a heavy tab produces the expected
+6. **Testable** - unit tests assert that a heavy tab produces the expected
    signals and causes, that a quiet tab produces none, and that every
    possible cause only references signals that were actually emitted.

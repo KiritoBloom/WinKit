@@ -1,9 +1,9 @@
-# Performance
+﻿# Performance
 
 Real end-to-end numbers, not microbenchmarks. Every figure below was measured
 by launching a fresh `winkit.exe` (release build) as an MCP stdio subprocess,
 sending `initialize` + `tools/call` frames, and timing until the response
-frame arrived — so the latency includes process startup, the handshake, tool
+frame arrived - so the latency includes process startup, the handshake, tool
 dispatch, and provider work. This is what a client actually experiences.
 
 ## Measurement conditions
@@ -67,18 +67,18 @@ dispatch, and provider work. This is what a client actually experiences.
 
 Not benchmarked: `find_large_files`, `get_application_errors`,
 `get_system_errors`, `chrome_get_active_tab`, and the `disk_scan_*` family
-(pathological or environment-dependent by nature — whole-volume scans and
+(pathological or environment-dependent by nature - whole-volume scans and
 event-log reads vary wildly with the machine). For the `disk_scan_*` family
 specifically: with an elevated token the NTFS fast path streams a volume in
 seconds, while without one the fallback walks the tree in parallel and is
-bound by the disk — on the benchmark machine a full 4.2 M-entry volume
+bound by the disk - on the benchmark machine a full 4.2 M-entry volume
 takes roughly 100 seconds, versus about 18 minutes when the enumeration is
 serialized (see [docs/tools.md](tools.md)).
 
 ## Reading the numbers
 
-- **The read surface is flat.** Every single-shot read — processes, ports,
-  services, windows, drives, events counts, Wi-Fi, power, Chrome tab lists —
+- **The read surface is flat.** Every single-shot read - processes, ports,
+  services, windows, drives, events counts, Wi-Fi, power, Chrome tab lists -
   completes in well under 100 ms regardless of machine scale, because results
   are bounded and enumeration uses native snapshots.
 - **Hardware telemetry is honest about what it measures.** `disk_health`

@@ -1,4 +1,4 @@
-# Design: Crash History, Shutdown Analysis, and Registry Diagnostics
+﻿# Design: Crash History, Shutdown Analysis, and Registry Diagnostics
 
 Date: 2026-08-19
 Status: Draft
@@ -21,7 +21,7 @@ in scope for this work:
 
 Design goals: each tool must be genuinely useful to a coding agent diagnosing
 a machine, integrate with the existing permission/profile/model/tool pattern,
-and never fabricate a reading — everything is either measured or reported
+and never fabricate a reading - everything is either measured or reported
 explicitly unavailable/unreadable with a reason.
 
 ## 2. Architecture pattern
@@ -34,8 +34,8 @@ layer yet.
 
 ```
 models (small additions)        platform/windows            backend trait              tools
-  StabilityReport  <——  existing get_recent_events  <——  WindowsBackend::get_recent_events  tools/stability.rs (crash_history, shutdown_analysis)
-  RegistryDiagnostics  <——  registry.rs (new file)   <——  WindowsBackend::registry_diagnostics  tools/registry.rs (registry_diagnostics)
+  StabilityReport  <--  existing get_recent_events  <--  WindowsBackend::get_recent_events  tools/stability.rs (crash_history, shutdown_analysis)
+  RegistryDiagnostics  <--  registry.rs (new file)   <--  WindowsBackend::registry_diagnostics  tools/registry.rs (registry_diagnostics)
 ```
 
 Rules honored:
@@ -128,7 +128,7 @@ Notes:
 | `uptime` | EventLog | 6013 | Uptime in seconds after boot |
 
 > The EventLog-service markers (6005/6006/6008/6013) are matched under the
-> provider name `EventLog` — Windows publishes these under the Event Log
+> provider name `EventLog` - Windows publishes these under the Event Log
 > service's own source name, not `Microsoft-Windows-Eventlog`.
 
 All queries target the System log. `last_boot_time` is the newest `boot`
@@ -188,31 +188,31 @@ Notes:
 
 ## 5. Feature 3: `registry_diagnostics` (new tool, new `registry.read` capability)
 
-### 5.1 Platform layer — `src/platform/windows/registry.rs` (new)
+### 5.1 Platform layer - `src/platform/windows/registry.rs` (new)
 
 Uses the same `windows-sys` Registry APIs already imported by
 `platform/windows/services.rs` (`RegOpenKeyExW`, `RegQueryValueExW`,
 `RegEnumKeyExW`, `RegEnumValueW`, `RegCloseKey`), plus `KEY_WOW64_64KEY`
 so the native 64-bit view is read regardless of process bitness.
 
-Reads (hardcoded allowlist — no caller-supplied keys, no value names outside
+Reads (hardcoded allowlist - no caller-supplied keys, no value names outside
 the documented set):
 
-1. **OS identity** — `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`:
+1. **OS identity** - `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`:
    `ProductName`, `DisplayVersion`, `CurrentVersion`, `CurrentBuildNumber`,
    `CurrentBuild`, `UBR` (a `REG_DWORD`, read as a decimal string),
    `InstallDate` (Unix seconds → RFC3339), `EditionID`, `BuildLabEx`.
    Missing values are omitted, never fabricated.
-2. **Startup programs** — value names + command strings from:
+2. **Startup programs** - value names + command strings from:
    - `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run` and `RunOnce`
    - `HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run` and `RunOnce`
    - `HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run`
      (32-bit entries on 64-bit Windows)
    Each entry is classified `enabled`/`disabled` from the matching
    `Explorer\StartupApproved\Run` binary flag (12-byte layout: state byte at
-   offset 0, `0x02` enabled, `0x03` disabled; absent entry means enabled —
+   offset 0, `0x02` enabled, `0x03` disabled; absent entry means enabled -
    matches Task Manager behavior).
-3. **Installed software** — subkeys of
+3. **Installed software** - subkeys of
    `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` and the
    `WOW6432Node` mirror; `DisplayName`, `DisplayVersion`, `Publisher`,
    `InstallDate`. Bounded by `max_software` (default 200). Entries without a
@@ -222,7 +222,7 @@ No binary value content is ever returned (the StartupApproved flag is parsed
 into `enabled`/`disabled`, not echoed). No `RunOnce` pending-consumption state
 is read. Key access failures are reported per-key as `unreadable` reasons.
 
-### 5.2 Model — `models/registry.rs` (new)
+### 5.2 Model - `models/registry.rs` (new)
 
 `RegistryDiagnostics { system_identity: SystemIdentity, startup_programs:
 Vec<StartupProgram>, installed_software: Vec<InstalledSoftware>, counts,
@@ -291,7 +291,7 @@ Profile: `developer`, `browser`, `full`.
 ## 7. Mock backend changes
 
 - `providers/mock.rs::get_recent_events`: also filter by `event_id` and
-  `since_minutes` (currently ignored — required for the new tools' tests).
+  `since_minutes` (currently ignored - required for the new tools' tests).
 - Add fixture events covering each crash category and each shutdown category
   (with one 6008/1074 pair so `last_shutdown_kind` logic is exercised).
 - Add `registry_diagnostics` fixture (identity + 2 startup programs + a few

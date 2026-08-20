@@ -562,6 +562,11 @@ fn system_signals_and_findings(
                     ),
                 }],
             });
+            let explorer_note = if g.name == "explorer" && g.tree_process_count > g.process_count {
+                " This is the shell tree — Explorer itself plus tray/shell-extension descendants; expand tree_process_count / own_working_set to isolate the shell."
+            } else {
+                ""
+            };
             findings.push(RankedFinding {
                 rank: 0,
                 title: format!("{} memory pressure", g.display_name),
@@ -588,12 +593,13 @@ fn system_signals_and_findings(
                     },
                 ],
                 detail: format!(
-                    "{} holds {:.1} GB of working set across {} processes (including descendants; the executable's own processes use {:.0} MB). Above the {:.0} GB threshold.",
+                    "{} holds {:.1} GB of working set across {} processes (including descendants; the executable's own processes use {:.0} MB). Above the {:.0} GB threshold.{}",
                     g.display_name,
                     g.working_set_bytes as f64 / 1e9,
                     g.tree_process_count,
                     g.own_working_set_bytes as f64 / (1024.0 * 1024.0),
-                    health.high_memory_bytes as f64 / 1e9
+                    health.high_memory_bytes as f64 / 1e9,
+                    explorer_note
                 ),
             });
         }

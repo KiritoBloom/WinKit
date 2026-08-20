@@ -276,7 +276,11 @@ fn collect_acpi_thermal_sensors() -> (Vec<SensorReading>, Vec<UnavailableReading
 fn cpu_package_temperature(sensors: &[SensorReading]) -> Option<f64> {
     sensors
         .iter()
-        .filter(|s| s.class == SensorClass::CpuPackage && s.value.is_some())
+        .filter(|s| {
+            s.class == SensorClass::CpuPackage
+                && s.kind == SensorKind::Temperature
+                && s.value.is_some()
+        })
         .map(|s| s.value.unwrap())
         .max_by(|a, b| a.total_cmp(b))
 }

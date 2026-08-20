@@ -1,4 +1,4 @@
-# Development
+﻿# Development
 
 WinKit is a Windows-only Rust project (edition 2021, MSRV 1.75). This guide
 covers building, testing, and the conventions that keep the codebase healthy.
@@ -35,7 +35,7 @@ cargo test --features mocks
 
 The suite has 408 tests with the feature (402 without), split across:
 
-- Lib unit tests (337; 343 with the `mocks` feature) — diagnostics
+- Lib unit tests (337; 343 with the `mocks` feature) - diagnostics
   engine, permission policy, config
   strictness, tool helpers, and the managed-Chrome lifecycle
   (construction, containment, loopback, readiness handshake, timeout,
@@ -47,25 +47,25 @@ The suite has 408 tests with the feature (402 without), split across:
   sessions, stop/cleanup, cleanup refusal, owned-tree reaping), plus the
   disk-scan fallback walkers (parallel queue walker and opt-in `jwalk`
   walker, including a completion-race regression test).
-- `tests/eval` (19) — the deterministic, fixture-backed evaluation suite:
+- `tests/eval` (19) - the deterministic, fixture-backed evaluation suite:
   healthy machine, memory pressure, low disk, heavy processes, workspace
   metadata and nested-project detection, dev-server discovery, port
   ownership, connection refused, HTTP 4xx/5xx, slow servers, browser
   runtime/network failures, managed-Chrome startup/inspection/cleanup, and
-  redaction boundaries — plus a concurrency regression test proving many
+  redaction boundaries - plus a concurrency regression test proving many
   fixtures created in parallel all get distinct directories (the fixture
   allocator is collision-safe, so the suite is reliable under normal
   parallel Cargo test execution without `--test-threads=1`). Each scenario
   asserts status, evidence, finding IDs, supporting vs contradicting
   evidence, redaction, bounded output, permission behavior, and no false
   root-cause claims. See `tests/eval/README.md`.
-- `tests/mcp_protocol.rs` (22) — protocol behavior: initialize negotiation,
+- `tests/mcp_protocol.rs` (22) - protocol behavior: initialize negotiation,
   pre-initialize rejection, tools/list, tools/call, parse errors, unknown
   methods, notifications, ping.
-- `tests/tools_mock.rs` (15) — tool dispatch against the mock backend:
+- `tests/tools_mock.rs` (15) - tool dispatch against the mock backend:
   limits, permission enforcement (including `safe` mode denying application
   tools), disabled tools, argument validation, structured snapshot output.
-- `tests/models_fixtures.rs` (8) — fixture deserialization for every model
+- `tests/models_fixtures.rs` (8) - fixture deserialization for every model
   shape (`tests/fixtures/`).
 
 None of the tests touch the real machine: no process snapshots, no registry,
@@ -139,7 +139,7 @@ powershell -ExecutionPolicy Bypass -File npm/scripts/test-packed.ps1
 `test-packed.ps1` packs the real tarballs, installs them into an isolated
 project with an isolated npm cache, and exercises `--version`, `--help`,
 `doctor`, `init --client …`, `configure --dry-run`, the MCP initialize
-handshake, exit-code propagation, and missing-runtime behavior — no
+handshake, exit-code propagation, and missing-runtime behavior - no
 publication, no registry dependency.
 
 ## Conventions
@@ -192,7 +192,7 @@ publication, no registry dependency.
 ## Debugging
 
 - Logs go to stderr at the configured level (`[server] log_level`, default
-  `info`). The stdout channel is reserved for protocol frames — never print
+  `info`). The stdout channel is reserved for protocol frames - never print
   debug output to stdout.
 - Run a manual smoke session by piping raw frames (see
   [mcp-integration.md](mcp-integration.md)).
@@ -212,9 +212,9 @@ secret scan over the packaging tree, and the packed-package smoke test. The
 
 Live managed-Chrome tests (`WINKIT_LIVE_CHROME=1 cargo test --features
 live-chrome`) run only on an explicit `workflow_dispatch` with
-`run_live_chrome: true` — never on pull requests.
+`run_live_chrome: true` - never on pull requests.
 
-There are **separate live tests for the two product modes** — a headless
+There are **separate live tests for the two product modes** - a headless
 test can never prove that a visible window opens:
 
 ```powershell
@@ -240,7 +240,7 @@ inspection restricted to the exact owned process tree) that a visible,
 non-minimized window appears and that no `--headless` flag was passed; the
 headless test verifies no visible window appears. Tests skip (with an
 explicit message) when `WINKIT_LIVE_CHROME` is not `1`; the headed test also
-skips — with an explicit environment-limitation reason — when there is no
+skips - with an explicit environment-limitation reason - when there is no
 interactive desktop (session 0), in which case headed behavior is marked
 **unverified** (a skip is never a pass). Because Chrome can expose DevTools
 moments before an intermittent GPU-process crash takes it down, run each
@@ -250,7 +250,7 @@ process or session profile remains. A single failed run means the mode is
 still unreliable.
 
 A separate MCP-level smoke script drives the real `winkit` binary (debug or
-release) end to end with managed Chrome enabled — default request (no
+release) end to end with managed Chrome enabled - default request (no
 `headless`), explicit headed request, and explicit headless request, each
 verifying the reported `headless` / `window_mode` / `launch_mode` fields,
 page summary, screenshot, and clean stop:
