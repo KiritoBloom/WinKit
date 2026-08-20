@@ -87,6 +87,7 @@ fn main() -> ExitCode {
         i += 1;
     }
 
+    let t0 = std::time::Instant::now();
     let cfg = match config::loader::load(config_path) {
         Ok(cfg) => cfg,
         Err(e) => {
@@ -94,6 +95,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let t_cfg = t0.elapsed();
 
     let level = log::Level::parse(&cfg.server.log_level).unwrap_or(Level::Info);
     log::set_level(level);
@@ -101,15 +103,18 @@ fn main() -> ExitCode {
     let state = match AppState::build(cfg) {
         Ok(state) => state,
         Err(e) => {
-            log_error!("startup failed: {}", e.message);
+            log_error!("startup failed after {:?}: {}", t_cfg, e.message);
             return ExitCode::FAILURE;
         }
     };
+    let t_state = t0.elapsed();
 
     log_info!(
-        "WinKit {} starting (MCP over stdio, permission mode '{}')",
+        "WinKit {} starting (MCP over stdio, permission mode '{}', cfg {:?} + state {:?})",
         env!("CARGO_PKG_VERSION"),
-        state.permissions.mode.as_str()
+        state.permissions.mode.as_str(),
+        t_cfg,
+        t_state - t_cfg
     );
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -118,7 +123,7 @@ fn main() -> ExitCode {
     {
         Ok(rt) => rt,
         Err(e) => {
-            log_error!("failed to start async runtime: {e}");
+            log_error!("failed to start async runtime after {:?}: {e}", t0.elapsed());
             return ExitCode::FAILURE;
         }
     };

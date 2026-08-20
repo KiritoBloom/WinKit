@@ -54,13 +54,17 @@ The standard launch is npx-based, so no manual binary path is needed.
     "winkit": {
       "type": "local",
       "command": ["npx", "--yes", "@winkit/mcp@latest"],
-      "enabled": true
+      "enabled": true,
+      "timeout": {
+        "startup": 15000,
+        "catalog": 10000
+      }
     }
   }
 }
 ```
 
-See [examples/mcp/opencode.json](../examples/mcp/opencode.json).
+The `timeout.startup` (default is often 5000 ms) is the time opencode waits for the `initialize` handshake. On Windows with Defender or a cold npm cache the first launch can take 5–10 s — raise it to `15000` if you see intermittent `operation timeout` / `MCP startup timed out` errors. `catalog` covers `tools/list`. See [examples/mcp/opencode.json](../examples/mcp/opencode.json).
 
 ### Claude Code
 

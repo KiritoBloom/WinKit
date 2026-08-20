@@ -16,6 +16,7 @@ const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
 /// Run the MCP server loop over stdio until the client disconnects.
 pub async fn run(state: &Arc<AppState>) -> Result<(), WinkitError> {
+    crate::log_info!("MCP transport ready — waiting for initialize");
     let server = McpServer::new(state.clone());
     let stdin = BufReader::new(tokio::io::stdin());
     let mut lines = stdin.lines();

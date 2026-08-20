@@ -4,7 +4,11 @@
     "winkit": {
       "type": "local",
       "command": ["npx", "--yes", "@winkit/mcp@latest"],
-      "enabled": true
+      "enabled": true,
+      "timeout": {
+        "startup": 15000,
+        "catalog": 10000
+      }
     }
   }
 }
