@@ -607,8 +607,8 @@ mod tests {
     #[test]
     fn thermal_sensor_filter_ignores_frequency_clock_rate() {
         use crate::models::{
-            SensorClass, SensorKind, SensorQuality, SensorReading, SensorSource,
-            ThermalSnapshot, ThermalStateSummary,
+            SensorClass, SensorKind, SensorQuality, SensorReading, SensorSource, ThermalSnapshot,
+            ThermalStateSummary,
         };
         let thermal = ThermalSnapshot {
             status: "ok".into(),
@@ -669,7 +669,11 @@ mod tests {
         temps.sort_by(|a, b| a.total_cmp(b));
         let cpu_temp = temps.last().copied();
         assert_eq!(cpu_temp, Some(82.9));
-        assert_ne!(cpu_temp, Some(3194.8), "frequency must never be mistaken for temperature");
+        assert_ne!(
+            cpu_temp,
+            Some(3194.8),
+            "frequency must never be mistaken for temperature"
+        );
     }
 
     fn cfg_default() -> HealthConfig {

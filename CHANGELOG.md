@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-08-20
+
+### Fixed
+
+- **`system_diagnose` reported `cpu_temperature_c` as `3194 C`** - thermal evidence filtered sensors by class only, so the `cpu_frequency` clock-rate sensor (`3194 MHz`, same `CpuPackage` class) was picked as the hottest temperature. The probe now filters by `SensorKind::Temperature`, so frequency is never mistaken for temperature. A regression test guards the mixed sensor case.
+- **`system_health` Explorer tree confusion** - high-memory issues for `Windows Explorer` now explicitly show tree vs own working set and process counts.
+
+### Changed
+
+- **Diagnostics clarity** - `system_diagnose` findings for `explorer` now note the shell-tree nature (Explorer plus tray/shell-extension descendants) and point to `own_working_set` / `tree_process_count` for isolation.
+- **`list_applications` semantics** - description and response now clarify it lists adapter-wrapped apps (currently Chrome) not all Windows process groups; an empty result now hints to use `system_health` / `system_diagnose` for OS-level groups.
+- **Docs style** - removed all em dashes from `docs/` per house style.
+
 ## [0.1.5] - 2026-08-20
 
 ### Added

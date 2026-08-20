@@ -123,7 +123,10 @@ fn main() -> ExitCode {
     {
         Ok(rt) => rt,
         Err(e) => {
-            log_error!("failed to start async runtime after {:?}: {e}", t0.elapsed());
+            log_error!(
+                "failed to start async runtime after {:?}: {e}",
+                t0.elapsed()
+            );
             return ExitCode::FAILURE;
         }
     };
