@@ -199,7 +199,7 @@ pub fn fill_sizes(
         std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1)
-            .min(16)
+            .min(8)
     };
 
     // Distribute FRN groups round-robin across threads.

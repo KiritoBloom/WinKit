@@ -86,6 +86,10 @@ live-windows = []
 live-chrome = []
 
 [profile.release]
+opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
+panic = "abort"
+incremental = false
+overflow-checks = false

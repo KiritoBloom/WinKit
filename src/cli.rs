@@ -49,14 +49,16 @@ const INIT_USAGE: &str = "\
 Usage: winkit init --client <opencode|claude-code|codex|generic> [--write] [--force]
 
 Prints the MCP client configuration for WinKit (npx-launched). Add the
-output to the client's MCP config, or use --write to create the client's
-standard config file (a timestamped .bak backup is made before overwriting
-with --force).
+output to the client's MCP config, or use --write to merge WinKit into the
+client's standard config file. --write never removes existing entries: the
+WinKit block is merged in and everything else is preserved (a timestamped
+.bak backup is made first). --force replaces the whole file with the bare
+template instead — only use it when you know the file is disposable.
 
 OPTIONS:
     --client <NAME>      opencode, claude-code, codex, or generic
-    --write              Write the config to the client's standard location
-    --force              Overwrite an existing file (backup first)
+    --write              Merge WinKit into the client's standard config file
+    --force              Replace the whole file with the template (backup first)
     --help               Print this help and exit
 ";
 
@@ -790,12 +792,9 @@ fn init_run(args: &[String]) -> ExitCode {
         return ExitCode::SUCCESS;
     }
     match init_write_target(client) {
-        Some(dest) => match write_init_file(&dest, &content, force) {
-            Ok(backup) => {
-                let backup_note = backup
-                    .map(|b| format!(" (backup: {})", b.display()))
-                    .unwrap_or_default();
-                println!("Wrote {}{backup_note}", dest.display());
+        Some(dest) => match init_write(&dest, client, &content, force) {
+            Ok(message) => {
+                println!("{message}");
                 ExitCode::SUCCESS
             }
             Err(msg) => {
@@ -887,6 +886,65 @@ fn write_init_file(dest: &Path, content: &str, force: bool) -> Result<Option<Pat
     };
     std::fs::write(dest, content).map_err(|e| format!("cannot write {}: {e}", dest.display()))?;
     Ok(backup)
+}
+
+/// Handle `init --write` for a resolved destination. The default is a
+/// non-destructive merge: an existing file is parsed with the same verified
+/// machinery `winkit install` uses, the WinKit entry is merged in, and every
+/// other entry is preserved. Only `--force` replaces the whole file with the
+/// bare template; a timestamped `.bak` backup is made first either way.
+fn init_write(
+    dest: &Path,
+    client: ClientKind,
+    template: &str,
+    force: bool,
+) -> Result<String, String> {
+    if !dest.exists() {
+        let backup = write_init_file(dest, template, false)?;
+        return Ok(match backup {
+            Some(b) => format!("Wrote {} (backup: {})", dest.display(), b.display()),
+            None => format!("Wrote {} (new file)", dest.display()),
+        });
+    }
+    if force {
+        let backup = write_init_file(dest, template, true)?;
+        return Ok(format!(
+            "Replaced {} with the template (backup: {})",
+            dest.display(),
+            backup
+                .map(|b| b.display().to_string())
+                .unwrap_or_else(|| "none".to_string())
+        ));
+    }
+    let target = match client {
+        ClientKind::ClaudeCode => InstallTarget::ClaudeCode,
+        ClientKind::Codex => InstallTarget::Codex,
+        // init_write_target returns None for these; defensive only.
+        ClientKind::Generic | ClientKind::Opencode => {
+            return Err(format!(
+                "{} has no standard single-file config location that WinKit can verify",
+                client.label()
+            ));
+        }
+    };
+    let existing =
+        std::fs::read_to_string(dest).map_err(|e| format!("cannot read {}: {e}", dest.display()))?;
+    match parse_and_merge(target, Some(existing.as_str())) {
+        Ok(Some(merged)) => {
+            let backup_note = write_with_restore(dest, &merged)?
+                .map(|b| format!(" (backup: {})", b.display()))
+                .unwrap_or_default();
+            Ok(format!("Merged WinKit into {}{backup_note}", dest.display()))
+        }
+        Ok(None) => Ok(format!(
+            "WinKit is already registered in {}; nothing to change",
+            dest.display()
+        )),
+        Err(reason) => Err(format!(
+            "cannot merge into {} ({reason}); if that file is disposable, rerun with --force to replace it (a backup is still kept)",
+            dest.display()
+        )),
+    }
 }
 
 // configure
@@ -1440,20 +1498,27 @@ fn set_bool(slot: &mut bool, key: &str, value: &str) -> Result<String, String> {
 
 // install
 
+const SKILL_NAME: &str = "winkit-developer-debugging";
+const SKILL_FILE: &str = "SKILL.md";
+
 const INSTALL_USAGE: &str = "\
-Usage: winkit install [--yes] [--list] [--json]
+Usage: winkit install [--yes] [--list] [--json] [--with-skill] [--without-skill]
 
 Detects installed AI coding agents (opencode, claude-code, codex, cursor,
 windsurf, gemini-cli, zed, cline, roo-code, continue) and registers WinKit
-as an MCP server in each one. For every detected runtime the target file is
-shown and confirmation is asked before merging in the WinKit entry. The
-original file is preserved (a timestamped .bak sibling is created first) and
-restored if the write fails. An existing WinKit entry is left untouched.
+as an MCP server in each one; also installs the companion skill
+skills/winkit-developer-debugging alongside each detected runtime. For every
+detected runtime the target file is shown and confirmation is asked before
+merging in the WinKit entry. The original file is preserved (a timestamped
+.bak sibling is created first) and restored if the write fails. An existing
+WinKit entry or identical skill is left untouched.
 
 OPTIONS:
     --yes                Install into every detected runtime without prompting
     --list               Detect and list runtimes without writing anything
     --json               Emit a machine-readable JSON report
+    --with-skill         Also install the winkit-developer-debugging skill (default)
+    --without-skill      Skip skill installation, MCP only
     --help               Print this help and exit
 ";
 
@@ -1555,6 +1620,333 @@ impl InstallOutcome {
             detail,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SkillStatus {
+    Installed,
+    AlreadyPresent,
+    Skipped,
+    Error,
+}
+
+impl SkillStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Installed => "INSTALLED",
+            Self::AlreadyPresent => "ALREADY",
+            Self::Skipped => "SKIPPED",
+            Self::Error => "ERROR",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SkillOutcome {
+    target: String,
+    path: String,
+    status: SkillStatus,
+    detail: String,
+}
+
+fn skill_source_dir() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(p) = std::env::var_os("WINKIT_SKILL_SOURCE") {
+        candidates.push(PathBuf::from(p.clone()).join(SKILL_NAME));
+        candidates.push(PathBuf::from(p));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("skills").join(SKILL_NAME));
+            candidates.push(dir.join("..").join("skills").join(SKILL_NAME));
+            candidates.push(dir.join("..").join("..").join("skills").join(SKILL_NAME));
+            candidates.push(dir.join("..").join("..").join("..").join("skills").join(SKILL_NAME));
+        }
+    }
+    candidates.push(PathBuf::from("skills").join(SKILL_NAME));
+    candidates.push(PathBuf::from("../skills").join(SKILL_NAME));
+    for c in candidates {
+        let skill_md = c.join(SKILL_FILE);
+        if skill_md.exists() {
+            if let Ok(canonical) = c.canonicalize() {
+                if canonical.join(SKILL_FILE).exists() {
+                    return Some(canonical);
+                }
+            }
+            if c.exists() && c.is_dir() {
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
+fn install_skill_path(target: InstallTarget, home: &Path, appdata: &Path) -> Option<PathBuf> {
+    match target {
+        InstallTarget::ClaudeCode => Some(home.join(".claude").join("skills").join(SKILL_NAME)),
+        InstallTarget::Opencode => Some(home.join(".config").join("opencode").join("skills").join(SKILL_NAME)),
+        InstallTarget::Codex => Some(home.join(".codex").join("skills").join(SKILL_NAME)),
+        InstallTarget::Cursor => Some(home.join(".cursor").join("skills").join(SKILL_NAME)),
+        InstallTarget::Windsurf => Some(home.join(".codeium").join("windsurf").join("skills").join(SKILL_NAME)),
+        InstallTarget::GeminiCli => Some(home.join(".gemini").join("skills").join(SKILL_NAME)),
+        InstallTarget::Zed => Some(appdata.join("Zed").join("skills").join(SKILL_NAME)),
+        InstallTarget::Cline => Some(home.join(".cline").join("skills").join(SKILL_NAME)),
+        InstallTarget::RooCode => Some(home.join(".roo").join("skills").join(SKILL_NAME)),
+        InstallTarget::Continue => Some(home.join(".agents").join("skills").join(SKILL_NAME)),
+    }
+}
+
+fn install_skill_paths(target: InstallTarget, home: &Path, appdata: &Path) -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    if let Some(p) = install_skill_path(target, home, appdata) {
+        v.push(p);
+    }
+    let universal = home.join(".agents").join("skills").join(SKILL_NAME);
+    let is_universal_primary = target == InstallTarget::Continue;
+    let needs_universal = matches!(
+        target,
+        InstallTarget::Codex
+            | InstallTarget::Cursor
+            | InstallTarget::GeminiCli
+            | InstallTarget::Zed
+            | InstallTarget::Cline
+            | InstallTarget::RooCode
+    );
+    if !is_universal_primary && needs_universal {
+        if !v.iter().any(|p| p == &universal) {
+            v.push(universal);
+        }
+    }
+    v.sort();
+    v.dedup();
+    v
+}
+
+fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dest).map_err(|e| format!("cannot create {}: {e}", dest.display()))?;
+    for entry in std::fs::read_dir(src).map_err(|e| format!("cannot read {}: {e}", src.display()))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let src_path = entry.path();
+        // Never follow symlinks/junctions: a link could point outside the
+        // skill directory (escape) or back at an ancestor (infinite loop).
+        if std::fs::symlink_metadata(&src_path)
+            .map(|m| m.file_type().is_symlink())
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        let dest_path = dest.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dest_path)?;
+        } else {
+            if let Some(parent) = dest_path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+                }
+            }
+            std::fs::copy(&src_path, &dest_path)
+                .map_err(|e| format!("cannot copy {} -> {}: {e}", src_path.display(), dest_path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// (file count, total bytes) under a directory, following the same
+/// symlink-skipping rules as `copy_dir_recursive`. Used to prove a backup is
+/// complete before the original is removed.
+fn dir_stats(dir: &Path) -> Result<(usize, u64), String> {
+    let mut files = 0usize;
+    let mut bytes = 0u64;
+    fn walk(cur: &Path, files: &mut usize, bytes: &mut u64) -> Result<(), String> {
+        for entry in std::fs::read_dir(cur)
+            .map_err(|e| format!("cannot read {}: {e}", cur.display()))?
+        {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let p = entry.path();
+            if std::fs::symlink_metadata(&p)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(true)
+            {
+                continue;
+            }
+            if p.is_dir() {
+                walk(&p, files, bytes)?;
+            } else {
+                let len = entry
+                    .metadata()
+                    .map(|m| m.len())
+                    .map_err(|e| format!("cannot stat {}: {e}", p.display()))?;
+                *files += 1;
+                *bytes += len;
+            }
+        }
+        Ok(())
+    }
+    walk(dir, &mut files, &mut bytes)?;
+    Ok((files, bytes))
+}
+
+fn dir_content_hash(dir: &Path) -> Result<String, String> {
+    use std::collections::BTreeMap;
+    let mut map: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    fn walk(base: &Path, cur: &Path, map: &mut BTreeMap<String, Vec<u8>>) -> Result<(), String> {
+        let mut entries: Vec<_> = std::fs::read_dir(cur)
+            .map_err(|e| format!("cannot read {}: {e}", cur.display()))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let p = e.path();
+            let rel = p.strip_prefix(base).unwrap_or(&p).to_string_lossy().to_string();
+            if p.is_dir() {
+                walk(base, &p, map)?;
+            } else {
+                let bytes = std::fs::read(&p).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
+                map.insert(rel, bytes);
+            }
+        }
+        Ok(())
+    }
+    walk(dir, dir, &mut map)?;
+    let mut hasher = 0u64;
+    for (k, v) in map {
+        for b in k.as_bytes() {
+            hasher = hasher.wrapping_mul(31).wrapping_add(*b as u64);
+        }
+        hasher = hasher.wrapping_mul(31).wrapping_add(v.len() as u64);
+        for b in v {
+            hasher = hasher.wrapping_mul(31).wrapping_add(b as u64);
+        }
+    }
+    Ok(format!("{hasher:016x}"))
+}
+
+fn dirs_are_identical(src: &Path, dest: &Path) -> bool {
+    if !dest.exists() || !dest.is_dir() || !dest.join(SKILL_FILE).exists() {
+        return false;
+    }
+    match (dir_content_hash(src), dir_content_hash(dest)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+fn backup_dir(dest: &Path) -> Result<PathBuf, String> {
+    let stamp = crate::utils::log::timestamp().replace([':', '.'], "-");
+    let name = dest
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "skill".to_string());
+    let backup = dest.with_file_name(format!("{name}.bak-{stamp}"));
+    copy_dir_recursive(dest, &backup)?;
+    Ok(backup)
+}
+
+fn install_skill_dir(src: &Path, dest: &Path) -> Result<Option<PathBuf>, String> {
+    if !src.exists() {
+        return Err(format!("skill source not found: {}", src.display()));
+    }
+    if !src.join(SKILL_FILE).exists() {
+        return Err(format!("skill source missing {}: {}", SKILL_FILE, src.display()));
+    }
+    if dest.exists() && dirs_are_identical(src, dest) {
+        return Ok(None);
+    }
+    if let Some(parent) = dest.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+        }
+    }
+    let backup = if dest.exists() {
+        let b = backup_dir(dest)?;
+        // The backup is the guarantee. Verify it captured every file and
+        // byte before the original is removed; if it did not, leave the
+        // destination untouched and fail loudly instead.
+        let dest_stats = dir_stats(dest)?;
+        let backup_stats = dir_stats(&b)?;
+        if dest_stats != backup_stats {
+            let _ = std::fs::remove_dir_all(&b);
+            return Err(format!(
+                "backup of {} is incomplete (original {:?}, backup {:?}); nothing was modified",
+                dest.display(),
+                dest_stats,
+                backup_stats
+            ));
+        }
+        std::fs::remove_dir_all(dest).map_err(|e| format!("cannot clear {}: {e}", dest.display()))?;
+        Some(b)
+    } else {
+        None
+    };
+    if let Err(e) = copy_dir_recursive(src, dest) {
+        if let Some(b) = &backup {
+            let _ = std::fs::remove_dir_all(dest);
+            if let Err(r) = copy_dir_recursive(b, dest) {
+                return Err(format!(
+                    "cannot write {}: {e} (restore also failed: {r}; backup at {})",
+                    dest.display(),
+                    b.display()
+                ));
+            }
+            return Err(format!("cannot write {}: {e} (restored from {})", dest.display(), b.display()));
+        }
+        return Err(format!("cannot write {}: {e} (no prior backup)", dest.display()));
+    }
+    Ok(backup)
+}
+
+fn install_skill_for_target(
+    target: InstallTarget,
+    home: &Path,
+    appdata: &Path,
+    src: &Path,
+) -> Vec<SkillOutcome> {
+    let dests = install_skill_paths(target, home, appdata);
+    let mut outcomes = Vec::new();
+    for dest in dests {
+        if dest.exists() && dirs_are_identical(src, &dest) {
+            outcomes.push(SkillOutcome {
+                target: target.label().to_string(),
+                path: dest.display().to_string(),
+                status: SkillStatus::AlreadyPresent,
+                detail: "skill already installed (identical)".to_string(),
+            });
+            continue;
+        }
+        match install_skill_dir(src, &dest) {
+            Ok(backup) => {
+                let detail = match backup {
+                    Some(b) => format!("installed (backup: {})", b.display()),
+                    None => "installed (new)".to_string(),
+                };
+                if !dest.join(SKILL_FILE).exists() {
+                    outcomes.push(SkillOutcome {
+                        target: target.label().to_string(),
+                        path: dest.display().to_string(),
+                        status: SkillStatus::Error,
+                        detail: format!("copy succeeded but {} missing", SKILL_FILE),
+                    });
+                } else {
+                    outcomes.push(SkillOutcome {
+                        target: target.label().to_string(),
+                        path: dest.display().to_string(),
+                        status: SkillStatus::Installed,
+                        detail,
+                    });
+                }
+            }
+            Err(e) => outcomes.push(SkillOutcome {
+                target: target.label().to_string(),
+                path: dest.display().to_string(),
+                status: SkillStatus::Error,
+                detail: e,
+            }),
+        }
+    }
+    outcomes
 }
 
 /// Detect installed runtimes from config artifacts under the user profile
@@ -1875,6 +2267,8 @@ fn install_run(args: &[String]) -> ExitCode {
     let mut yes = false;
     let mut list_only = false;
     let mut json = false;
+    let mut without_skill = false;
+    let mut with_skill_explicit = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -1885,6 +2279,8 @@ fn install_run(args: &[String]) -> ExitCode {
             "--yes" | "-y" => yes = true,
             "--list" => list_only = true,
             "--json" => json = true,
+            "--with-skill" => with_skill_explicit = true,
+            "--without-skill" => without_skill = true,
             other => {
                 eprintln!("error: unknown argument '{other}'\n\n{INSTALL_USAGE}");
                 return ExitCode::FAILURE;
@@ -1892,6 +2288,11 @@ fn install_run(args: &[String]) -> ExitCode {
         }
         i += 1;
     }
+    if with_skill_explicit && without_skill {
+        eprintln!("error: --with-skill and --without-skill are mutually exclusive\n\n{INSTALL_USAGE}");
+        return ExitCode::FAILURE;
+    }
+    let install_skill = !without_skill;
 
     let home = user_profile().unwrap_or_else(|| PathBuf::from("."));
     let appdata = std::env::var_os("APPDATA")
@@ -1904,6 +2305,8 @@ fn install_run(args: &[String]) -> ExitCode {
             let report = serde_json::json!({
                 "command": "winkit install",
                 "runtimes": [],
+                "skills": [],
+                "skill_enabled": install_skill,
             });
             println!(
                 "{}",
@@ -1923,7 +2326,18 @@ fn install_run(args: &[String]) -> ExitCode {
     // never writes anything.
     let plan_only = list_only || (json && !yes) || (!interactive && !yes);
 
+    let skill_src = if install_skill {
+        skill_source_dir()
+    } else {
+        None
+    };
+    let skill_src_missing = install_skill && skill_src.is_none();
+    if skill_src_missing && !plan_only && !json {
+        eprintln!("warning: skill source not found (skills/{SKILL_NAME}/SKILL.md); MCP will still be installed");
+    }
+
     let mut outcomes = Vec::new();
+    let mut skill_outcomes: Vec<SkillOutcome> = Vec::new();
     for target in InstallTarget::all() {
         if !detected.contains(&target) {
             continue;
@@ -1988,7 +2402,12 @@ fn install_run(args: &[String]) -> ExitCode {
         };
 
         if !yes {
-            print!("Install WinKit for {}? [y/N] ", target.label());
+            let prompt = if install_skill && skill_src.is_some() {
+                format!("Install WinKit MCP + skill for {}? [y/N] ", target.label())
+            } else {
+                format!("Install WinKit for {}? [y/N] ", target.label())
+            };
+            print!("{prompt}");
             let _ = std::io::stdout().flush();
             let mut line = String::new();
             match std::io::stdin().read_line(&mut line) {
@@ -2040,11 +2459,100 @@ fn install_run(args: &[String]) -> ExitCode {
         }
     }
 
+    // --- Skill installation (second phase, after MCP) ---
+    if install_skill {
+        if let Some(src) = skill_src.as_ref() {
+            for target in InstallTarget::all() {
+                if !detected.contains(&target) {
+                    continue;
+                }
+                let dests = install_skill_paths(target, &home, &appdata);
+                if dests.is_empty() {
+                    continue;
+                }
+                if plan_only {
+                    for dest in dests {
+                        let status = if dest.exists() && dirs_are_identical(src, &dest) {
+                            SkillStatus::AlreadyPresent
+                        } else {
+                            SkillStatus::Skipped
+                        };
+                        let detail = if status == SkillStatus::AlreadyPresent {
+                            "skill already installed (identical)".to_string()
+                        } else {
+                            "would install skill".to_string()
+                        };
+                        skill_outcomes.push(SkillOutcome {
+                            target: target.label().to_string(),
+                            path: dest.display().to_string(),
+                            status,
+                            detail,
+                        });
+                    }
+                    continue;
+                }
+                let mcp_not_installed = outcomes.iter().any(|o| {
+                    o.target == target.label()
+                        && matches!(
+                            o.status,
+                            InstallStatus::Declined | InstallStatus::Error
+                        )
+                });
+                if mcp_not_installed && !yes {
+                    for dest in dests {
+                        skill_outcomes.push(SkillOutcome {
+                            target: target.label().to_string(),
+                            path: dest.display().to_string(),
+                            status: SkillStatus::Skipped,
+                            detail: "skipped: MCP step was declined or failed for this runtime"
+                                .to_string(),
+                        });
+                    }
+                    continue;
+                }
+                for outcome in install_skill_for_target(target, &home, &appdata, src) {
+                    skill_outcomes.push(outcome);
+                }
+            }
+        } else if !plan_only {
+            for target in InstallTarget::all() {
+                if !detected.contains(&target) {
+                    continue;
+                }
+                for dest in install_skill_paths(target, &home, &appdata) {
+                    skill_outcomes.push(SkillOutcome {
+                        target: target.label().to_string(),
+                        path: dest.display().to_string(),
+                        status: SkillStatus::Skipped,
+                        detail: "skill source not found; MCP installed without skill".to_string(),
+                    });
+                }
+            }
+        } else {
+            for target in InstallTarget::all() {
+                if !detected.contains(&target) {
+                    continue;
+                }
+                for dest in install_skill_paths(target, &home, &appdata) {
+                    skill_outcomes.push(SkillOutcome {
+                        target: target.label().to_string(),
+                        path: dest.display().to_string(),
+                        status: SkillStatus::Skipped,
+                        detail: "would install skill (source missing)".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
     if json {
         let report = serde_json::json!({
             "command": "winkit install",
             "home": home.display().to_string(),
             "runtimes": outcomes,
+            "skills": skill_outcomes,
+            "skill_enabled": install_skill,
+            "skill_source": skill_src.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
         });
         println!(
             "{}",
@@ -2061,9 +2569,18 @@ fn install_run(args: &[String]) -> ExitCode {
             };
             println!("[{}] {} — {}{}", o.status.label(), o.target, o.detail, path);
         }
+        if install_skill {
+            if skill_src.is_none() {
+                println!("Skills: SKIPPED — source not found (expected skills/{SKILL_NAME}/SKILL.md next to binary)");
+            } else {
+                for s in &skill_outcomes {
+                    println!("[{}] skill:{} — {} ({})", s.status.label(), s.target, s.detail, s.path);
+                }
+            }
+        }
     }
 
-    if outcomes.iter().any(|o| o.status == InstallStatus::Error) {
+    if outcomes.iter().any(|o| o.status == InstallStatus::Error) || skill_outcomes.iter().any(|s| s.status == SkillStatus::Error) {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
@@ -2566,5 +3083,146 @@ mod tests {
         std::fs::write(&backup, "original").unwrap();
         restore_backup(&dest, &backup).unwrap();
         assert_eq!(std::fs::read_to_string(&dest).unwrap(), "original");
+    }
+
+    // --- non-destructive guarantees (regression tests) ---
+
+    #[test]
+    fn init_write_merges_into_existing_codex_config_without_losing_entries() {
+        let dir = temp_dir("init-merge-codex");
+        let dest = dir.join("config.toml");
+        let original = "model = \"gpt-5\"\n\n[mcp_servers.other]\ncommand = \"uvx\"\nargs = [\"srv\"]\n";
+        std::fs::write(&dest, original).unwrap();
+
+        let message = init_write(&dest, ClientKind::Codex, &codex_toml(), false).unwrap();
+        assert!(message.contains("Merged"), "{message}");
+
+        let table: toml::Table = toml::from_str(&std::fs::read_to_string(&dest).unwrap()).unwrap();
+        // Pre-existing content survives.
+        assert_eq!(table["model"].as_str(), Some("gpt-5"));
+        assert_eq!(
+            table["mcp_servers"]["other"]["command"].as_str(),
+            Some("uvx")
+        );
+        // WinKit is added alongside it, not instead of it.
+        assert_eq!(
+            table["mcp_servers"]["winkit"]["command"].as_str(),
+            Some("npx")
+        );
+        // The backup holds the exact original bytes.
+        let backups: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().starts_with("config.toml.bak-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(backups.len(), 1, "exactly one backup expected");
+        assert_eq!(std::fs::read_to_string(&backups[0]).unwrap(), original);
+    }
+
+    #[test]
+    fn init_write_merges_into_existing_claude_config_and_preserves_other_servers() {
+        let dir = temp_dir("init-merge-claude");
+        let dest = dir.join(".claude.json");
+        let original = r#"{"mcpServers":{"mine":{"command":"node","args":["a.js"]}},"theme":"dark"}"#;
+        std::fs::write(&dest, original).unwrap();
+
+        init_write(&dest, ClientKind::ClaudeCode, &mcp_servers_json(), false).unwrap();
+        let value: JsonValue = serde_json::from_str(&std::fs::read_to_string(&dest).unwrap()).unwrap();
+        assert_eq!(value["mcpServers"]["mine"]["command"], "node");
+        assert_eq!(value["theme"], "dark");
+        assert_eq!(value["mcpServers"]["winkit"]["command"], "npx");
+    }
+
+    #[test]
+    fn init_write_is_a_noop_when_winkit_is_already_registered() {
+        let dir = temp_dir("init-noop");
+        let dest = dir.join("config.toml");
+        std::fs::write(&dest, codex_toml()).unwrap();
+        let before = std::fs::read_to_string(&dest).unwrap();
+
+        let message = init_write(&dest, ClientKind::Codex, &codex_toml(), false).unwrap();
+        assert!(message.contains("already registered"), "{message}");
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), before);
+    }
+
+    #[test]
+    fn init_write_force_replaces_but_keeps_a_backup_of_the_original() {
+        let dir = temp_dir("init-force");
+        let dest = dir.join("config.toml");
+        std::fs::write(&dest, "model = \"gpt-5\"\n").unwrap();
+
+        let message = init_write(&dest, ClientKind::Codex, &codex_toml(), true).unwrap();
+        assert!(message.contains("Replaced"), "{message}");
+        // Whole file replaced...
+        let table: toml::Table = toml::from_str(&std::fs::read_to_string(&dest).unwrap()).unwrap();
+        assert!(table["mcp_servers"]["winkit"].is_table());
+        assert!(table.get("model").is_none());
+        // ...but the original is recoverable from the backup.
+        let backups: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().starts_with("config.toml.bak-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(backups.len(), 1, "exactly one backup expected");
+        assert_eq!(
+            std::fs::read_to_string(&backups[0]).unwrap(),
+            "model = \"gpt-5\"\n"
+        );
+    }
+
+    #[test]
+    fn skill_install_preserves_sibling_skills_and_backs_up_replaced_content() {
+        let dir = temp_dir("skill-siblings");
+        let src = dir.join("src-skill");
+        std::fs::create_dir_all(src.join("references")).unwrap();
+        std::fs::write(src.join(SKILL_FILE), "v2 body").unwrap();
+        std::fs::write(src.join("references").join("deep.md"), "deep v2").unwrap();
+
+        let skills_root = dir.join("skills");
+        let dest = skills_root.join(SKILL_NAME);
+        let sibling = skills_root.join("someone-elses-skill");
+        std::fs::create_dir_all(&sibling).unwrap();
+        std::fs::write(sibling.join(SKILL_FILE), "do not touch").unwrap();
+        // An older version of the winkit skill is already installed.
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(dest.join(SKILL_FILE), "v1 body").unwrap();
+
+        let backup = install_skill_dir(&src, &dest).unwrap().expect("backup expected");
+
+        // Sibling skills are untouched.
+        assert_eq!(
+            std::fs::read_to_string(sibling.join(SKILL_FILE)).unwrap(),
+            "do not touch"
+        );
+        // New content in place, including nested files.
+        assert_eq!(std::fs::read_to_string(dest.join(SKILL_FILE)).unwrap(), "v2 body");
+        assert_eq!(
+            std::fs::read_to_string(dest.join("references").join("deep.md")).unwrap(),
+            "deep v2"
+        );
+        // Backup holds the replaced version's exact content.
+        assert_eq!(
+            std::fs::read_to_string(backup.join(SKILL_FILE)).unwrap(),
+            "v1 body"
+        );
+    }
+
+    #[test]
+    fn dir_stats_counts_files_and_bytes_recursively() {
+        let dir = temp_dir("dir-stats");
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("a.txt"), "12345").unwrap();
+        std::fs::write(dir.join("sub").join("b.txt"), "12").unwrap();
+        assert_eq!(dir_stats(&dir).unwrap(), (2, 7));
     }
 }

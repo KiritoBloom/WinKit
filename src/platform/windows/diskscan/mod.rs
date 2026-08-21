@@ -64,6 +64,20 @@ use tree::{PathResolver, TopK};
 /// a rescan.
 const DEFAULT_CACHE_TTL_MS: u64 = 30_000;
 
+/// Maximum number of volume snapshots retained in process memory. Without a
+/// bound the cache grows without limit when an agent probes many distinct
+/// scope roots (e.g. `D:\Games`, `D:\Projects`), each retaining hundreds of
+/// megabytes. A small bound keeps repeated queries fast while preventing
+/// unbounded growth.
+const MAX_CACHED_SNAPSHOTS: usize = 3;
+
+/// Age after which an unused snapshot is evicted even if the cache is not
+/// full. Without expiration a single full-volume scan keeps its snapshot
+/// alive for the lifetime of the `winkit.exe` process, holding the peak
+/// working set forever. Five minutes is enough for repeated queries to hit
+/// the cache while ensuring idle memory is reclaimed.
+const CACHE_MAX_AGE_MS: u64 = 5 * 60 * 1000;
+
 // Volume identification and scanner selection
 
 /// Normalize a user-supplied path for drive-relative, rooted, and relative
@@ -773,7 +787,7 @@ fn scan_ntfs(
         }
         p.set_phase("enumeration");
     }
-    let (mut records, names, root_frn, _raw) =
+    let (mut records, mut names, root_frn, _raw) =
         ntfs::enumerate(&plan.volume_root, cancel, progress)?;
     let enum_ms = t0.elapsed().as_millis() as u64;
 
@@ -822,6 +836,7 @@ fn scan_ntfs(
     }
     let stale = records.len() - w;
     records.truncate(w);
+    records.shrink_to_fit();
     // New orphans may appear when a stale record was a directory.
     let by_frn2 = sorted_by_frn(&records);
     let mut new_orphans = 0u64;
@@ -877,7 +892,7 @@ fn scan_ntfs(
         .unwrap_or(0);
     counts.total_logical = tree_index.aggregate[root_idx];
 
-    let top_files_all = top_n_indices(
+    let mut top_files_all = top_n_indices(
         &tree_index.by_frn,
         &tree_index.aggregate,
         &records,
@@ -885,7 +900,7 @@ fn scan_ntfs(
         false,
         100,
     );
-    let top_folders_all = top_n_indices(
+    let mut top_folders_all = top_n_indices(
         &tree_index.by_frn,
         &tree_index.aggregate,
         &records,
@@ -893,6 +908,8 @@ fn scan_ntfs(
         true,
         100,
     );
+    top_files_all.shrink_to_fit();
+    top_folders_all.shrink_to_fit();
 
     let counts_dirs = counts.dirs;
     let counts_files = counts.files;
@@ -903,6 +920,10 @@ fn scan_ntfs(
         p.set_files(counts_files);
         p.set_dirs(counts_dirs);
     }
+    // Ensure a tiny volume does not retain the initial large reservation
+    // after stale-record compaction.
+    records.shrink_to_fit();
+    names.shrink_to_fit();
     let snapshot = DiskSnapshot {
         // The MFT covers the whole volume even when the caller named a
         // subdirectory, so the snapshot scope is the volume root.
@@ -990,9 +1011,11 @@ pub(crate) fn scan_volume_capped(
                 // scope), never silently the whole volume, so a non-elevated
                 // token degrades to a bounded classic directory scan.
                 match fallback::scan_with_cap(&plan.scope_root, cancel, progress, max_records) {
-                    Ok((records, names, root_frn, counts, timings)) => {
+                    Ok((mut records, mut names, root_frn, counts, timings)) => {
+                        records.shrink_to_fit();
+                        names.shrink_to_fit();
                         let tree_index = tree::TreeIndex::build(&records);
-                        let top_files_all = top_n_indices(
+                        let mut top_files_all = top_n_indices(
                             &tree_index.by_frn,
                             &tree_index.aggregate,
                             &records,
@@ -1000,7 +1023,7 @@ pub(crate) fn scan_volume_capped(
                             false,
                             100,
                         );
-                        let top_folders_all = top_n_indices(
+                        let mut top_folders_all = top_n_indices(
                             &tree_index.by_frn,
                             &tree_index.aggregate,
                             &records,
@@ -1008,6 +1031,8 @@ pub(crate) fn scan_volume_capped(
                             true,
                             100,
                         );
+                        top_files_all.shrink_to_fit();
+                        top_folders_all.shrink_to_fit();
                         let snapshot = DiskSnapshot {
                             volume_root: plan.volume_root.clone(),
                             scope_root: plan.scope_root.clone(),
@@ -1042,10 +1067,12 @@ pub(crate) fn scan_volume_capped(
             if let Some(p) = progress {
                 p.set_phase("recursive_walk");
             }
-            let (records, names, root_frn, counts, timings) =
+            let (mut records, mut names, root_frn, counts, timings) =
                 fallback::scan_with_cap(&plan.scope_root, cancel, progress, max_records)?;
+            records.shrink_to_fit();
+            names.shrink_to_fit();
             let tree_index = tree::TreeIndex::build(&records);
-            let top_files_all = top_n_indices(
+            let mut top_files_all = top_n_indices(
                 &tree_index.by_frn,
                 &tree_index.aggregate,
                 &records,
@@ -1053,7 +1080,7 @@ pub(crate) fn scan_volume_capped(
                 false,
                 100,
             );
-            let top_folders_all = top_n_indices(
+            let mut top_folders_all = top_n_indices(
                 &tree_index.by_frn,
                 &tree_index.aggregate,
                 &records,
@@ -1061,6 +1088,8 @@ pub(crate) fn scan_volume_capped(
                 true,
                 100,
             );
+            top_files_all.shrink_to_fit();
+            top_folders_all.shrink_to_fit();
             let snapshot = DiskSnapshot {
                 volume_root: plan.volume_root.clone(),
                 scope_root: plan.scope_root.clone(),
@@ -1166,7 +1195,6 @@ struct RunningScan {
 ///   `disk_scan_status` can still answer for a finished scan_id;
 /// * `errors` never accumulates: failure messages live on the running entry
 ///   and in the bounded completed history only.
-#[derive(Debug, Default)]
 pub struct DiskScanService {
     cache: Mutex<HashMap<String, CachedSnapshot>>,
     running: Mutex<HashMap<String, RunningScan>>,
@@ -1176,6 +1204,29 @@ pub struct DiskScanService {
     /// seam that lets the lifecycle tests force a deterministic scan
     /// failure without touching production behavior.
     pub(crate) fallback_cap: Option<usize>,
+}
+
+impl std::fmt::Debug for DiskScanService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DiskScanService")
+            .field("cache_len", &self.cache.lock().unwrap().len())
+            .field("running_len", &self.running.lock().unwrap().len())
+            .field("completed_len", &self.completed.lock().unwrap().len())
+            .field("next_id", &self.next_id)
+            .finish()
+    }
+}
+
+impl Default for DiskScanService {
+    fn default() -> Self {
+        Self {
+            cache: Mutex::new(HashMap::new()),
+            running: Mutex::new(HashMap::new()),
+            completed: Mutex::new(std::collections::VecDeque::new()),
+            next_id: AtomicU64::new(0),
+            fallback_cap: None,
+        }
+    }
 }
 
 impl DiskScanService {
@@ -1193,6 +1244,73 @@ impl DiskScanService {
     ) -> Result<(DiskSnapshot, Option<String>), WinkitError> {
         scan_volume_capped(plan, cancel, progress, self.fallback_cap)
     }
+
+    /// Insert a snapshot into the cache, first evicting expired entries and
+    /// enforcing the size bound. Must be called with the cache lock held or
+    /// via the wrapper that locks internally.
+    fn insert_cached_locked(
+        cache: &mut HashMap<String, CachedSnapshot>,
+        key: String,
+        cached: CachedSnapshot,
+    ) {
+        // Remove entries older than CACHE_MAX_AGE_MS even if the cache is
+        // not yet full — an idle full-volume snapshot should not keep its
+        // hundreds of MB alive forever.
+        let now = SystemTime::now();
+        cache.retain(|_, v| {
+            now.duration_since(v.scanned_at)
+                .map(|d| d.as_millis() as u64 <= CACHE_MAX_AGE_MS)
+                .unwrap_or(true)
+        });
+        // Enforce the size bound with LRU eviction (oldest scanned_at first).
+        // HashMap has no ordering, so find the oldest entries to drop.
+        while cache.len() >= MAX_CACHED_SNAPSHOTS && !cache.contains_key(&key) {
+            if let Some(oldest_key) = cache
+                .iter()
+                .min_by_key(|(_, v)| v.scanned_at)
+                .map(|(k, _)| k.clone())
+            {
+                cache.remove(&oldest_key);
+            } else {
+                break;
+            }
+        }
+        cache.insert(key, cached);
+    }
+
+    fn insert_cached(&self, key: String, cached: CachedSnapshot) {
+        let mut cache = self.cache.lock().unwrap();
+        Self::insert_cached_locked(&mut cache, key, cached);
+        // Shrink the map itself if eviction removed entries — releases the
+        // HashMap's internal table memory back to the allocator.
+        cache.shrink_to_fit();
+    }
+
+    /// Production constructor with a background reaper. The reaper wakes once
+    /// a minute and evicts snapshots older than `CACHE_MAX_AGE_MS`, then
+    /// shrinks the map. This is what prevents "even when done is stuck at
+    /// its ram usage": without it an idle full-volume scan would keep its
+    /// snapshot (hundreds of MB) alive for the entire `winkit.exe` lifetime.
+    pub fn new() -> Arc<Self> {
+        let svc = Arc::new(Self::default());
+        let weak = Arc::downgrade(&svc);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            let Some(svc) = weak.upgrade() else { break; };
+            let mut cache = svc.cache.lock().unwrap();
+            let now = SystemTime::now();
+            let before = cache.len();
+            cache.retain(|_, v| {
+                now.duration_since(v.scanned_at)
+                    .map(|d| d.as_millis() as u64 <= CACHE_MAX_AGE_MS)
+                    .unwrap_or(true)
+            });
+            if cache.len() != before {
+                cache.shrink_to_fit();
+            }
+        });
+        svc
+    }
 }
 
 impl DiskScanService {
@@ -1207,17 +1325,32 @@ impl DiskScanService {
             request.max_age_ms
         };
         if !request.refresh {
-            if let Some(c) = self.cache.lock().unwrap().get(&key) {
+            let mut cache = self.cache.lock().unwrap();
+            if let Some(c) = cache.get(&key) {
                 if let Ok(age) = c.scanned_at.elapsed() {
-                    if age.as_millis() as u64 <= max_age {
-                        return Ok(c.snapshot.info(true, Some(age.as_millis() as u64)));
+                    let age_ms = age.as_millis() as u64;
+                    // Expired entries are evicted instead of being served as
+                    // fresh — otherwise an idle snapshot would pin hundreds of
+                    // MB for the lifetime of the process.
+                    if age_ms > CACHE_MAX_AGE_MS {
+                        cache.remove(&key);
+                    } else if age_ms <= max_age {
+                        let info = c.snapshot.info(true, Some(age_ms));
+                        return Ok(info);
                     }
                 }
             }
         }
         let cancel = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(ScanProgress::new());
-        let (snapshot, _) = self.capped_scan(&plan, &cancel, Some(&progress))?;
+        let (mut snapshot, _) = self.capped_scan(&plan, &cancel, Some(&progress))?;
+        // Release any over-allocated capacity before the snapshot is
+        // long-lived in the cache (a tiny volume must not retain a large
+        // initial reservation).
+        snapshot.records.shrink_to_fit();
+        snapshot.names.shrink_to_fit();
+        snapshot.top_files_all.shrink_to_fit();
+        snapshot.top_folders_all.shrink_to_fit();
         let duration = snapshot.timings.total_ms;
         let snap = Arc::new(snapshot);
         let cached = CachedSnapshot {
@@ -1225,7 +1358,7 @@ impl DiskScanService {
             scanned_at: SystemTime::now(),
             scan_duration_ms: duration,
         };
-        self.cache.lock().unwrap().insert(key, cached);
+        self.insert_cached(key, cached);
         Ok(snap.info(false, None))
     }
 
@@ -1276,8 +1409,12 @@ impl DiskScanService {
             let scan_started = Instant::now();
             let outcome = scan_volume_capped(&plan, &cancel, Some(&progress), fallback_cap);
             let (phase, error) = match outcome {
-                Ok((snapshot, _)) => {
+                Ok((mut snapshot, _)) => {
                     progress.set_phase("done");
+                    snapshot.records.shrink_to_fit();
+                    snapshot.names.shrink_to_fit();
+                    snapshot.top_files_all.shrink_to_fit();
+                    snapshot.top_folders_all.shrink_to_fit();
                     let duration = snapshot.timings.total_ms;
                     let snap = Arc::new(snapshot);
                     let cached = CachedSnapshot {
@@ -1285,10 +1422,7 @@ impl DiskScanService {
                         scanned_at: SystemTime::now(),
                         scan_duration_ms: duration,
                     };
-                    this.cache
-                        .lock()
-                        .unwrap()
-                        .insert(closure_key.clone(), cached);
+                    this.insert_cached(closure_key.clone(), cached);
                     ("done", None)
                 }
                 Err(e) => {
@@ -1449,11 +1583,26 @@ impl DiskScanService {
     pub fn ensure_snapshot(&self, path: &str) -> Result<Arc<DiskSnapshot>, WinkitError> {
         let plan = plan_for_path(path)?;
         let key = plan.scope_root.clone();
-        if let Some(c) = self.cache.lock().unwrap().get(&key) {
-            return Ok(c.snapshot.clone());
+        {
+            let mut cache = self.cache.lock().unwrap();
+            let is_expired = cache.get(&key).map(|c| {
+                c.scanned_at
+                    .elapsed()
+                    .map(|d| d.as_millis() as u64 > CACHE_MAX_AGE_MS)
+                    .unwrap_or(true)
+            }).unwrap_or(false);
+            if is_expired {
+                cache.remove(&key);
+            } else if let Some(c) = cache.get(&key) {
+                return Ok(c.snapshot.clone());
+            }
         }
         let cancel = Arc::new(AtomicBool::new(false));
-        let (snapshot, _) = self.capped_scan(&plan, &cancel, None)?;
+        let (mut snapshot, _) = self.capped_scan(&plan, &cancel, None)?;
+        snapshot.records.shrink_to_fit();
+        snapshot.names.shrink_to_fit();
+        snapshot.top_files_all.shrink_to_fit();
+        snapshot.top_folders_all.shrink_to_fit();
         let duration = snapshot.timings.total_ms;
         let snap = Arc::new(snapshot);
         let cached = CachedSnapshot {
@@ -1461,7 +1610,7 @@ impl DiskScanService {
             scanned_at: SystemTime::now(),
             scan_duration_ms: duration,
         };
-        self.cache.lock().unwrap().insert(key, cached);
+        self.insert_cached(key, cached);
         Ok(snap)
     }
 

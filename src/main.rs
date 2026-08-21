@@ -117,7 +117,10 @@ fn main() -> ExitCode {
         t_state - t_cfg
     );
 
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
+    // Current-thread runtime is lighter (1 worker thread vs N cores) and
+    // starts faster for the stdio subprocess-per-tool-call model. Blocking
+    // work still runs on the dedicated blocking pool via spawn_blocking.
+    let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
     {

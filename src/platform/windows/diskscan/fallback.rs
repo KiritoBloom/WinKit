@@ -409,7 +409,7 @@ fn walk_parallel(
     let thread_count = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(1)
-        .min(16);
+        .min(8);
 
     let mut worker_outs: Vec<WorkerOut> = std::thread::scope(|scope| {
         let shared = &shared;

@@ -13,7 +13,8 @@
     "winkit": "bin/winkit.exe"
   },
   "files": [
-    "bin"
+    "bin",
+    "skills"
   ],
   "keywords": [
     "mcp",

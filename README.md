@@ -24,6 +24,21 @@ That is the whole pitch: instead of an agent hallucinating a
 `Get-WinEvent` filter or telling you to "check Event Viewer", it reads the
 real event log through a schema-driven tool and answers with evidence.
 
+## Install in 10 seconds
+
+```bash
+npx --yes @winkit/mcp@latest install --yes   # registers MCP + skill in every detected agent
+npx --yes @winkit/mcp@latest doctor          # verify — all checks should PASS
+```
+
+One command detects OpenCode, Claude Code, Codex CLI, Cursor, Windsurf,
+Gemini CLI, Zed, Cline, Roo Code and Continue, merges the WinKit MCP entry
+with a timestamped `.bak` backup, **and drops the companion skill
+`winkit-developer-debugging` into every agent's skills folder** (so your
+agent automatically knows when to call WinKit). Add `--without-skill` for
+MCP-only, `--list` to preview, or `--json` for machine output. See
+[docs/installation.md](docs/installation.md) for manual and per-client setup.
+
 ## Without / With
 
 **❌ Without WinKit** — an agent on Windows is blind. It guesses PowerShell

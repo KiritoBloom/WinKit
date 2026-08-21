@@ -70,7 +70,10 @@ use windows_sys::Win32::System::Ioctl::{
 use windows_sys::Win32::System::IO::DeviceIoControl;
 
 /// Large output buffer: one `DeviceIoControl` call returns many records.
-const ENUM_BUFFER_SIZE: usize = 16 * 1024 * 1024;
+/// Reduced from 16 MiB to 4 MiB to bound per-scan peak working set while
+/// still streaming efficiently; a 4 MiB buffer returns thousands of records
+/// per syscall.
+const ENUM_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 
 /// Hard cap on a single file-name component (NTFS allows at most 255 UTF-16
 /// units; anything larger is treated as malformed).
@@ -572,8 +575,12 @@ pub fn enumerate(
         HighUsn: i64::MAX,
     };
     let mut out = vec![0u8; ENUM_BUFFER_SIZE];
-    let mut records: Vec<ScanRecord> = Vec::with_capacity(1_000_000);
-    let mut names: Vec<u8> = Vec::with_capacity(32 * 1024 * 1024);
+    // Start small and grow on demand: a tiny volume with 10 files should
+    // retain kilobytes, not 48 MB + 32 MB of pre-allocated capacity.
+    // 64 K records (~3 MB) and 4 MB names are enough to avoid immediate
+    // reallocation for moderate volumes while keeping small-scan overhead low.
+    let mut records: Vec<ScanRecord> = Vec::with_capacity(64 * 1024);
+    let mut names: Vec<u8> = Vec::with_capacity(4 * 1024 * 1024);
     let rec_counter = AtomicU64::new(0);
     let dir_counter = AtomicU64::new(0);
     let mut raw_count: u64 = 0;
@@ -670,5 +677,11 @@ pub fn enumerate(
             ),
         ));
     }
+    // Release excess capacity so a tiny volume does not retain the initial
+    // reservation (the caller may keep these vectors for the lifetime of a
+    // cached snapshot).
+    records.shrink_to_fit();
+    names.shrink_to_fit();
+    drop(out);
     Ok((records, names, root_frn, raw_count))
 }

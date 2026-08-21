@@ -102,10 +102,16 @@ pub struct ChromeProcessSummary {
 /// The real Windows backend, wrapping [`crate::platform::windows`]. Holds
 /// the per-volume disk-scan cache and background-scan registry so every MCP
 /// call reuses one snapshot per volume.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct RealWindowsBackend {
     scans: Arc<crate::platform::windows::diskscan::DiskScanService>,
     hardware: crate::platform::windows::hardware::HardwareOptions,
+}
+
+impl Default for RealWindowsBackend {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RealWindowsBackend {
@@ -115,7 +121,7 @@ impl RealWindowsBackend {
 
     pub fn with_options(hardware: crate::platform::windows::hardware::HardwareOptions) -> Self {
         Self {
-            scans: Arc::new(crate::platform::windows::diskscan::DiskScanService::default()),
+            scans: crate::platform::windows::diskscan::DiskScanService::new(),
             hardware,
         }
     }
