@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-08-21
+
+### Fixed
+
+- **`init --write` no longer replaces existing client configs** - it previously overwrote the whole file (e.g. `~/.codex/config.toml`) with a winkit-only template, silently dropping every other entry. It now merges the WinKit block into the existing config using the same verified machinery as `winkit install`; only explicit `--force` replaces wholesale, and a timestamped `.bak` backup is kept either way. Unparseable existing files are refused, never overwritten.
+- **Skill install backup integrity** - before replacing an existing skill directory, the backup is verified complete (file count and byte total match); on mismatch nothing is modified and the operation fails loudly instead of destroying the previous version.
+- **Skill copies are symlink-safe** - symlinks/junctions inside a skill directory are skipped so a copy can never escape the destination or loop.
+
+### Changed
+
+- **Skill installation is gated on MCP success** - when the MCP step for a runtime errors or is declined, the companion skill is skipped for that runtime instead of being installed anyway.
+- **Installer ships the skill** - `winkit install` installs `winkit-developer-debugging` into each detected agent's skills folder (`--with-skill` default, `--without-skill` to skip), idempotent via content hashing, with timestamped `.bak` backups on replace.
+- **Lighter stdio runtime** - the MCP server now runs on a current-thread tokio runtime; blocking work still uses the dedicated blocking pool.
+- **Release profile tuning** - `opt-level = "z"`, `panic = "abort"`, no incremental, no overflow checks in release builds.
+
 ## [0.1.6] - 2026-08-20
 
 ### Fixed
