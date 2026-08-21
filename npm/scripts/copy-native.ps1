@@ -14,16 +14,23 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
+# Resolve the Cargo target triple. With no -Target, infer from -Arch (the
+# local "just built for my machine" flow).
 if ($Target -eq '') {
     if ($Arch -eq 'arm64') { $Target = 'aarch64-pc-windows-msvc' }
     else { $Target = 'x86_64-pc-windows-msvc' }
-}
 
-$profileDir = 'release'
-if ($Target -ne 'x86_64-pc-windows-msvc') {
-    $profileDir = "$Target\release"
+    $src = Join-Path $root "target\release\winkit.exe"
+} else {
+    # Explicit target triple (CI cross-builds): cargo puts the binary under
+    # target\<triple>\release\. For the host triple, also accept the
+    # no---target layout as a fallback.
+    $src = Join-Path $root "target\$Target\release\winkit.exe"
+    if (-not (Test-Path $src) -and $Target -eq 'x86_64-pc-windows-msvc') {
+        $hostLayout = Join-Path $root "target\release\winkit.exe"
+        if (Test-Path $hostLayout) { $src = $hostLayout }
+    }
 }
-$src = Join-Path $root "target\$profileDir\winkit.exe"
 $destDir = Join-Path $PSScriptRoot "..\win32-$Arch-msvc\bin"
 $dest = Join-Path $destDir 'winkit.exe'
 
