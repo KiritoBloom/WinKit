@@ -13,9 +13,17 @@
 #
 # Usage (from the repository root, after `cargo build --release`):
 #   powershell -ExecutionPolicy Bypass -File npm/scripts/test-packed.ps1
+# Cross-build layout (CI): pass the Cargo target triple so the binary is
+# resolved from target/<triple>/release/:
+#   powershell -ExecutionPolicy Bypass -File npm/scripts/test-packed.ps1 -Target x86_64-pc-windows-msvc
 #
 # Exit codes: 0 = all checks passed, 1 = a check failed, 2 = skipped
 # because the release binary is absent (a documented limitation, not a pass).
+
+param(
+    # Cargo target triple used for the build; empty means host build.
+    [string]$Target = ''
+)
 
 # The launcher intentionally writes human notes to stderr (e.g. the init
 # disclaimer), which PowerShell 5.1 turns into error records under
@@ -28,14 +36,27 @@ $mcpDir = Join-Path $root 'npm\mcp'
 $nativeDir = Join-Path $root 'npm\win32-x64-msvc'
 $copyScript = Join-Path $PSScriptRoot 'copy-native.ps1'
 
-$src = Join-Path $root 'target\release\winkit.exe'
+if ($Target -eq '') {
+    $src = Join-Path $root 'target\release\winkit.exe'
+} else {
+    # cargo build --release --target <triple> puts the binary under
+    # target/<triple>/release/. For the host triple, fall back to the
+    # no---target layout when that is what exists.
+    $src = Join-Path $root "target\$Target\release\winkit.exe"
+    if (-not (Test-Path $src) -and $Target -eq 'x86_64-pc-windows-msvc') {
+        $hostLayout = Join-Path $root 'target\release\winkit.exe'
+        if (Test-Path $hostLayout) { $src = $hostLayout }
+    }
+}
 if (-not (Test-Path $src)) {
     Write-Host "SKIP: release binary not found at $src; run 'cargo build --release' first." -ForegroundColor Yellow
     exit 2
 }
 
 # 1. Make sure the native package actually contains the release binary.
-& powershell -ExecutionPolicy Bypass -File $copyScript
+$copyArgs = @()
+if ($Target -ne '') { $copyArgs += @('-Target', $Target) }
+& powershell -ExecutionPolicy Bypass -File $copyScript @copyArgs
 $nativeExe = Join-Path $nativeDir 'bin\winkit.exe'
 if (-not (Test-Path $nativeExe)) {
     Write-Error "copy-native.ps1 did not produce $nativeExe"

@@ -121,7 +121,7 @@ jobs:
 
       - name: Packed-package smoke test (host architecture only)
         if: matrix.target == 'x86_64-pc-windows-msvc'
-        run: powershell -ExecutionPolicy Bypass -File npm/scripts/test-packed.ps1
+        run: powershell -ExecutionPolicy Bypass -File npm/scripts/test-packed.ps1 -Target ${{ matrix.target }}
 
       - name: Upload native package artifact
         uses: actions/upload-artifact@v4
