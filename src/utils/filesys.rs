@@ -322,8 +322,14 @@ pub struct TextReadOutcome {
     pub total_bytes: u64,
     pub returned_bytes: usize,
     pub truncated: bool,
-    /// `head` | `tail` | `all` — the effective mode.
+    /// The mode the caller requested (`head` | `tail` | `all`), echoed
+    /// verbatim. When the whole file fits in the byte window the content is
+    /// identical for every mode; `whole_file` says so explicitly instead of
+    /// silently rewriting the mode (which made callers think their `tail`
+    /// request was ignored).
     pub mode: &'static str,
+    /// True when the returned window covers the entire file.
+    pub whole_file: bool,
 }
 
 /// Read up to `max_bytes` from the head or tail of a file (or all of it),
@@ -359,12 +365,12 @@ pub fn read_text_slice(
     }
 
     let want = max_bytes.min(MAX_READ_BYTES) as u64;
-    let (mode_used, start, truncated_by_window) = match mode {
+    let (requested_mode, start, truncated_by_window) = match mode {
         "tail" => {
             let start = total.saturating_sub(want);
-            (if start == 0 { "all" } else { "tail" }, start, start > 0)
+            ("tail", start, start > 0)
         }
-        "all" => (if total > want { "head" } else { "all" }, 0, total > want),
+        "all" => ("all", 0, total > want),
         _ => ("head", 0, total > want),
     };
 
@@ -400,7 +406,8 @@ pub fn read_text_slice(
         total_bytes: total,
         returned_bytes: filled,
         truncated: truncated_by_window || total > filled as u64,
-        mode: mode_used,
+        mode: requested_mode,
+        whole_file: start == 0 && (filled as u64) >= total,
     })
 }
 
@@ -470,6 +477,17 @@ mod tests {
         assert_eq!(all.mode, "all");
         assert!(!all.truncated);
         assert_eq!(all.returned_bytes as u64, body.len() as u64);
+
+        // A tail request on a small file returns the entire content but
+        // still echoes the requested mode (regression: it used to rewrite
+        // the mode to "all", which looked like the argument was ignored).
+        let small = dir.join("small.txt");
+        std::fs::write(&small, b"a\nb\nc\n").unwrap();
+        let tail_small = read_text_slice(&small, "tail", 64).unwrap();
+        assert_eq!(tail_small.mode, "tail");
+        assert!(tail_small.whole_file);
+        assert_eq!(tail_small.content, "a\nb\nc\n");
+        std::fs::remove_file(&small).ok();
 
         std::fs::remove_file(&path).ok();
         std::fs::remove_dir(&dir).ok();

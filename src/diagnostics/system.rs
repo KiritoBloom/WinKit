@@ -501,6 +501,7 @@ fn system_signals_and_findings(
     for g in &data.app_groups {
         let classification = crate::diagnostics::health::classify_application_group(
             g.cpu_percent,
+            g.own_working_set_bytes,
             g.working_set_bytes,
             health,
         );
@@ -543,11 +544,20 @@ fn system_signals_and_findings(
             });
         }
         if classification.high_memory {
-            let score = app_memory_score(
-                g.working_set_bytes,
-                data.memory_total_bytes,
-                health.high_memory_bytes,
-            );
+            // Score the executable's own footprint when only the descendant
+            // tree crosses the threshold (tree totals double-count shared
+            // pages across descendants), and cap tree-only signals below the
+            // medium band so a wide-but-light shell never ranks critical.
+            let basis = if classification.high_memory_tree_only {
+                g.own_working_set_bytes
+            } else {
+                g.working_set_bytes
+            };
+            let mut score =
+                app_memory_score(basis, data.memory_total_bytes, health.high_memory_bytes);
+            if classification.high_memory_tree_only {
+                score = score.min(49);
+            }
             let (severity, confidence) = score_bands(score);
             signals.push(DiagnosticSignal {
                 kind: SystemSignalKind::AppHighMemory.as_str().into(),
@@ -567,9 +577,36 @@ fn system_signals_and_findings(
             } else {
                 ""
             };
+            let (title, detail) = if classification.high_memory_tree_only {
+                (
+                    format!("{} descendant tree memory footprint", g.display_name),
+                    format!(
+                        "{}'s descendant tree totals {:.1} GB across {} processes, but the executable's own processes use only {:.0} MB — below the {:.0} GB threshold. Tree totals double-count shared pages, so this is a weak signal, not memory pressure in the executable itself.{}",
+                        g.display_name,
+                        g.working_set_bytes as f64 / 1e9,
+                        g.tree_process_count,
+                        g.own_working_set_bytes as f64 / (1024.0 * 1024.0),
+                        health.high_memory_bytes as f64 / 1e9,
+                        explorer_note
+                    ),
+                )
+            } else {
+                (
+                    format!("{} memory pressure", g.display_name),
+                    format!(
+                        "{} holds {:.1} GB of working set across {} processes (including descendants; the executable's own processes use {:.0} MB). Above the {:.0} GB threshold.{}",
+                        g.display_name,
+                        g.working_set_bytes as f64 / 1e9,
+                        g.tree_process_count,
+                        g.own_working_set_bytes as f64 / (1024.0 * 1024.0),
+                        health.high_memory_bytes as f64 / 1e9,
+                        explorer_note
+                    ),
+                )
+            };
             findings.push(RankedFinding {
                 rank: 0,
-                title: format!("{} memory pressure", g.display_name),
+                title,
                 category: "app_memory".into(),
                 severity: severity.into(),
                 confidence: confidence.into(),
@@ -592,15 +629,7 @@ fn system_signals_and_findings(
                         detail: "processes in the tree (including descendants)".into(),
                     },
                 ],
-                detail: format!(
-                    "{} holds {:.1} GB of working set across {} processes (including descendants; the executable's own processes use {:.0} MB). Above the {:.0} GB threshold.{}",
-                    g.display_name,
-                    g.working_set_bytes as f64 / 1e9,
-                    g.tree_process_count,
-                    g.own_working_set_bytes as f64 / (1024.0 * 1024.0),
-                    health.high_memory_bytes as f64 / 1e9,
-                    explorer_note
-                ),
+                detail,
             });
         }
     }

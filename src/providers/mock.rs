@@ -500,7 +500,7 @@ impl WindowsBackend for MockWindowsBackend {
                 status: "normal".to_string(),
             });
         }
-        groups.sort_by(|a, b| b.total_working_set_bytes.cmp(&a.total_working_set_bytes));
+        groups.sort_by_key(|g| std::cmp::Reverse(g.total_working_set_bytes));
         groups.truncate(limit);
         Ok(groups)
     }

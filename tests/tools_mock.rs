@@ -87,7 +87,9 @@ async fn events_level_validation_rejects_bad_levels() {
         .await
         .unwrap_err();
     assert_eq!(err.kind, ErrorKind::InvalidArgument);
-    assert!(err.message.contains("invalid level"));
+    // Rejected up front by schema validation: names the allowed values.
+    assert!(err.message.contains("must be one of"));
+    assert!(err.message.contains("verbose"));
 }
 
 #[tokio::test]

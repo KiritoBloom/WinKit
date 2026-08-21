@@ -21,6 +21,10 @@ use crate::config::HealthConfig;
 pub struct AppGroupClassification {
     pub high_cpu: bool,
     pub high_memory: bool,
+    /// The tree total crosses the threshold but the executable's own
+    /// processes stay below it: a weak signal that must not produce
+    /// critical severity (tree totals double-count shared descendant pages).
+    pub high_memory_tree_only: bool,
 }
 
 impl AppGroupClassification {
@@ -39,21 +43,32 @@ impl AppGroupClassification {
 /// Classify one application group against the shared thresholds.
 ///
 /// `cpu_percent: None` means the CPU basis could not be sampled; the group
-/// is never flagged high-CPU on missing evidence. Working set is compared
+/// is never flagged high-CPU on missing evidence. Working sets are compared
 /// with `>=` so a group exactly at the threshold is flagged (boundary
 /// behavior is part of the shared contract).
+///
+/// Memory uses two working sets: the executable's *own* processes and the
+/// *tree* total (own plus descendants). Tree totals double-count shared
+/// pages across many descendants, so a large tree with a modest own
+/// footprint (e.g. the Explorer shell) is reported as
+/// `high_memory_tree_only` — real, but a much weaker signal than the
+/// executable itself being heavy. Callers must derive severity and score
+/// from `own_working_set_bytes` when this flag is set.
 pub fn classify_application_group(
     cpu_percent: Option<f64>,
-    working_set_bytes: u64,
+    own_working_set_bytes: u64,
+    tree_working_set_bytes: u64,
     cfg: &HealthConfig,
 ) -> AppGroupClassification {
     let high_cpu = cpu_percent
         .map(|v| v >= cfg.high_cpu_percent)
         .unwrap_or(false);
-    let high_memory = working_set_bytes >= cfg.high_memory_bytes;
+    let high_memory = tree_working_set_bytes >= cfg.high_memory_bytes;
+    let high_memory_tree_only = high_memory && own_working_set_bytes < cfg.high_memory_bytes;
     AppGroupClassification {
         high_cpu,
         high_memory,
+        high_memory_tree_only,
     }
 }
 
@@ -69,18 +84,38 @@ mod tests {
     fn boundary_values_follow_the_shared_contract() {
         let c = cfg();
         // Exactly at the CPU threshold counts as high.
-        assert!(classify_application_group(Some(c.high_cpu_percent), 0, &c).high_cpu);
+        assert!(classify_application_group(Some(c.high_cpu_percent), 0, 0, &c).high_cpu);
         // Just below does not.
-        assert!(!classify_application_group(Some(c.high_cpu_percent - 0.01), 0, &c).high_cpu);
+        assert!(!classify_application_group(Some(c.high_cpu_percent - 0.01), 0, 0, &c).high_cpu);
         // Exactly at the memory threshold counts as high.
-        assert!(classify_application_group(None, c.high_memory_bytes, &c).high_memory);
-        assert!(!classify_application_group(None, c.high_memory_bytes - 1, &c).high_memory);
+        assert!(
+            classify_application_group(None, c.high_memory_bytes, c.high_memory_bytes, &c)
+                .high_memory
+        );
+        assert!(!classify_application_group(None, 0, c.high_memory_bytes - 1, &c).high_memory);
+    }
+
+    #[test]
+    fn tree_only_memory_is_flagged_separately_from_own_footprint() {
+        let c = cfg();
+        // A heavy descendant tree (e.g. the Explorer shell) with a modest own
+        // footprint: flagged, but as the weak tree-only signal.
+        let shell =
+            classify_application_group(None, 116 * 1024 * 1024, c.high_memory_bytes + 1, &c);
+        assert!(shell.high_memory);
+        assert!(shell.high_memory_tree_only);
+
+        // The executable itself above the threshold is never tree-only.
+        let heavy =
+            classify_application_group(None, c.high_memory_bytes, c.high_memory_bytes * 2, &c);
+        assert!(heavy.high_memory);
+        assert!(!heavy.high_memory_tree_only);
     }
 
     #[test]
     fn missing_cpu_evidence_never_flags_high_cpu() {
         let c = cfg();
-        let classification = classify_application_group(None, 0, &c);
+        let classification = classify_application_group(None, 0, 0, &c);
         assert!(!classification.high_cpu);
         assert_eq!(classification.status(), "normal");
     }
@@ -89,19 +124,19 @@ mod tests {
     fn status_labels_cover_all_combinations() {
         let c = cfg();
         assert_eq!(
-            classify_application_group(Some(99.0), 0, &c).status(),
+            classify_application_group(Some(99.0), 0, 0, &c).status(),
             "high_cpu"
         );
         assert_eq!(
-            classify_application_group(None, u64::MAX, &c).status(),
+            classify_application_group(None, u64::MAX, u64::MAX, &c).status(),
             "high_memory"
         );
         assert_eq!(
-            classify_application_group(Some(99.0), u64::MAX, &c).status(),
+            classify_application_group(Some(99.0), u64::MAX, u64::MAX, &c).status(),
             "high_cpu_and_memory"
         );
         assert_eq!(
-            classify_application_group(Some(1.0), 0, &c).status(),
+            classify_application_group(Some(1.0), 0, 0, &c).status(),
             "normal"
         );
     }

@@ -1104,8 +1104,11 @@ async fn scenario_19_hardware_evidence_feeds_system_diagnose() {
     assert_eq!(wifi["adapters"][0]["signal_percent"], 12);
 
     // system_diagnose consumes the degraded hardware evidence and emits
-    // cross-domain findings instead of ignoring it.
-    let diagnose = call(&state, "system_diagnose", json!({})).await.unwrap();
+    // cross-domain findings instead of ignoring it. This scenario asserts on
+    // the raw measurement log, so it requests the detailed tier.
+    let diagnose = call(&state, "system_diagnose", json!({"detail": "detailed"}))
+        .await
+        .unwrap();
     assert_eq!(
         diagnose["diagnosis"]["report"]["status"],
         "signals_detected"
@@ -1161,4 +1164,52 @@ async fn scenario_19_hardware_evidence_feeds_system_diagnose() {
     let serialized = serde_json::to_string(&diagnose).unwrap();
     assert!(serialized.len() <= 256 * 1024);
     assert_no_root_cause_claims(&diagnose);
+}
+
+// Scenario 20 — system_diagnose output-size tiers
+//
+// The default `compact` tier must keep every finding, signal, and
+// checked-clean entry while dropping the bulk measurement log and the raw
+// per-application table; `detailed` restores them.
+#[tokio::test]
+async fn scenario_20_system_diagnose_detail_tiers() {
+    let state = eval_state(default_config(), pressure_backend(30.0, 94.0, 900_000_000));
+
+    let compact = call(&state, "system_diagnose", json!({})).await.unwrap();
+    assert_eq!(compact["detail"], "compact");
+    // Findings and their evidence survive the trim.
+    let findings = compact["diagnosis"]["findings"].as_array().unwrap();
+    assert!(
+        findings.iter().any(|f| f["category"] == "memory_pressure"),
+        "compact keeps ranked findings"
+    );
+    assert!(!findings.is_empty());
+    // The bulk sections are gone.
+    assert!(compact["diagnosis"]["report"]["measurements"].is_null());
+    assert!(compact["applications"]["omitted"].as_bool().unwrap());
+    let compact_len = serde_json::to_string(&compact).unwrap().len();
+
+    let detailed = call(&state, "system_diagnose", json!({"detail": "detailed"}))
+        .await
+        .unwrap();
+    assert_eq!(detailed["detail"], "detailed");
+    assert!(detailed["diagnosis"]["report"]["measurements"].is_array());
+    assert!(detailed["applications"].is_array());
+    let detailed_len = serde_json::to_string(&detailed).unwrap().len();
+
+    assert!(
+        detailed_len > compact_len,
+        "detailed ({detailed_len} bytes) must be larger than compact ({compact_len} bytes)"
+    );
+    assert!(
+        compact_len * 2 < detailed_len,
+        "compact output should be well under half of detailed: {compact_len} vs {detailed_len}"
+    );
+    assert_no_root_cause_claims(&compact);
+
+    // Invalid tier values are rejected loudly instead of falling back.
+    let err = call(&state, "system_diagnose", json!({"detail": "tiny"}))
+        .await
+        .expect_err("invalid detail must be rejected");
+    assert!(err.to_string().contains("compact"));
 }

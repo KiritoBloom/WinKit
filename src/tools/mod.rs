@@ -309,6 +309,7 @@ impl ToolRegistry {
         let timeout_ms = tool
             .timeout_ms
             .unwrap_or(state.config.limits.operation_timeout_ms);
+        validate_args(name, &tool.input_schema, &args)?;
         let timeout = std::time::Duration::from_millis(timeout_ms.max(1));
         match tokio::time::timeout(timeout, (tool.handler)(state.clone(), args)).await {
             Ok(result) => result,
@@ -317,6 +318,102 @@ impl ToolRegistry {
             ))),
         }
     }
+}
+
+/// Validate raw call arguments against a tool's declared JSON input schema.
+///
+/// This is a deliberately lightweight check (not a full JSON-Schema
+/// implementation) covering the three failure modes that silently corrupt
+/// results when ignored:
+///
+/// 1. **Unknown keys** — rejected whenever the schema sets
+///    `"additionalProperties": false`. A typo like `timeout_seconds` (the
+///    real argument is `timeout_ms`) used to be dropped without any error,
+///    so the call ran with the 10 s default instead of the requested
+///    deadline. Now it fails loudly and lists the valid arguments.
+/// 2. **Missing required keys** — checked up front so every tool reports
+///    missing arguments identically.
+/// 3. **Wrong primitive types / enum values** — checked for schemas that
+///    declare a simple `"type"` or string `"enum"`. A wrong-typed value used
+///    to deserialize as `None` and fall back to defaults invisibly.
+pub fn validate_args(tool: &str, schema: &Value, args: &Value) -> Result<(), WinkitError> {
+    let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return Ok(());
+    };
+    let Some(obj) = args.as_object() else {
+        return Ok(()); // handlers treat non-object args as empty
+    };
+
+    if let Some(required) = schema.get("required").and_then(|r| r.as_array()) {
+        for key in required.iter().filter_map(|k| k.as_str()) {
+            if !obj.contains_key(key) {
+                return Err(WinkitError::invalid_argument(format!(
+                    "tool '{tool}' is missing required argument '{key}'"
+                )));
+            }
+        }
+    }
+
+    // JSON-Schema semantics: `"additionalProperties": false` forbids keys
+    // outside `properties`; absent or `true` allows them.
+    let strict = matches!(schema.get("additionalProperties"), Some(Value::Bool(false)));
+    if strict {
+        for key in obj.keys() {
+            if !props.contains_key(key.as_str()) {
+                let mut known: Vec<&str> = props.keys().map(|s| s.as_str()).collect();
+                known.sort_unstable();
+                return Err(WinkitError::invalid_argument(format!(
+                    "tool '{tool}' received unknown argument '{key}'; valid arguments: {}. \
+                     Check for typos (e.g. timeout_ms, not timeout_seconds)",
+                    known.join(", ")
+                )));
+            }
+        }
+    }
+
+    for (key, spec) in props {
+        let Some(value) = obj.get(key.as_str()) else {
+            continue;
+        };
+        if value.is_null() {
+            // Explicit null is treated as "absent" by the optional_* helpers;
+            // accept it here so behavior stays consistent either way.
+            continue;
+        }
+        let type_ok = match spec.get("type").and_then(|t| t.as_str()) {
+            Some("string") => value.is_string(),
+            Some("boolean") => value.is_boolean(),
+            Some("integer") => value.is_i64() || value.is_u64(),
+            Some("number") => value.is_number(),
+            Some("array") => value.is_array(),
+            Some("object") => value.is_object(),
+            _ => true,
+        };
+        if !type_ok {
+            return Err(WinkitError::invalid_argument(format!(
+                "tool '{tool}' argument '{key}' must be of type {}",
+                spec.get("type").and_then(|t| t.as_str()).unwrap_or("any")
+            )));
+        }
+        if let Some(enum_values) = spec.get("enum").and_then(|e| e.as_array()) {
+            if let Some(text) = value.as_str() {
+                let matches = enum_values
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .any(|v| v == text);
+                if !matches {
+                    let allowed: Vec<&str> =
+                        enum_values.iter().filter_map(|v| v.as_str()).collect();
+                    return Err(WinkitError::invalid_argument(format!(
+                        "tool '{tool}' argument '{key}' must be one of: {} (got '{text}')",
+                        allowed.join(", ")
+                    )));
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Wrap an async handler into a boxed `Handler`.
@@ -761,6 +858,88 @@ mod tests {
         assert_eq!(clamp_limit(Some(0), 200), 1);
         assert_eq!(clamp_limit(Some(5000), 200), 200);
         assert_eq!(clamp_limit(Some(50), 200), 50);
+    }
+
+    #[test]
+    fn validator_rejects_unknown_arguments_instead_of_ignoring_them() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "port": { "type": "integer" },
+                "timeout_ms": { "type": "integer", "minimum": 100 },
+            },
+            "required": ["port"],
+            "additionalProperties": false,
+        });
+        // The classic silent-typo failure: timeout_seconds is not an argument.
+        let err = validate_args(
+            "wait_for_port",
+            &schema,
+            &json!({ "port": 1, "timeout_seconds": 5 }),
+        )
+        .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("unknown argument 'timeout_seconds'"));
+        assert!(
+            err.to_string().contains("timeout_ms"),
+            "error names the valid arguments"
+        );
+
+        // Correct arguments pass.
+        assert!(validate_args(
+            "wait_for_port",
+            &schema,
+            &json!({ "port": 1, "timeout_ms": 500 })
+        )
+        .is_ok());
+        // Missing required argument fails with a precise message.
+        let err = validate_args("wait_for_port", &schema, &json!({})).unwrap_err();
+        assert!(err.to_string().contains("missing required argument 'port'"));
+        // Wrong primitive type fails instead of deserializing as absent.
+        let err = validate_args("wait_for_port", &schema, &json!({ "port": "8080" })).unwrap_err();
+        assert!(err.to_string().contains("must be of type integer"));
+    }
+
+    #[test]
+    fn validator_enforces_enums_and_tolerates_null() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "mode": { "type": "string", "enum": ["head", "tail", "all"] },
+                "limit": { "type": "integer" },
+            },
+            "additionalProperties": false,
+        });
+        let err = validate_args("t", &schema, &json!({ "mode": "TIAL" })).unwrap_err();
+        assert!(err.to_string().contains("must be one of"));
+        // Explicit null behaves like an absent optional argument.
+        assert!(validate_args("t", &schema, &json!({ "mode": null, "limit": null })).is_ok());
+        // Schemas without additionalProperties:false do not reject extra keys.
+        let loose = json!({ "type": "object", "properties": { "a": { "type": "integer" } } });
+        assert!(validate_args("t", &loose, &json!({ "b": true })).is_ok());
+    }
+
+    #[test]
+    fn every_tool_schema_accepts_an_empty_argument_object() {
+        // Guards the validator against schemas whose declared `required`
+        // list disagrees with what handlers actually enforce.
+        let registry = ToolRegistry::build(&Config::default());
+        for name in registry.all_names() {
+            let tool = registry.get(&name).unwrap();
+            if tool
+                .input_schema
+                .get("required")
+                .and_then(|r| r.as_array())
+                .is_some_and(|r| !r.is_empty())
+            {
+                continue;
+            }
+            assert!(
+                validate_args(&name, &tool.input_schema, &json!({})).is_ok(),
+                "'{name}' rejects empty arguments"
+            );
+        }
     }
 
     #[test]

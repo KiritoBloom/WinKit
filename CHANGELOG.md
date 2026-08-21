@@ -5,6 +5,58 @@ All notable changes to WinKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **CI: newer-clippy build failures** - rewrote four `sort_by` calls
+  flagged by `clippy::unnecessary_sort_by` on recent toolchains (registry
+  software list, mock application groups, `directory_overview` child
+  sorting, process name sort) as `sort_by_key`, keeping identical ordering.
+- **CI: `directory_overview_sorts_by_recursive_size` failed only on CI** -
+  GitHub Actions runners resolve `%TEMP%` to an 8.3 short path
+  (`C:\Users\RUNNER~1\...`) while handlers report canonicalized long paths,
+  so the test's full-path comparison never matched there. Test temp dirs
+  are now canonicalized (with the `\\?\` prefix stripped) before use.
+
+### Added
+
+- **Strict argument validation** - every tool call is now validated against
+  its declared JSON schema before dispatch: unknown arguments are rejected
+  with the list of valid names (a typo like `timeout_seconds` used to be
+  silently dropped, so `wait_for_port` ran with the default deadline),
+  missing required arguments fail up front with a uniform message, and
+  wrong-typed or out-of-enum values error instead of deserializing as
+  absent. Explicit `null`s keep their "absent optional" behavior.
+- **Output-size tiers for `system_diagnose`** - new `detail` argument
+  (`compact` | `normal` | `detailed`, default `compact`). Compact keeps
+  every finding, signal, evidence point, and checked-clean entry while
+  dropping the raw measurement log, limitations boilerplate, duplicated
+  reasoning strings, and the per-application table (replaced by a count and
+  an opt-in hint). On a busy desktop this cuts a ~53 KB response to a few
+  KB without losing any ranked conclusion; agents that want the raw data
+  pass `detail=normal` or `detailed`.
+- **`whole_file` flag in `read_text_file`** - when a file fits inside the
+  byte window every mode returns identical content; the tool now says so
+  explicitly instead of rewriting the reported mode.
+
+### Changed
+
+- **Tree-memory findings no longer overstate severity** - application
+  memory signals now distinguish the executable's own working set from its
+  descendant-tree total. When only the tree crosses the threshold (e.g.
+  Explorer's shell extensions), the score is derived from the own footprint
+  and capped below medium severity, and the finding is titled "descendant
+  tree memory footprint" with explicit double-counting context — instead of
+  ranking the Windows shell as a critical memory hog. `system_health` and
+  `system_diagnose` share the new classification via
+  `classify_application_group`, which now takes both working sets and
+  reports `high_memory_tree_only`.
+- `read_text_file` echoes the requested `mode` verbatim; the effective
+  window is described by `truncated`/`whole_file`.
+- The `tool_guide` entry for `system_diagnose` documents the `detail`
+  tiers.
+
 ## [0.3.0] - 2026-08-21
 
 ### Added

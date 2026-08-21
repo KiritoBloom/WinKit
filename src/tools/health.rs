@@ -21,7 +21,7 @@ use crate::models::{
 };
 use crate::permissions::Capability;
 use crate::server::AppState;
-use crate::tools::{clamp_limit, optional_usize, wrap, ToolDefinition};
+use crate::tools::{clamp_limit, optional_non_empty_string, optional_usize, wrap, ToolDefinition};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,6 +38,7 @@ pub fn build_health_report(
     for g in &mut groups {
         let classification = crate::diagnostics::health::classify_application_group(
             g.cpu_percent,
+            g.own_working_set_bytes,
             g.total_working_set_bytes,
             config,
         );
@@ -61,22 +62,51 @@ pub fn build_health_report(
             });
         }
         if classification.high_memory {
-            let score = app_memory_score_issue(g.total_working_set_bytes, resources, config);
+            // Score the executable's own footprint when only the descendant
+            // tree crosses the threshold: tree totals double-count shared
+            // pages, so a wide-but-light shell must not rank as critical.
+            let basis = if classification.high_memory_tree_only {
+                g.own_working_set_bytes
+            } else {
+                g.total_working_set_bytes
+            };
+            let mut score = app_memory_score_issue(basis, resources, config);
+            if classification.high_memory_tree_only {
+                // Cap below the medium band; this is context, not an alarm.
+                score = score.min(49);
+            }
             let (severity, _) = score_bands(score);
             issues.push(HealthIssue {
                 layer: "application".into(),
                 subject: g.display_name.clone(),
                 kind: "high_memory".into(),
-                value: format!(
-                    "{:.1} GB tree ({} MB own) across {} processes — tree-inclusive working set",
-                    g.total_working_set_bytes as f64 / 1e9,
-                    g.own_working_set_bytes / (1024 * 1024),
-                    g.tree_process_count
-                ),
-                threshold: format!(
-                    ">= {} MB tree working set",
-                    config.high_memory_bytes / (1024 * 1024)
-                ),
+                value: if classification.high_memory_tree_only {
+                    format!(
+                        "{:.1} GB tree across {} processes, but the executable's own processes use only {} MB — tree-inclusive total, weak signal",
+                        g.total_working_set_bytes as f64 / 1e9,
+                        g.tree_process_count,
+                        g.own_working_set_bytes / (1024 * 1024),
+                    )
+                } else {
+                    format!(
+                        "{:.1} GB tree ({} MB own) across {} processes — tree-inclusive working set",
+                        g.total_working_set_bytes as f64 / 1e9,
+                        g.own_working_set_bytes / (1024 * 1024),
+                        g.tree_process_count
+                    )
+                },
+                threshold: if classification.high_memory_tree_only {
+                    format!(
+                        "tree >= {} MB while own footprint < {} MB",
+                        config.high_memory_bytes / (1024 * 1024),
+                        config.high_memory_bytes / (1024 * 1024)
+                    )
+                } else {
+                    format!(
+                        ">= {} MB working set",
+                        config.high_memory_bytes / (1024 * 1024)
+                    )
+                },
                 score,
                 category: "app_memory".into(),
                 severity: severity.into(),
@@ -404,21 +434,57 @@ pub async fn system_diagnose_handler(
         &state.config.diagnostics,
         &state.config.health,
     );
+    let mut diagnosis = serde_json::to_value(diagnosis)?;
+
+    // Output-size control. `compact` (default) keeps every finding, signal,
+    // and checked-clean entry but drops the bulk measurement log and the raw
+    // application table — findings already embed the evidence values that
+    // matter. `normal` restores the measurement log; `detailed` also adds
+    // the full per-application table.
+    let detail = match optional_non_empty_string(&args, "detail").as_deref() {
+        None | Some("compact") => "compact",
+        Some("normal") => "normal",
+        Some("detailed") => "detailed",
+        Some(other) => {
+            return Err(WinkitError::invalid_argument(format!(
+                "'detail' must be compact, normal, or detailed (got '{other}')"
+            )))
+        }
+    };
+    if let Some(report) = diagnosis.get_mut("report").and_then(|r| r.as_object_mut()) {
+        if detail == "compact" {
+            report.remove("measurements");
+            report.remove("limitations");
+            if let Some(causes) = report
+                .get_mut("possible_causes")
+                .and_then(|v| v.as_array_mut())
+            {
+                for cause in causes.iter_mut().filter_map(|c| c.as_object_mut()) {
+                    cause.remove("reasoning");
+                }
+            }
+        }
+    }
     Ok(json!({
         "diagnosis": diagnosis,
-        "applications": groups,
         "drives": drives,
+        "applications": match detail {
+            "detailed" => json!(groups),
+            _ => json!({ "omitted": true, "reason": "pass detail=normal or detailed to include the per-application table", "group_count": groups.len() }),
+        },
+        "detail": detail,
     }))
 }
 
 pub fn system_diagnose_definition(_config: &Config) -> ToolDefinition {
     ToolDefinition {
         name: "system_diagnose",
-        description: "Machine-wide diagnosis: gathers application, storage, memory, memory-growth, thermal, storage-health, battery, and Wi-Fi evidence, applies deterministic threshold rules, and returns ranked findings with explicit scores plus a 'checked clean' list of dimensions that were measured and found healthy. Use it to answer 'why is my computer unhealthy' — findings are evidence-backed hypotheses, not root-cause claims.",
+        description: "Machine-wide diagnosis: gathers application, storage, memory, memory-growth, thermal, storage-health, battery, and Wi-Fi evidence, applies deterministic threshold rules, and returns ranked findings with explicit scores plus a 'checked clean' list of dimensions that were measured and found healthy. Use it to answer 'why is my computer unhealthy' — findings are evidence-backed hypotheses, not root-cause claims. Output is size-tiered: detail=compact (default) returns findings without the raw measurement log; detail=normal adds measurements; detail=detailed also includes the per-application table.",
         input_schema: json!({
             "type": "object",
             "properties": {
                 "limit": { "type": "integer", "description": "Maximum application groups to consider, by total working set (default and cap come from configuration)." },
+                "detail": { "type": "string", "enum": ["compact", "normal", "detailed"], "description": "Output verbosity: compact (default) = findings only; normal = + measurement log; detailed = + per-application table." },
             },
             "additionalProperties": false,
         }),

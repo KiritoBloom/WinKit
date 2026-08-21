@@ -33,6 +33,9 @@ coverage/
 # Packed-package smoke test scratch space (created and removed per run)
 /.pack-smoke-*/
 
+# Packed npm artifacts from local smoke tests
+npm/mcp/*.tgz
+
 # Coding Agents
 .freebuff
 

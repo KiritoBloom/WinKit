@@ -40,7 +40,7 @@ pub async fn list_processes_handler(
             }
         };
         if key == "name" {
-            processes.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            processes.sort_by_key(|p| p.name.to_lowercase());
         } else {
             processes.sort_by_key(|p| std::cmp::Reverse(sort_key(p, key)));
         }

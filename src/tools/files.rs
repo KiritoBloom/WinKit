@@ -113,6 +113,7 @@ pub async fn read_text_file_handler(
     Ok(json!({
         "path": raw.trim(),
         "mode": out.mode,
+        "whole_file": out.whole_file,
         "encoding": out.encoding,
         "total_bytes": out.total_bytes,
         "returned_bytes": out.returned_bytes,
@@ -124,7 +125,7 @@ pub async fn read_text_file_handler(
 pub fn read_text_file_definition() -> ToolDefinition {
     ToolDefinition {
         name: "read_text_file",
-        description: "Read text from a file — logs, configs, manifests — without leaving the tool. Bounded to max_bytes (default 32 KB, cap 256 KB). Use mode=head to see the start of a file, mode=tail for the end of a log (whole-line aligned), mode=all for small files. UTF-8/UTF-16 BOMs are honored; binary files are refused. Read-only; honors workspaces.allow_roots/deny_roots.",
+        description: "Read text from a file — logs, configs, manifests — without leaving the tool. Bounded to max_bytes (default 32 KB, cap 256 KB). Use mode=head to see the start of a file, mode=tail for the end of a log (whole-line aligned), mode=all for small files. When the whole file fits in the window every mode returns identical content and whole_file=true. UTF-8/UTF-16 BOMs are honored; binary files are refused. Read-only; honors workspaces.allow_roots/deny_roots.",
         input_schema: json!({
             "type": "object",
             "properties": {
@@ -259,7 +260,7 @@ pub async fn directory_overview_handler(
                 });
             }
         }
-        stats.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+        stats.sort_by_key(|s| std::cmp::Reverse(s.size_bytes));
         let total_entries = stats.iter().map(|s| s.files).sum::<usize>();
         let total_bytes = stats.iter().map(|s| s.size_bytes).sum::<u64>();
         (stats, total_entries, total_bytes, global_truncated)
@@ -315,11 +316,19 @@ mod tests {
     }
 
     /// Unique temp dir for this test binary run.
+    ///
+    /// Canonicalized (with the `\\?\` extended-length prefix stripped) so
+    /// tests compare against the same long, case-exact path that handlers
+    /// report. CI runners resolve `%TEMP%` to an 8.3 short path
+    /// (`C:\Users\RUNNER~1\...`) while `std::fs::canonicalize` inside the
+    /// handlers returns the long form, which made full-path comparisons
+    /// fail only on CI.
     fn temp_root(tag: &str) -> std::path::PathBuf {
         let dir =
             std::env::temp_dir().join(format!("winkit-file-tools-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        dir
+        let canonical = std::fs::canonicalize(&dir).unwrap();
+        std::path::PathBuf::from(canonical.to_string_lossy().trim_start_matches("\\\\?\\"))
     }
 
     #[tokio::test]
