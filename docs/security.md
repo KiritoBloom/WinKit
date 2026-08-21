@@ -66,8 +66,17 @@ Every broad query is capped:
 
 - Per-domain result limits: `max_processes` (500), `max_network_results`
   (1000), `max_events` (200), `max_services` (500), `max_windows` (500).
-- There are no recursive filesystem scans: storage tools report volume
-  capacity and S.M.A.R.T. health only, and never walk file trees.
+- Filesystem reads are bounded walkers, not disk scanners. There is no
+  MFT parsing, no whole-volume sweep, and no large-file indexing:
+  - `read_text_file` reads one explicitly named file (byte-capped,
+    binary-refused).
+  - `find_files` / `directory_overview` require an absolute target
+    directory, examine at most ~60k entries per call, cap depth at 12 and
+    results at 500, never follow junctions/symlinks, and aggregate to
+    counts and sizes rather than building in-memory indexes.
+  - Filesystem roots (`C:\`) are rejected unless explicitly added to
+    `workspaces.allow_roots`, so whole-drive scans cannot happen by
+    default; every walk is also subject to the 30s tool timeout.
 - `max_payload_bytes` (2,000,000) caps any single serialized response;
   handlers truncate before returning.
 - `operation_timeout_ms` (30,000) kills slow calls.
