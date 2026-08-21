@@ -4,6 +4,7 @@
 //! `diagnose_local_webapp`.
 
 pub mod blocking;
+pub mod filesys;
 pub mod http;
 pub mod limits;
 pub mod log;

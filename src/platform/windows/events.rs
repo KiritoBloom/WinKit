@@ -246,6 +246,7 @@ fn parse_event_xml(xml: &str) -> Option<EventInfo> {
         computer: None,
         process_id: None,
         message: None,
+        message_truncated: None,
     };
 
     let mut reader = Reader::from_str(xml);

@@ -1,12 +1,12 @@
-# Profiles and Permissions
+﻿# Profiles and Permissions
 
-Profiles filter which tools are advertised. They never bypass permission checks. `core` is the smallest surface; `developer` and `full` are 44 tools.
+Profiles filter which tools are advertised. They never bypass permission checks. `core` is the smallest surface; `developer` and `full` are 51 tools.
 
 ## Profiles
 
 | Profile | Contents | Use when |
 |---|---|---|
-| `core` | `workspace_snapshot`, `system_health`, `list_processes`, `list_listening_ports`, `privacy_info` | Minimal, safe essentials only |
+| `core` | `workspace_snapshot`, `system_health`, `list_processes`, `list_listening_ports`, `privacy_info`, `tool_guide` | Minimal, safe essentials only |
 | `developer` (default) | Everything in `core` plus workspace/server/webapp diagnosis, dev-server discovery, bounded waits, failure correlation, trends, and low-level read tools | General development debugging |
 | `full` | Everything | Broad exploration |
 
@@ -25,7 +25,7 @@ WinKit is read-only: **no tool ever writes, executes, or deletes anything** in a
 
 ## winkit.toml example
 
-Customize with `npx --yes @winkit/mcp@latest configure` (dry run by default — `--write` to persist, `.bak` backup first):
+Customize with `npx --yes @winkit/mcp@latest configure` (dry run by default â€” `--write` to persist, `.bak` backup first):
 
 ```toml
 [permissions]
@@ -61,3 +61,4 @@ Emitted config always uses `npx --yes @winkit/mcp@latest`:
 ```
 
 `WINKIT_NATIVE_PATH` can point at a local `winkit.exe` when built from source.
+

@@ -105,7 +105,7 @@ See [examples/mcp/generic.json](../examples/mcp/generic.json).
 ## What the client gets
 
 After `initialize`, `tools/list` returns the tools of the active profile
-with their JSON input schemas (see [tools.md](tools.md)): 44 tools in the
+with their JSON input schemas (see [tools.md](tools.md)): 51 tools in the
 default `developer` and `full` profiles, 5 in `core`. Each tool is enforced
 by the permission policy configured for the session, and every response is a
 JSON document wrapped in the standard MCP `content`/`isError` envelope.
@@ -131,3 +131,4 @@ WinKit. A minimal session by hand:
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"system_info","arguments":{}}}
 {"jsonrpc":"2.0","method":"exit"}
 ```
+

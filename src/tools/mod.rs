@@ -6,7 +6,9 @@
 //! and never touch Win32 directly.
 
 pub mod developer;
+pub mod environment;
 pub mod events;
+pub mod files;
 pub mod hardware;
 pub mod health;
 pub mod network;
@@ -63,7 +65,8 @@ pub fn tool_profiles(name: &str) -> &'static [ToolProfile] {
         | "system_health"
         | "list_processes"
         | "list_listening_ports"
-        | "privacy_info" => &[Core, Developer, Full],
+        | "privacy_info"
+        | "tool_guide" => &[Core, Developer, Full],
         // Developer: the recommended default — everything high-level plus
         // the low-level tools the workflows recommend as next steps.
         "system_info"
@@ -95,7 +98,16 @@ pub fn tool_profiles(name: &str) -> &'static [ToolProfile] {
         | "network_snapshot"
         | "network_diagnose"
         | "wifi_status"
-        | "wifi_scan" => &[Developer, Full],
+        | "wifi_scan"
+        // Environment & OS posture.
+        | "startup_programs"
+        | "audit_path_env"
+        | "system_update_status"
+        // Bounded read-only filesystem access (text reads, name search,
+        // directory size breakdowns).
+        | "read_text_file"
+        | "find_files"
+        | "directory_overview" => &[Developer, Full],
         // Developer-only workflow: the workspace/server/webapp tools.
         "dev_environment"
         | "list_dev_servers"
@@ -207,6 +219,18 @@ impl ToolRegistry {
 
         registry.register(health::system_health_definition(config));
         registry.register(health::system_diagnose_definition(config));
+
+        // Environment & OS posture: startup programs, PATH audit, update
+        // status, and the agent-facing tool guide.
+        registry.register(environment::startup_programs_definition());
+        registry.register(environment::audit_path_env_definition());
+        registry.register(environment::system_update_status_definition());
+        registry.register(environment::tool_guide_definition());
+
+        // Bounded read-only filesystem tools.
+        registry.register(files::read_text_file_definition());
+        registry.register(files::find_files_definition());
+        registry.register(files::directory_overview_definition());
 
         registry
     }
@@ -563,15 +587,18 @@ mod tests {
     /// The canonical tool set (source of truth for "everything is
     /// registered").
     const EXPECTED_TOOLS: &[&str] = &[
+        "audit_path_env",
         "battery_status",
         "correlate_recent_failures",
         "crash_history",
         "dev_environment",
         "diagnose_local_webapp",
         "diagnose_workspace",
+        "directory_overview",
         "disk_health",
         "disk_performance",
         "disk_usage",
+        "find_files",
         "find_process",
         "find_process_on_port",
         "get_application_errors",
@@ -593,14 +620,18 @@ mod tests {
         "network_snapshot",
         "power_status",
         "privacy_info",
+        "read_text_file",
         "registry_diagnostics",
         "shutdown_analysis",
         "snapshot",
+        "startup_programs",
         "system_diagnose",
         "system_health",
         "system_health_trend",
         "system_info",
+        "system_update_status",
         "thermal_snapshot",
+        "tool_guide",
         "wait_for_http",
         "wait_for_port",
         "wait_for_process",
@@ -655,6 +686,7 @@ mod tests {
                 "list_processes",
                 "privacy_info",
                 "system_health",
+                "tool_guide",
                 "workspace_snapshot"
             ]
         );
@@ -672,9 +704,9 @@ mod tests {
         // full, and the developer-only workflow tools are only in
         // developer/full.
         for (profile, expected) in [
-            ("core", 5),
-            ("developer", 44),
-            ("full", 44),
+            ("core", 6),
+            ("developer", 51),
+            ("full", 51),
         ] {
             let mut cfg = Config::default();
             cfg.tools.profile = profile.to_string();
@@ -710,6 +742,7 @@ mod tests {
             "list_processes",
             "list_listening_ports",
             "privacy_info",
+            "tool_guide",
         ] {
             assert!(tool_in_profile(core_tool, ToolProfile::Core));
             assert!(tool_in_profile(core_tool, ToolProfile::Developer));

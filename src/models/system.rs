@@ -126,3 +126,104 @@ pub fn is_development_port(port: u16) -> bool {
 }
 
 pub type ToolMap = BTreeMap<String, DevTool>;
+
+// ---------------------------------------------------------------------------
+// Environment & update models (PATH audit, hotfixes, pending reboot)
+// ---------------------------------------------------------------------------
+
+/// One audited PATH entry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PathEntry {
+    /// The entry as written (unexpanded).
+    pub raw: String,
+    /// After `%VAR%` expansion and quote trimming.
+    pub expanded: String,
+    /// The directory exists.
+    pub exists: bool,
+    /// Which scope(s) contain this entry (`machine`, `user`, `process`).
+    pub scopes: Vec<String>,
+}
+
+/// Full PATH audit result returned by `audit_path_env`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct PathAudit {
+    /// Effective process entries in order, with per-entry findings.
+    pub process_entries: Vec<PathEntry>,
+    /// Machine-scope raw value was readable.
+    pub machine_path_available: bool,
+    /// User-scope raw value was readable.
+    pub user_path_available: bool,
+    /// Entry indexes (into `process_entries`) that appear in multiple scopes.
+    pub duplicate_indexes: Vec<usize>,
+    /// Indexes of empty or whitespace-only entries (`;;`).
+    pub empty_indexes: Vec<usize>,
+    /// Indexes of entries whose directory does not exist.
+    pub missing_indexes: Vec<usize>,
+    /// Human-readable summary of issues; empty when the PATH is clean.
+    pub issues: Vec<String>,
+    pub total_entries: usize,
+}
+
+/// One installed quick-fix engineering (QFE) update.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Hotfix {
+    /// e.g. `KB5029350`.
+    pub hotfix_id: String,
+    /// e.g. `Update`, `Security Update`.
+    pub description: Option<String>,
+    /// As reported by WMI (locale-formatted date string), when available.
+    pub installed_on: Option<String>,
+}
+
+/// Update posture returned by `system_update_status`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct UpdateStatus {
+    pub reboot_pending: bool,
+    /// Which of the three standard pending-reboot markers fired.
+    pub reboot_signals: Vec<String>,
+    /// Most recent hotfixes first, bounded by the requested cap.
+    pub hotfixes: Vec<Hotfix>,
+    pub total_hotfixes_reported: usize,
+    /// Reads that failed, with reasons; the rest of the report stays valid.
+    pub unavailable: Vec<String>,
+}
+
+#[cfg(test)]
+mod env_update_tests {
+    use super::*;
+
+    #[test]
+    fn path_audit_and_update_status_round_trip() {
+        let audit = PathAudit {
+            process_entries: vec![PathEntry {
+                raw: "%SystemRoot%\\System32".into(),
+                expanded: "C:\\Windows\\System32".into(),
+                exists: true,
+                scopes: vec!["machine".into(), "process".into()],
+            }],
+            machine_path_available: true,
+            user_path_available: false,
+            duplicate_indexes: vec![0],
+            empty_indexes: Vec::new(),
+            missing_indexes: Vec::new(),
+            issues: vec!["1 duplicate entries across scopes (first shadows later ones)".into()],
+            total_entries: 1,
+        };
+        let json = serde_json::to_string(&audit).unwrap();
+        assert_eq!(serde_json::from_str::<PathAudit>(&json).unwrap(), audit);
+
+        let status = UpdateStatus {
+            reboot_pending: true,
+            reboot_signals: vec!["windows_update_reboot_required".into()],
+            hotfixes: vec![Hotfix {
+                hotfix_id: "KB1234567".into(),
+                description: Some("Update".into()),
+                installed_on: Some("8/12/2026".into()),
+            }],
+            total_hotfixes_reported: 1,
+            unavailable: Vec::new(),
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        assert_eq!(serde_json::from_str::<UpdateStatus>(&json).unwrap(), status);
+    }
+}

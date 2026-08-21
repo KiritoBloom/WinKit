@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Bounded read-only filesystem tools** (new `filesystem.read` capability,
+  granted in `safe` and `read_only` modes):
+  - `read_text_file` - bounded text reads of logs/configs with
+    head/tail/all modes, UTF-8/UTF-16 BOM handling, and binary refusal.
+  - `find_files` - case-insensitive wildcard filename search under a root
+    with depth/result budgets; never follows junctions.
+  - `directory_overview` - recursive size breakdown per child, largest
+    first ("what is eating disk space here?").
+- **Environment & update posture tools**: `startup_programs` (Run/RunOnce
+  autostart entries without the full registry payload), `audit_path_env`
+  (per-entry PATH existence/duplicate/empty checks across machine, user,
+  and process scopes), and `system_update_status` (pending-reboot markers
+  plus recent hotfixes via `Win32_QuickFixEngineering`).
+- **`tool_guide`** - a static symptom-to-tool routing table so agents can
+  find the right tool without reading docs. Exposed in every profile.
+- Registry allowlist extended for the fixed pending-reboot markers and the
+  machine/user `Path` values; still no caller-supplied paths anywhere.
+
+### Changed
+
+- Event tools cap message text per event (`max_message_chars`, default
+  600) and mark shortened messages with `message_truncated: true`; one
+  verbose provider can no longer flood the context window.
+- `list_processes` supports `sort_by` (`memory`/`cpu_time`/`name`/`pid`)
+  and `top`, and caps `command_line` in list output at 300 characters
+  (full values remain on `get_process`). Typical "top consumers" answers
+  shrink from ~115 KB to ~3 KB.
+
 ## [0.2.0] - 2026-08-21
 
 ### Removed

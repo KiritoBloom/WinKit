@@ -14,6 +14,11 @@ use crate::tools::{
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+/// When the client does not pass `max_results`, fetch this many instead of
+/// the configured maximum: 200 full events is rarely useful context and
+/// dominates payload sizes. Explicit requests still go up to the cap.
+const DEFAULT_EVENT_RESULTS: usize = 50;
+
 /// Build an `EventQuery` from tool arguments with defaults for log and level.
 fn query_from_args(
     args: &Value,
@@ -40,7 +45,7 @@ fn query_from_args(
         provider,
         event_id: optional_u32(args, "event_id"),
         max_results: clamp_limit(
-            optional_usize(args, "max_results"),
+            optional_usize(args, "max_results").or(Some(DEFAULT_EVENT_RESULTS)),
             state.config.limits.max_events,
         ),
     })
@@ -53,6 +58,10 @@ fn query_from_args(
 /// because a flood of `message: null` entries (e.g. 148 identical Spotify
 /// Event 100 rows) buries the real crashes an agent is looking for. Targeted
 /// queries (`provider` or `event_id` given) keep every match.
+///
+/// Message text is additionally bounded per event (`max_message_chars`,
+/// default 600) so one verbose provider cannot flood the context window;
+/// truncated messages carry `"message_truncated": true`.
 async fn run_event_query(
     state: Arc<AppState>,
     args: Value,
@@ -60,29 +69,57 @@ async fn run_event_query(
     default_min_level: u32,
     skip_null_default: bool,
 ) -> Result<Value, WinkitError> {
+    const DEFAULT_MESSAGE_CHARS: usize = 600;
+    const MAX_MESSAGE_CHARS: usize = 4_000;
     let query = query_from_args(&args, &state, default_log, default_min_level)?;
     let mut events = state.windows.get_recent_events(&query)?;
     let skip_nulls = optional_bool(&args, "skip_null_messages")
         .unwrap_or(skip_null_default && query.provider.is_none() && query.event_id.is_none());
+    let cap = message_cap_used(optional_usize(&args, "max_message_chars"), DEFAULT_MESSAGE_CHARS, MAX_MESSAGE_CHARS);
     if skip_nulls {
         let dropped = events.iter().filter(|e| e.message.is_none()).count();
         events.retain(|e| e.message.is_some());
-        let count = events.len();
+        let count = bounded_events(&mut events, optional_usize(&args, "max_message_chars"), DEFAULT_MESSAGE_CHARS, MAX_MESSAGE_CHARS);
         return Ok(json!({
             "log": query.log,
             "events": events,
             "count": count,
             "truncated": count == query.max_results,
             "skipped_null_messages": dropped,
+            "message_char_cap": cap,
         }));
     }
-    let count = events.len();
+    let count = bounded_events(&mut events, optional_usize(&args, "max_message_chars"), DEFAULT_MESSAGE_CHARS, MAX_MESSAGE_CHARS);
     Ok(json!({
         "log": query.log,
         "events": events,
         "count": count,
         "truncated": count == query.max_results,
+        "message_char_cap": message_cap_used(optional_usize(&args, "max_message_chars"), DEFAULT_MESSAGE_CHARS, MAX_MESSAGE_CHARS),
     }))
+}
+
+/// Effective per-event message cap for reporting back to the client.
+fn message_cap_used(requested: Option<usize>, default_cap: usize, max_cap: usize) -> usize {
+    requested.unwrap_or(default_cap).clamp(64, max_cap)
+}
+
+/// Bound every event's message text in place; returns the event count.
+fn bounded_events(
+    events: &mut [crate::models::EventInfo],
+    requested: Option<usize>,
+    default_cap: usize,
+    max_cap: usize,
+) -> usize {
+    let cap = message_cap_used(requested, default_cap, max_cap);
+    for e in events.iter_mut() {
+        let over = e.message.as_deref().map(|m| m.chars().count()).unwrap_or(0) > cap;
+        if over {
+            e.message = Some(crate::utils::truncate(e.message.as_deref().unwrap_or(""), cap));
+            e.message_truncated = Some(true);
+        }
+    }
+    events.len()
 }
 
 pub async fn get_recent_events_handler(
@@ -115,7 +152,8 @@ fn event_schema() -> Value {
             "provider": { "type": "string", "description": "Restrict to one provider/source name." },
             "event_id": { "type": "integer", "description": "Restrict to one event ID." },
             "since_minutes": { "type": "integer", "minimum": 1, "description": "Only events newer than this many minutes." },
-            "max_results": { "type": "integer", "minimum": 1, "description": "Maximum results (defaults to the configured limit)." },
+            "max_results": { "type": "integer", "minimum": 1, "description": "Maximum results (default 50; the configured cap allows more)." },
+            "max_message_chars": { "type": "integer", "minimum": 64, "maximum": 4000, "description": "Per-event message character cap (default 600). Truncated messages carry message_truncated: true." },
             "skip_null_messages": { "type": "boolean", "description": "Drop events whose provider publishes no message text. Defaults to true for get_application_errors/get_system_errors unless provider or event_id filters are given; false for get_recent_events." },
         },
         "additionalProperties": false,
@@ -152,5 +190,47 @@ pub fn get_system_errors_definition() -> ToolDefinition {
         capability: Some(Capability::EventRead),
         timeout_ms: None,
         handler: wrap(get_system_errors_handler),
+    }
+}
+
+#[cfg(test)]
+mod cap_tests {
+    use super::*;
+    use crate::models::{EventInfo, EventLevel};
+
+    #[test]
+    fn message_cap_used_clamps_requests() {
+        assert_eq!(message_cap_used(None, 600, 4000), 600);
+        assert_eq!(message_cap_used(Some(10), 600, 4000), 64);
+        assert_eq!(message_cap_used(Some(99_999), 600, 4000), 4000);
+        assert_eq!(message_cap_used(Some(120), 600, 4000), 120);
+    }
+
+    fn event_with_message(m: &str) -> EventInfo {
+        EventInfo {
+            record_id: None,
+            event_id: Some(1000),
+            level: EventLevel::Error,
+            provider: None,
+            channel: None,
+            time_created: None,
+            computer: None,
+            process_id: None,
+            message: Some(m.to_string()),
+            message_truncated: None,
+        }
+    }
+
+    #[test]
+    fn bounded_events_marks_and_shortens_long_messages() {
+        let mut events = vec![
+            event_with_message(&"x".repeat(2_000)),
+            event_with_message("short"),
+        ];
+        assert_eq!(bounded_events(&mut events, None, 600, 4_000), 2);
+        assert_eq!(events[0].message_truncated, Some(true));
+        assert_eq!(events[0].message.as_ref().unwrap().chars().count(), 600);
+        assert_eq!(events[1].message_truncated, None);
+        assert_eq!(events[1].message.as_deref(), Some("short"));
     }
 }

@@ -54,6 +54,10 @@ pub struct EventInfo {
     pub process_id: Option<u32>,
     /// Rendered message text when the publisher exposes it; may be absent.
     pub message: Option<String>,
+    /// Set by the tool layer when `message` was shortened to the per-event
+    /// character cap; absent for full-fidelity messages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_truncated: Option<bool>,
 }
 
 /// Parameters for a bounded event query.

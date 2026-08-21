@@ -1,8 +1,10 @@
 ﻿# Tool Reference
 
-WinKit registers 44 MCP tools: read-only Windows diagnostics (system,
-processes, network, storage, hardware, power). The default `developer` tool
-profile exposes all 44; `core` exposes the 5 safe essentials. This reference
+WinKit registers 51 MCP tools: read-only Windows diagnostics (system,
+processes, network, storage, hardware, power), bounded filesystem reads
+(text files, filename search, directory size breakdowns), and environment /
+update posture. The default `developer` tool profile exposes all 51; `core`
+exposes the 6 safe essentials. This reference
 lists every tool with its arguments and output shape. The JSON input schema
 is also available live via `tools/list` in any MCP client, filtered to the
 effective profile.
@@ -10,6 +12,10 @@ effective profile.
 Argument conventions:
 
 - `limit` - optional integer, clamped to the domain's configured maximum.
+- Event tools cap message text per event (`max_message_chars`, default 600)
+  and mark shortened messages with `message_truncated: true`.
+- `list_processes` supports `sort_by` (`memory`/`cpu_time`/`name`/`pid`) and
+  `top` so agents can request "top N by memory" without paging.
 
 ## System
 
@@ -25,6 +31,15 @@ Arguments: none.
 A concise aggregate view of the machine: system, resources, top memory
 processes, drives, network ports, services, windows, and - when readable -
 storage health, Wi-Fi, thermals, and power summaries.
+
+Arguments: none.
+
+### `tool_guide`
+
+Static symptom-to-tool routing table for agents: maps questions ("what is
+eating my RAM?", "why won't my tool start?", "who listens on port 3000?")
+to the right WinKit tool with example arguments and usage rules. Call it
+first when unsure which tool fits; costs nothing and never changes.
 
 Arguments: none.
 
@@ -296,6 +311,71 @@ never exceed the configured timeout and each key is closed after use.
 
 Arguments: `include_software` (default `true`), `max_software` (cap on
 installed-software entries, default 200).
+
+### `startup_programs`
+
+Just the autostart entries from the registry allowlist - `Run`/`RunOnce`
+under HKLM and HKCU with command line and enabled/disabled state - without
+the full `registry_diagnostics` payload.
+
+Arguments: none.
+
+## Environment & updates
+
+### `audit_path_env`
+
+Audit of the PATH environment variable: every effective process entry with
+its expanded form and an existence check, plus cross-scope duplicate
+detection (machine vs user vs process) and empty-entry (`;;`) reporting.
+Answers "why can't my shell find this tool?". `%VAR%` segments are expanded
+for existence checks only; raw text is never altered.
+
+Arguments: none.
+
+### `system_update_status`
+
+Windows update posture: whether a reboot is pending (the three standard
+markers - Component Based Servicing `RebootPending`, Windows Update
+`RebootRequired`, `PendingFileRenameOperations`), plus the most recent
+installed hotfixes (KB IDs, newest first by install date).
+
+Arguments: `max_hotfixes` (cap on hotfix entries, default 10, maximum 50).
+
+## Files (read-only)
+
+File tools honor the workspace path policy (`workspaces.allow_roots` /
+`workspaces.deny_roots`; empty allow list means any absolute path) and never
+follow symlinks or junctions. Binary files are detected and refused rather
+than decoded into mojibake.
+
+### `read_text_file`
+
+Bounded read of a text file: logs, configs, manifests. UTF-8/UTF-16 BOMs are
+honored; `head` reads from the start, `tail` returns whole-line-aligned end
+of file, `all` returns small files whole. The response carries `encoding`,
+`total_bytes`, `returned_bytes`, and `truncated`.
+
+Arguments: `path` (required, absolute), `mode` (`head`/`tail`/`all`, default
+`head`), `max_bytes` (default 32768, cap 262144).
+
+### `find_files`
+
+Case-insensitive wildcard filename search under one root directory.
+Recursion is depth-bounded and result-bounded; the response reports
+`truncated` and `unreadable_dirs` instead of failing.
+
+Arguments: `root` (required, absolute), `pattern` (required, e.g.
+`*.log`; no path separators), `max_depth` (default 6, cap 12),
+`max_results` (default 100, cap 500).
+
+### `directory_overview`
+
+Recursive size breakdown of a directory: every child with its on-disk size,
+file count, and subdirectory count, sorted largest-first. Answers "what is
+eating disk space here?" in one call. Walks share an entry budget so one
+huge tree cannot starve the rest.
+
+Arguments: `path` (required, absolute), `max_children` (default 50).
 
 ## Windows
 

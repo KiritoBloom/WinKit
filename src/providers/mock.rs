@@ -24,6 +24,8 @@ pub struct MockWindowsBackend {
     pub registry: RegistryDiagnostics,
     pub windows: Vec<WindowInfo>,
     pub wifi: Vec<WifiAdapterStatus>,
+    pub path_audit: PathAudit,
+    pub update_status: UpdateStatus,
 }
 
 impl MockWindowsBackend {
@@ -133,6 +135,7 @@ impl MockWindowsBackend {
                 computer: Some("DESKTOP-X".into()),
                 process_id: Some(521),
                 message: Some("Faulting application name: chrome.exe".into()),
+                message_truncated: None,
             }],
             registry: RegistryDiagnostics {
                 system_identity: SystemIdentity {
@@ -210,6 +213,62 @@ impl MockWindowsBackend {
                 cipher: Some("ccmp".into()),
                 is_up: true,
             }],
+            path_audit: PathAudit {
+                process_entries: vec![
+                    PathEntry {
+                        raw: "C:\\Windows\\System32".into(),
+                        expanded: "C:\\Windows\\System32".into(),
+                        exists: true,
+                        scopes: vec!["machine".into(), "process".into()],
+                    },
+                    PathEntry {
+                        raw: "C:\\Windows".into(),
+                        expanded: "C:\\Windows".into(),
+                        exists: true,
+                        scopes: vec!["machine".into(), "process".into()],
+                    },
+                    PathEntry {
+                        raw: "%USERPROFILE%\\.cargo\\bin".into(),
+                        expanded: "C:\\Users\\dev\\.cargo\\bin".into(),
+                        exists: true,
+                        scopes: vec!["user".into(), "process".into()],
+                    },
+                    PathEntry {
+                        raw: "D:\\tools\\missing".into(),
+                        expanded: "D:\\tools\\missing".into(),
+                        exists: false,
+                        scopes: vec!["user".into(), "process".into()],
+                    },
+                ],
+                machine_path_available: true,
+                user_path_available: true,
+                duplicate_indexes: vec![1],
+                empty_indexes: Vec::new(),
+                missing_indexes: vec![3],
+                issues: vec![
+                    "2 duplicate entries across scopes (first shadows later ones)".into(),
+                    "1 entry(ies) point to directories that do not exist".into(),
+                ],
+                total_entries: 4,
+            },
+            update_status: UpdateStatus {
+                reboot_pending: true,
+                reboot_signals: vec!["windows_update_reboot_required".into()],
+                hotfixes: vec![
+                    Hotfix {
+                        hotfix_id: "KB5041585".into(),
+                        description: Some("Update".into()),
+                        installed_on: Some("8/14/2026".into()),
+                    },
+                    Hotfix {
+                        hotfix_id: "KB5039302".into(),
+                        description: Some("Security Update".into()),
+                        installed_on: Some("7/10/2026".into()),
+                    },
+                ],
+                total_hotfixes_reported: 2,
+                unavailable: Vec::new(),
+            },
         }
     }
 }
@@ -809,6 +868,16 @@ impl WindowsBackend for MockWindowsBackend {
         diag.counts.installed_software = diag.installed_software.len();
         Ok(diag)
     }
+
+    fn path_audit(&self) -> Result<PathAudit, WinkitError> {
+        Ok(self.path_audit.clone())
+    }
+
+    fn update_status(&self, max_hotfixes: usize) -> Result<UpdateStatus, WinkitError> {
+        let mut status = self.update_status.clone();
+        status.hotfixes.truncate(max_hotfixes);
+        Ok(status)
+    }
 }
 
 /// Synthetic toolchain used by fixture-loading tests.
@@ -854,6 +923,7 @@ mod tests {
             computer: Some("HOST".to_string()),
             process_id: None,
             message: Some("boom".to_string()),
+            message_truncated: None,
         }
     }
 

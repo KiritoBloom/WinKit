@@ -56,10 +56,13 @@ Default path for "app broken": `diagnose_workspace → diagnose_local_webapp →
 | "Tests are hanging" | `wait_for_port` / `wait_for_http` + `list_processes` + `system_health` |
 | "Is this dev server related to my workspace?" | `list_dev_servers` → `diagnose_workspace` → `workspace_snapshot` |
 | "Where is the project / what runs it?" | `workspace_snapshot` → `dev_environment` |
-| "Disk is full" | `list_drives` → `disk_usage` (per-volume free/used; WinKit does not walk file trees) |
+| "Disk is full" | `list_drives` → `disk_usage` → `directory_overview` (recursive size per child, largest first) |
+| "Find/read a file or log" | `find_files` → `read_text_file` (`mode="tail"` for log ends) |
+| "Why won't my tool start?" | `audit_path_env` → `dev_environment` |
 | "Is my disk dying?" | `disk_health` (S.M.A.R.T.) + `disk_performance` |
 | "Something crashed" | `crash_history` / `shutdown_analysis` or `get_recent_events` |
-| "Why did it reboot?" | `shutdown_analysis` → `crash_history` |
+| "Why did it reboot?" | `shutdown_analysis` → `crash_history` + `system_update_status` (update reboots) |
+| "What starts with my PC?" | `startup_programs` |
 | "What did WinKit touch?" | `privacy_info` |
 
 ## Core workflows

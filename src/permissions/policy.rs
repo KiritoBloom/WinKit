@@ -74,6 +74,7 @@ impl Policy {
                             | Capability::ServiceRead
                             | Capability::EventRead
                             | Capability::WindowRead
+                            | Capability::FilesystemRead
                             | Capability::RegistryRead
                     ) {
                         granted.insert(*c);

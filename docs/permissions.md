@@ -14,14 +14,15 @@ stay stable, but nothing can ever be granted them.
 
 | Capability | Protocol name | Tools |
 | --- | --- | --- |
-| System read | `system.read` | `system_info`, `snapshot` |
+| System read | `system.read` | `system_info`, `snapshot`, `audit_path_env`, `system_update_status`, `tool_guide` |
 | Process read | `process.read` | `list_processes`, `get_process`, `get_process_tree`, `find_process`, `dev_environment`, `system_health`, `system_diagnose` |
 | Network read | `network.read` | `list_listening_ports`, `find_process_on_port`, `list_network_interfaces`, `list_connections` |
 | Storage read | `storage.read` | `list_drives`, `disk_usage` |
 | Service read | `service.read` | `list_services`, `get_service` |
 | Event read | `event.read` | `get_recent_events`, `get_application_errors`, `get_system_errors`, `crash_history`, `shutdown_analysis` |
 | Window read | `window.read` | `list_windows` |
-| Registry read | `registry.read` | `registry_diagnostics` |
+| Filesystem read | `filesystem.read` | `read_text_file`, `find_files`, `directory_overview` (bounded reads only; honors `workspaces.allow_roots`/`deny_roots`; no writes, no binary decoding) |
+| Registry read | `registry.read` | `registry_diagnostics`, `startup_programs` |
 | Hardware read | `hardware.read` | `hardware_snapshot`, `thermal_snapshot` |
 | Storage health read | `storage.health.read` | `disk_health` |
 | Power read | `hardware.power.read` | `battery_status`, `power_status` |
@@ -30,7 +31,7 @@ stay stable, but nothing can ever be granted them.
 
 ### Declared action capabilities (never granted)
 
-`filesystem.read`, `filesystem.write`, `filesystem.delete`,
+`filesystem.write`, `filesystem.delete`,
 `process.terminate`, `service.modify`, `powershell.execute`,
 `registry.write`. The policy fails closed for all of them in every mode.
 

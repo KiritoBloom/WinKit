@@ -563,6 +563,7 @@ mod tests {
             computer: Some("DESKTOP-X".into()),
             process_id: None,
             message: message.map(str::to_string),
+            message_truncated: None,
         }
     }
 

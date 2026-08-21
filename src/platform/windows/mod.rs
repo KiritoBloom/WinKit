@@ -6,6 +6,7 @@
 
 pub mod dev;
 
+pub mod environment;
 pub mod events;
 pub mod ffi;
 pub mod hardware;
@@ -21,6 +22,7 @@ pub mod services;
 pub mod storage;
 pub mod storage_health;
 pub mod system;
+pub mod update;
 pub mod wifi;
 pub mod win32;
 pub mod wmi;

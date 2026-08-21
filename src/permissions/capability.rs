@@ -22,6 +22,10 @@ pub enum Capability {
     EventRead,
     WindowRead,
 
+    // Filesystem-level read capability (bounded text reads, name search,
+    // directory size breakdowns — no writes, no arbitrary binary reads).
+    FilesystemRead,
+
     // Hardware-level read capabilities.
     HardwareRead,
     StorageHealthRead,
@@ -30,7 +34,6 @@ pub enum Capability {
     NetworkDiagnosticsRead,
 
     // Future action capabilities — declared, never granted.
-    FilesystemRead,
     FilesystemWrite,
     FilesystemDelete,
     ProcessTerminate,
@@ -76,6 +79,7 @@ impl Capability {
         Capability::ServiceRead,
         Capability::EventRead,
         Capability::WindowRead,
+        Capability::FilesystemRead,
         Capability::HardwareRead,
         Capability::StorageHealthRead,
         Capability::PowerRead,

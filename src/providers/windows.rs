@@ -62,6 +62,26 @@ pub trait WindowsBackend: Send + Sync {
         include_software: bool,
         max_software: usize,
     ) -> Result<RegistryDiagnostics, WinkitError>;
+    /// Startup programs only (Run/RunOnce under HKLM/HKCU with enabled
+    /// state), without the software enumeration.
+    fn startup_programs(&self) -> Result<Vec<StartupProgram>, WinkitError> {
+        self.registry_diagnostics(false, 0)
+            .map(|d| d.startup_programs)
+    }
+    /// Audit of the effective process PATH against the machine/user scopes,
+    /// with per-entry existence checks.
+    fn path_audit(&self) -> Result<PathAudit, WinkitError> {
+        Err(WinkitError::unsupported_capability(
+            "path audit is not implemented by this backend",
+        ))
+    }
+    /// Installed hotfixes (most recent first) plus pending-reboot signals.
+    fn update_status(&self, max_hotfixes: usize) -> Result<UpdateStatus, WinkitError> {
+        let _ = max_hotfixes;
+        Err(WinkitError::unsupported_capability(
+            "update status is not implemented by this backend",
+        ))
+    }
 }
 
 /// The real Windows backend: thin, read-only delegation to
@@ -231,6 +251,18 @@ impl WindowsBackend for RealWindowsBackend {
             max_software,
         )
     }
+
+    fn startup_programs(&self) -> Result<Vec<StartupProgram>, WinkitError> {
+        Ok(crate::platform::windows::registry::startup_programs())
+    }
+
+    fn path_audit(&self) -> Result<PathAudit, WinkitError> {
+        Ok(crate::platform::windows::environment::path_audit())
+    }
+
+    fn update_status(&self, max_hotfixes: usize) -> Result<UpdateStatus, WinkitError> {
+        crate::platform::windows::update::update_status(max_hotfixes)
+    }
 }
 
 /// Concrete provider type registered in the registry.
@@ -276,6 +308,7 @@ impl Provider for WindowsProvider {
             Capability::WifiRead,
             Capability::NetworkDiagnosticsRead,
             Capability::RegistryRead,
+            Capability::FilesystemRead,
         ]
     }
 }

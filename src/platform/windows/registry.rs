@@ -410,6 +410,76 @@ pub fn install_date_to_rfc3339(seconds: u32) -> Option<String> {
     crate::utils::time::format_rfc3339_opt(t)
 }
 
+// ---------------------------------------------------------------------------
+// Allowlisted single-key/value probes used by update-status and PATH audits.
+//
+// These follow the same rule as every other read here: callers may only pass
+// fixed constants defined in this module family, never user input. Key-
+// existence probes never read any value content.
+// ---------------------------------------------------------------------------
+
+const CBS_REBOOT_PENDING: &str =
+    "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending";
+const WU_REBOOT_REQUIRED: &str =
+    "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired";
+const SESSION_MANAGER: &str = "SYSTEM\\CurrentControlSet\\Control\\Session Manager";
+const MACHINE_ENVIRONMENT_KEY: &str = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
+const USER_ENVIRONMENT_KEY: &str = "Environment";
+
+/// True when the fixed allowlisted key can be opened (existence probe).
+pub fn allowlisted_key_exists(root: HKEY, path: &str) -> bool {
+    open_key(root, path).map(|k| unsafe { RegCloseKey(k) }).is_ok()
+}
+
+/// Read one allowlisted string-ish value (`REG_SZ` / `REG_EXPAND_SZ`),
+/// unexpanded.
+pub fn allowlisted_string_value(root: HKEY, key_path: &str, value_name: &str) -> Option<String> {
+    let key = open_key(root, key_path).ok()?;
+    let out = read_value_string(key, value_name);
+    unsafe { RegCloseKey(key) };
+    out
+}
+
+/// True when an allowlisted value exists and carries non-empty content.
+pub fn allowlisted_value_present(root: HKEY, key_path: &str, value_name: &str) -> bool {
+    allowlisted_string_value(root, key_path, value_name)
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+}
+
+/// The three standard pending-reboot markers, evaluated read-only.
+/// Returns the list of fired signal names plus whether any fired.
+pub fn pending_reboot_signals() -> Vec<String> {
+    let mut signals = Vec::new();
+    if allowlisted_key_exists(HKEY_LOCAL_MACHINE, CBS_REBOOT_PENDING) {
+        signals.push("component_based_servicing_reboot_pending".to_string());
+    }
+    if allowlisted_key_exists(HKEY_LOCAL_MACHINE, WU_REBOOT_REQUIRED) {
+        signals.push("windows_update_reboot_required".to_string());
+    }
+    if allowlisted_value_present(HKEY_LOCAL_MACHINE, SESSION_MANAGER, "PendingFileRenameOperations") {
+        signals.push("pending_file_rename_operations".to_string());
+    }
+    signals
+}
+
+/// Machine-wide `Path` (`HKLM\...\Session Manager\Environment`), unexpanded.
+pub fn machine_path_raw() -> Option<String> {
+    allowlisted_string_value(HKEY_LOCAL_MACHINE, MACHINE_ENVIRONMENT_KEY, "Path")
+}
+
+/// Per-user `Path` (`HKCU\Environment`), unexpanded.
+pub fn user_path_raw() -> Option<String> {
+    allowlisted_string_value(HKEY_CURRENT_USER, USER_ENVIRONMENT_KEY, "Path")
+}
+
+/// Startup programs only; open-key warnings are collected but dropped here
+/// (the caller reports them through its own channel when it has one).
+pub fn startup_programs() -> Vec<StartupProgram> {
+    let mut warnings = Vec::new();
+    read_startup_programs(&mut warnings)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -149,6 +149,7 @@ async fn tools_list_reflects_effective_profile_and_omits_disabled() {
             "list_processes",
             "privacy_info",
             "system_health",
+            "tool_guide",
             "workspace_snapshot",
         ]
     );
