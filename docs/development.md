@@ -199,10 +199,10 @@ secret scan over the packaging tree, and the packed-package smoke test. The
 `.github/workflows/release.yml` runs on version tags (`v*`): it builds the
 release binary for both `x86_64-pc-windows-msvc` and
 `aarch64-pc-windows-msvc`, stages each into its npm package, validates
-launchers and packed contents, and uploads artifacts. Publishing never
-happens automatically: the publish job only runs on a hand-triggered
-workflow dispatch with `publish` checked, authenticated by the `NPM_TOKEN`
-secret. See [docs/release.md](release.md) for the full checklist.
+launchers and packed contents, and publishes all three npm packages
+automatically (native first, launcher second), authenticated by the
+`NPM_TOKEN` secret. Bump versions before tagging: npm rejects duplicates.
+See [docs/release.md](release.md) for the full checklist.
 
 ## Documentation hygiene
 

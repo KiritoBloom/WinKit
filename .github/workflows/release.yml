@@ -1,15 +1,16 @@
 name: Release
 
-# Two independent flows:
+# Fully automatic releases on version tags:
 #
-#   1. Build (automatic): any v* tag push or manual dispatch builds both
-#      architectures, validates everything, and uploads artifacts.
-#      It NEVER publishes.
+#   Pushing a v* tag builds both architectures, validates everything, and
+#     publishes all three npm packages. No manual step.
 #
-#   2. Publish (manual only): run this workflow by hand from the Actions tab
-#      with publish=true. Requires the `npm` GitHub environment, which should
-#      have required reviewers configured in repo settings for a second
-#      approval step. Tag pushes can never reach this job.
+#   A manual dispatch with publish=true also publishes (for re-releases);
+#   a manual dispatch without it only builds and validates.
+#
+# Version numbers must be bumped before tagging: npm rejects duplicate
+# versions, so each tag must carry new Cargo.toml / npm/*/package.json
+# versions (keep them all in sync).
 
 on:
   push:
@@ -17,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish to npm after building (requires the npm environment)'
+        description: 'Publish to npm after building'
         required: true
         type: boolean
         default: false
@@ -97,14 +98,12 @@ jobs:
             npm/win32-${{ matrix.arch }}-msvc/**
 
   publish:
-    name: Publish npm packages (manual)
+    name: Publish npm packages
     needs: build
     runs-on: windows-latest
-    # Reachable ONLY via a hand-triggered workflow_dispatch with publish=true.
-    # A tag push evaluates this condition as false because github.event_name
-    # is 'push', so automated releases stop at the artifacts above.
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
-    environment: npm
+    # Automatic on a version tag; also reachable via a hand-triggered
+    # dispatch with publish=true (useful for re-releasing without retagging).
+    if: github.event_name == 'push' || inputs.publish
     steps:
       - uses: actions/checkout@v4
 

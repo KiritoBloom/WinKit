@@ -165,20 +165,24 @@ carries the name.
 Publishing is a **separate, explicit, credentialed step** - pull-request CI
 never publishes. Two paths exist:
 
-### Automated build, manual publish (recommended)
+### Automatic: tag and done
 
 Pushing a `v*` tag triggers `.github/workflows/release.yml`. It builds both
 architectures (`x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`),
 stages each binary into its npm package, validates launchers and packed
-contents, and uploads artifacts. **A tag push never publishes.**
+contents, then **publishes all three packages automatically** - native
+packages first, launcher second. The only credential is the `NPM_TOKEN`
+repository secret; no manual step is required after the push.
 
-Publishing is a separate, deliberate action: run the same workflow by hand
-from the GitHub Actions tab ("Run workflow") with `publish` checked. That
-publish job only exists for hand-triggered runs, targets the protected
-`npm` environment, and authenticates with the `NPM_TOKEN` secret. For a
-second approval step, configure the `npm` environment with required
-reviewers in the repository settings; without that setting the single
-manual trigger is still the only way anything reaches the registry.
+The one rule: npm rejects duplicate versions. Bump the version in
+`Cargo.toml` *and* all three `npm/*/package.json` files (including the
+launcher's `optionalDependencies`) before tagging. A workflow run whose
+version is already on the registry fails loudly at publish time without
+touching any package.
+
+A manual dispatch of the same workflow also works: with `publish` checked it
+re-publishes (useful for retrying a partially failed release), unchecked it
+only builds and validates.
 
 ### Manual fallback
 

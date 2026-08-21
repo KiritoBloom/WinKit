@@ -18,10 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Windows ARM64 support** - new `@winkit/win32-arm64-msvc` native npm
   package; the launcher resolves the binary by `process.arch`
   (x64 and arm64) with a precise error message for other architectures.
-  `winkit doctor` accepts `aarch64`, and a release workflow builds and
-  validates both architectures on version tags. Publishing stays manual:
-  it requires an explicit hand-triggered workflow run with `publish`
-  checked, so no tag push can ever reach the registry.
+  `winkit doctor` accepts `aarch64`, and a release workflow builds,
+  validates, and publishes all three npm packages automatically on version
+  tags (authenticated by the repository's NPM_TOKEN secret).
 - **Elevation awareness in `doctor`** - a new informational check reports
   whether the process runs with an elevated token and names exactly which
   reads are elevation-gated (ACPI thermal zones, ATA S.M.A.R.T.
