@@ -223,11 +223,16 @@ try {
             Assert-Check 'configure --set --dry-run shows changes without writing' ($LASTEXITCODE -eq 0 -and $configureSet -match 'limits.operation_timeout_ms' -and $configureSet -match 'Dry run') "got: $configureSet"
 
             # MCP initialize handshake over stdio (protocol-clean stdout:
-            # every line must parse as a JSON-RPC frame)
+            # every line must parse as a JSON-RPC frame). Frames go through
+            # a file redirect instead of a PowerShell pipe: pipe encoding
+            # varies between hosts (BOM/codepage quirks have produced
+            # -32700 parse errors on CI), while a redirected file reaches
+            # the server byte-exact everywhere.
             $initialize = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"pack-test","version":"0.0.0"}}}'
-            $exit = '{"jsonrpc":"2.0","method":"exit"}'
-            $frames = ($initialize + "`n" + $exit + "`n")
-            $handshake = $frames | & node $installedLauncher 2>$null
+            $exitFrame = '{"jsonrpc":"2.0","method":"exit"}'
+            $framesFile = Join-Path $temp 'handshake.jsonl'
+            [IO.File]::WriteAllText($framesFile, $initialize + "`n" + $exitFrame + "`n", (New-Object System.Text.UTF8Encoding($false)))
+            $handshake = cmd /c "node `"$installedLauncher`" < `"$framesFile`" 2>nul" | Out-String
             $lines = @($handshake | Where-Object { $_.Trim() -ne '' })
             $allJson = $true
             foreach ($line in $lines) {
