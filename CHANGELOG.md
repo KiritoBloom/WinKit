@@ -5,7 +5,7 @@ All notable changes to WinKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] - 2026-08-21
 
 ### Fixed
 
@@ -18,8 +18,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`C:\Users\RUNNER~1\...`) while handlers report canonicalized long paths,
   so the test's full-path comparison never matched there. Test temp dirs
   are now canonicalized (with the `\\?\` prefix stripped) before use.
+- **CI: the secret-scan step could never run** - a PowerShell quoting bug
+  in its regex (`[^\s"''']` — three quotes terminate the string early)
+  made the whole step fail to parse. Fixed the quoting; the step now also
+  prints file, pattern, and matching line per hit so future failures are
+  diagnosable from the log.
 
-### Added
+### Changed
+
+- **Release workflow now secret-scans before publishing** - the same scan
+  gates `npm publish`, so a leaked secret aborts the release instead of
+  reaching the registry.
+- `copy-native.ps1` wipes each staged skill destination before copying;
+  `Copy-Item -Recurse` merges, so deleted skill files previously survived
+  as stale copies inside published tarballs.
+
+## [0.3.0] - 2026-08-21
 
 - **Strict argument validation** - every tool call is now validated against
   its declared JSON schema before dispatch: unknown arguments are rejected

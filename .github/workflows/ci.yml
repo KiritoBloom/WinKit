@@ -84,7 +84,7 @@ jobs:
             'sk-[A-Za-z0-9]{20,}',
             'glpat-[A-Za-z0-9_-]{16,}',
             'AKIA[0-9A-Z]{16}',
-            '(password|passwd|secret|token)\s*=\s*[^\s"''']{6,}'
+            '(password|passwd|secret|token)\s*=\s*[^\s"'']{6,}'
           )
           $hits = @()
           Get-ChildItem -Recurse -File -Path npm | Where-Object { $_.Extension -ne '.exe' } | ForEach-Object {
