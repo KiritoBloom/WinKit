@@ -3,9 +3,9 @@
 //! A coding agent receives a focused `tools/list` instead of every low-level
 //! capability by default. `core` is the safe low-latency essentials,
 //! `developer` (the default) adds workspace/server/webapp diagnosis and
-//! bounded waiting, `browser` adds the managed-Chrome workflow, and `full`
-//! exposes everything. A profile never bypasses permission checks — it only
-//! filters which tools are advertised and dispatcheable.
+//! bounded waiting, and `full` exposes everything. A profile never bypasses
+//! permission checks — it only filters which tools are advertised and
+//! dispatcheable.
 
 use std::str::FromStr;
 
@@ -16,9 +16,7 @@ pub enum ToolProfile {
     Core,
     /// Recommended default for coding agents.
     Developer,
-    /// Browser discovery + managed-Chrome workflow.
-    Browser,
-    /// All safe read-only tools plus explicitly enabled managed actions.
+    /// All safe read-only tools.
     Full,
 }
 
@@ -27,7 +25,6 @@ impl ToolProfile {
         match self {
             Self::Core => "core",
             Self::Developer => "developer",
-            Self::Browser => "browser",
             Self::Full => "full",
         }
     }
@@ -45,10 +42,9 @@ impl FromStr for ToolProfile {
         match s.to_ascii_lowercase().as_str() {
             "core" => Ok(Self::Core),
             "developer" => Ok(Self::Developer),
-            "browser" => Ok(Self::Browser),
             "full" => Ok(Self::Full),
             other => Err(format!(
-                "unknown tool profile '{other}' (expected core, developer, browser, or full)"
+                "unknown tool profile '{other}' (expected core, developer, or full)"
             )),
         }
     }
@@ -69,13 +65,14 @@ mod tests {
         for p in [
             ToolProfile::Core,
             ToolProfile::Developer,
-            ToolProfile::Browser,
             ToolProfile::Full,
         ] {
             assert_eq!(p.to_string().parse::<ToolProfile>().unwrap(), p);
             assert_eq!(p.as_str(), p.to_string());
         }
         assert!("nonsense".parse::<ToolProfile>().is_err());
+        // The removed browser profile is no longer accepted.
+        assert!("browser".parse::<ToolProfile>().is_err());
     }
 
     #[test]

@@ -1,10 +1,9 @@
-//! Minimal HTTP/1.1 GET client used for Chrome DevTools endpoint discovery.
+//! Minimal HTTP/1.1 GET client used for local web-app probes.
 //!
 //! This exists instead of pulling in a full HTTP stack because WinKit only
-//! needs a handful of `GET /json/*` calls against a loopback DevTools
-//! endpoint, and the core networking policy deliberately excludes arbitrary
-//! outbound HTTP. Requests are bounded by size, count, and timeout, and
-//! only loopback addresses are ever connected to.
+//! needs a handful of bounded `GET` calls against loopback servers. Requests
+//! are bounded by size, count, and timeout, and only allowlisted hosts are
+//! ever connected to.
 
 use crate::errors::{ErrorKind, WinkitError};
 use std::io::Read as _;

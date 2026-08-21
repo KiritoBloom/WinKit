@@ -114,27 +114,6 @@ pub struct DiagnosticReport {
     pub agent_guidance: String,
 }
 
-/// Raw inputs to the diagnostic engine, collected by adapters.
-#[derive(Debug, Clone, Default)]
-pub struct TabDiagnosticData {
-    pub cpu_percent: Option<f64>,
-    pub js_heap_used_bytes: Option<u64>,
-    pub heap_growth_bytes_per_second: Option<i64>,
-    pub long_task_ms: f64,
-    pub script_ms: f64,
-    pub dom_nodes: Option<u64>,
-    pub total_requests: usize,
-    pub failed_requests: usize,
-    pub avg_response_ms: Option<f64>,
-    pub p95_response_ms: Option<f64>,
-    pub bytes_transferred: Option<u64>,
-    pub console_errors: usize,
-    pub exceptions: usize,
-    /// True when heap samples show repeated upward movement (from the
-    /// time-series trend tool). Single snapshots leave this `false`.
-    pub heap_growth_sustained: bool,
-}
-
 // Machine-wide diagnosis
 
 /// One drive's evidence for a machine-wide diagnosis.

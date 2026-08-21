@@ -47,19 +47,15 @@ pub enum ErrorKind {
     NotFound,
     /// The application inspection endpoint is unavailable.
     EndpointUnavailable,
-    /// The managed browser process exited unexpectedly.
-    BrowserExited,
     /// The serialized payload exceeded its configured cap.
     PayloadLimit,
     /// Too many concurrent operations are already running.
     ConcurrencyLimit,
     /// The result is honest but incomplete; providers returned partial data.
     PartialEvidence,
-    /// A Windows/Chrome resource WinKit owns failed to clean up.
-    CleanupFailure,
     /// An unexpected internal failure.
     InternalError,
-    /// The operation was cancelled by the caller (e.g. a background scan).
+    /// The operation was cancelled by the caller.
     Cancelled,
 }
 
@@ -85,11 +81,9 @@ impl ErrorKind {
             Self::UrlRejected => 15,
             Self::NotFound => 16,
             Self::EndpointUnavailable => 17,
-            Self::BrowserExited => 18,
             Self::PayloadLimit => 19,
             Self::ConcurrencyLimit => 20,
             Self::PartialEvidence => 21,
-            Self::CleanupFailure => 22,
             Self::Cancelled => 23,
         }
     }
@@ -115,11 +109,9 @@ impl std::fmt::Display for ErrorKind {
             Self::UrlRejected => "url_rejected",
             Self::NotFound => "not_found",
             Self::EndpointUnavailable => "endpoint_unavailable",
-            Self::BrowserExited => "browser_exited",
             Self::PayloadLimit => "payload_limit",
             Self::ConcurrencyLimit => "concurrency_limit",
             Self::PartialEvidence => "partial_evidence",
-            Self::CleanupFailure => "cleanup_failure",
             Self::Cancelled => "cancelled",
         })
     }
@@ -160,30 +152,6 @@ impl WinkitError {
         )
     }
 
-    /// Denial that explains the capability, permission mode, feature flag,
-    /// and configuration a caller would need to change.
-    pub fn permission_denied_browser(capability: &str, tool: &str, mode: &str) -> Self {
-        Self::new(
-            ErrorKind::PermissionDenied,
-            format!(
-                "tool '{tool}' requires capability '{capability}', which permission mode '{mode}' does not grant. \
-                 Managed-browser actions need permission mode 'approval' (with an explicit grant) or 'unrestricted', \
-                 and the [chrome.managed] enabled = true feature flag in configuration."
-            ),
-        )
-    }
-
-    /// The action requires an explicit approval grant before retrying.
-    pub fn approval_required(request_id: u64, capability: &str, tool: &str) -> Self {
-        Self::new(
-            ErrorKind::ApprovalRequired,
-            format!(
-                "tool '{tool}' needs approval for capability '{capability}'. \
-                 Grant it with chrome_approve_managed_action(request_id = {request_id}), then retry."
-            ),
-        )
-    }
-
     pub fn unsupported_platform(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::UnsupportedPlatform, message)
     }
@@ -208,10 +176,6 @@ impl WinkitError {
         Self::new(ErrorKind::EndpointUnavailable, message)
     }
 
-    pub fn browser_exited(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::BrowserExited, message)
-    }
-
     pub fn payload_limit(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::PayloadLimit, message)
     }
@@ -222,10 +186,6 @@ impl WinkitError {
 
     pub fn partial_evidence(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::PartialEvidence, message)
-    }
-
-    pub fn cleanup_failure(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::CleanupFailure, message)
     }
 
     pub fn cancelled(message: impl Into<String>) -> Self {

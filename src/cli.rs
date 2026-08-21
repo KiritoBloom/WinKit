@@ -64,8 +64,7 @@ OPTIONS:
 
 const CONFIGURE_USAGE: &str = "\
 Usage: winkit configure [--dry-run] [--write] [--set KEY=VALUE]...
-                        [--managed-chrome on|off] [--profile <name>]
-                        [--config <path>]
+                        [--profile <name>] [--config <path>]
 
 Reads the effective configuration, applies validated mutations, and prints
 the result. Defaults to a dry run; pass --write to persist.
@@ -74,8 +73,7 @@ OPTIONS:
     --dry-run            Print what would change without writing (default)
     --write              Persist the changes (a .bak backup is created first)
     --set KEY=VALUE      Set a documented key, e.g. limits.operation_timeout_ms=60000
-    --managed-chrome X   Enable or disable [chrome.managed] (on|off)
-    --profile <NAME>     Set the tool profile (core|developer|browser|full)
+    --profile <NAME>     Set the tool profile (core|developer|full)
     --config <PATH>      Config file to read and write
     --help               Print this help and exit
 ";
@@ -215,7 +213,7 @@ impl CheckResult {
     }
 }
 
-/// Checks that gate readiness. The machine-condition checks (Chrome state,
+/// Checks that gate readiness. The machine-condition checks (loopback port,
 /// managed-profile writability, loopback ports, free disk) are reported but
 /// do not fail the doctor when the machine state differs.
 fn is_required_check(id: &str) -> bool {
@@ -350,8 +348,6 @@ fn doctor_checks(loaded: &LoadedConfig) -> Vec<CheckResult> {
         check_tool_profile(cfg),
         check_enabled_providers(cfg),
         check_mcp_initialize(cfg),
-        check_chrome(cfg),
-        check_managed_chrome(cfg),
         check_loopback_port(),
         check_disk_space(cfg),
         check_telemetry(),
@@ -439,7 +435,7 @@ fn check_tool_profile(cfg: &Config) -> CheckResult {
 
 fn check_enabled_providers(cfg: &Config) -> CheckResult {
     let detail = if cfg.providers.enabled.is_empty() {
-        "all built-in providers (windows, chrome)".to_string()
+        "all built-in providers (windows)".to_string()
     } else {
         cfg.providers.enabled.join(", ")
     };
@@ -519,81 +515,6 @@ fn run_blocking_initialize(state: Arc<AppState>, frame: String) -> Result<Option
         let server = McpServer::new(state);
         server.handle_message(&frame).await
     }))
-}
-
-fn check_chrome(cfg: &Config) -> CheckResult {
-    use crate::providers::applications::chrome::discovery;
-    match discovery::discover(&cfg.chrome) {
-        Ok(result) => {
-            let mut detail = result.state.describe().to_string();
-            if let Some(path) = &result.installed_path {
-                detail.push_str(&format!(" ({})", path.display()));
-            }
-            CheckResult::pass("chrome", "Chrome installation", detail)
-        }
-        Err(e) => CheckResult::fail(
-            "chrome",
-            "Chrome installation",
-            format!("discovery failed: {}", e.message),
-        ),
-    }
-}
-
-/// When managed Chrome is enabled, prove the configured profile root is
-/// writable by creating and removing a probe directory. Never leaves an
-/// orphan behind.
-fn check_managed_chrome(cfg: &Config) -> CheckResult {
-    if !cfg.chrome.managed.enabled {
-        return CheckResult::skip(
-            "managed_chrome",
-            "Managed Chrome profiles",
-            "managed Chrome is disabled in configuration".to_string(),
-        );
-    }
-    let root = managed_profile_root(cfg);
-    let probe_dir = root.join(format!(
-        "doctor-probe-{}-{}",
-        std::process::id(),
-        unique_stamp()
-    ));
-    let marker = probe_dir.join("winkit-doctor");
-    let outcome = std::fs::create_dir_all(&probe_dir)
-        .and_then(|_| std::fs::write(&marker, b"ok"))
-        .and_then(|_| std::fs::read(&marker));
-    let cleanup = std::fs::remove_dir_all(&probe_dir);
-    match (outcome, cleanup) {
-        (Ok(bytes), Ok(())) if bytes.as_slice() == b"ok".as_slice() => CheckResult::pass(
-            "managed_chrome",
-            "Managed Chrome profiles",
-            format!(
-                "profile root {} is writable (probe created and removed)",
-                root.display()
-            ),
-        ),
-        (Ok(_), Err(e)) => CheckResult::fail(
-            "managed_chrome",
-            "Managed Chrome profiles",
-            format!("probe dir could not be removed (orphan risk): {e}"),
-        ),
-        (Ok(_), Ok(())) => CheckResult::fail(
-            "managed_chrome",
-            "Managed Chrome profiles",
-            "probe content did not round-trip".to_string(),
-        ),
-        (Err(e), _) => CheckResult::fail(
-            "managed_chrome",
-            "Managed Chrome profiles",
-            format!("profile root {} is not writable: {e}", root.display()),
-        ),
-    }
-}
-
-fn managed_profile_root(cfg: &Config) -> PathBuf {
-    if cfg.chrome.managed.profile_root.is_empty() {
-        std::env::temp_dir().join("winkit-managed")
-    } else {
-        PathBuf::from(&cfg.chrome.managed.profile_root)
-    }
 }
 
 fn check_loopback_port() -> CheckResult {
@@ -954,7 +875,6 @@ fn configure_run(args: &[String], global_config: Option<PathBuf>) -> ExitCode {
     let mut write = false;
     let mut config_path = global_config;
     let mut sets: Vec<(String, String)> = Vec::new();
-    let mut managed_chrome: Option<bool> = None;
     let mut profile: Option<ToolProfile> = None;
     let mut i = 0;
     while i < args.len() {
@@ -972,24 +892,6 @@ fn configure_run(args: &[String], global_config: Option<PathBuf>) -> ExitCode {
                     Some(path) => config_path = Some(PathBuf::from(path)),
                     None => {
                         eprintln!("error: --config requires a path argument\n\n{CONFIGURE_USAGE}");
-                        return ExitCode::FAILURE;
-                    }
-                }
-            }
-            "--managed-chrome" => {
-                i += 1;
-                match args.get(i) {
-                    Some(v) => match parse_on_off(v) {
-                        Some(on) => managed_chrome = Some(on),
-                        None => {
-                            eprintln!(
-                                "error: --managed-chrome expects 'on' or 'off', got '{v}'\n\n{CONFIGURE_USAGE}"
-                            );
-                            return ExitCode::FAILURE;
-                        }
-                    },
-                    None => {
-                        eprintln!("error: --managed-chrome requires a value\n\n{CONFIGURE_USAGE}");
                         return ExitCode::FAILURE;
                     }
                 }
@@ -1035,18 +937,6 @@ fn configure_run(args: &[String], global_config: Option<PathBuf>) -> ExitCode {
             other if other.starts_with("--config=") => {
                 config_path = Some(PathBuf::from(&other["--config=".len()..]));
             }
-            other if other.starts_with("--managed-chrome=") => {
-                match parse_on_off(&other["--managed-chrome=".len()..]) {
-                    Some(on) => managed_chrome = Some(on),
-                    None => {
-                        eprintln!(
-                            "error: --managed-chrome expects 'on' or 'off', got '{}'",
-                            &other["--managed-chrome=".len()..]
-                        );
-                        return ExitCode::FAILURE;
-                    }
-                }
-            }
             other if other.starts_with("--profile=") => {
                 match other["--profile=".len()..].parse::<ToolProfile>() {
                     Ok(p) => profile = Some(p),
@@ -1082,11 +972,6 @@ fn configure_run(args: &[String], global_config: Option<PathBuf>) -> ExitCode {
     let mut cfg = loaded.cfg.clone();
     let mut changes: Vec<String> = Vec::new();
 
-    if let Some(on) = managed_chrome {
-        let old = cfg.chrome.managed.enabled;
-        cfg.chrome.managed.enabled = on;
-        changes.push(format!("chrome.managed.enabled: {old} -> {on}"));
-    }
     if let Some(profile) = profile {
         let old = cfg.tools.profile.clone();
         cfg.tools.profile = profile.as_str().to_string();
@@ -1147,9 +1032,8 @@ fn configure_run(args: &[String], global_config: Option<PathBuf>) -> ExitCode {
 
 fn configure_summary(loaded: &LoadedConfig) -> String {
     let cfg = &loaded.cfg;
-    let managed = &cfg.chrome.managed;
     let providers = if cfg.providers.enabled.is_empty() {
-        "all built-in providers (windows, chrome)".to_string()
+        "all built-in providers (windows)".to_string()
     } else {
         cfg.providers.enabled.join(", ")
     };
@@ -1168,11 +1052,6 @@ fn configure_summary(loaded: &LoadedConfig) -> String {
         .map(|m| m.as_str().to_string())
         .unwrap_or_else(|e| format!("invalid ({})", e.message));
     let profile = cfg.tools.profile.clone();
-    let profile_root = if managed.profile_root.is_empty() {
-        "<system temp>/winkit-managed".to_string()
-    } else {
-        managed.profile_root.clone()
-    };
 
     let mut out = String::new();
     out.push_str("WinKit configuration\n");
@@ -1180,12 +1059,6 @@ fn configure_summary(loaded: &LoadedConfig) -> String {
     out.push_str(&format!("Tool profile: {profile}\n"));
     out.push_str(&format!("Permission mode: {mode}\n"));
     out.push_str(&format!("Enabled providers: {providers}\n"));
-    out.push_str(&format!(
-        "Managed Chrome: {} (profile root: {profile_root}, startup timeout: {} ms, max sessions: {})\n",
-        if managed.enabled { "enabled" } else { "disabled" },
-        managed.startup_timeout_ms,
-        managed.max_sessions
-    ));
     out.push_str(&format!("Web policy: {web_policy}\n"));
     out.push_str("Limits:\n");
     let l = &cfg.limits;
@@ -1331,91 +1204,6 @@ fn apply_set(cfg: &mut Config, key: &str, value: &str) -> Result<String, String>
             1,
             64,
         ),
-        "chrome.connection_timeout_ms" => set_u64(
-            &mut cfg.chrome.connection_timeout_ms,
-            key,
-            value,
-            100,
-            300_000,
-        ),
-        "chrome.operation_timeout_ms" => set_u64(
-            &mut cfg.chrome.operation_timeout_ms,
-            key,
-            value,
-            100,
-            300_000,
-        ),
-        "chrome.observation_window_ms" => set_u64(
-            &mut cfg.chrome.observation_window_ms,
-            key,
-            value,
-            100,
-            300_000,
-        ),
-        "chrome.sample_interval_ms" => {
-            set_u64(&mut cfg.chrome.sample_interval_ms, key, value, 50, 60_000)
-        }
-        "chrome.max_payload_bytes" => set_usize(
-            &mut cfg.chrome.max_payload_bytes,
-            key,
-            value,
-            1024,
-            50_000_000,
-        ),
-        "chrome.max_tabs" => set_usize(&mut cfg.chrome.max_tabs, key, value, 1, 10_000),
-        "chrome.fallback_port" => set_u16(&mut cfg.chrome.fallback_port, key, value, 0, 65535),
-        "chrome.auto_connect" => set_bool(&mut cfg.chrome.auto_connect, key, value),
-        "chrome.trend_sample_interval_ms" => set_u64(
-            &mut cfg.chrome.trend_sample_interval_ms,
-            key,
-            value,
-            50,
-            60_000,
-        ),
-        "chrome.trend_max_ms" => set_u64(&mut cfg.chrome.trend_max_ms, key, value, 100, 300_000),
-        "chrome.managed.startup_timeout_ms" => set_u64(
-            &mut cfg.chrome.managed.startup_timeout_ms,
-            key,
-            value,
-            100,
-            300_000,
-        ),
-        "chrome.managed.max_sessions" => {
-            set_usize(&mut cfg.chrome.managed.max_sessions, key, value, 1, 16)
-        }
-        "chrome.managed.max_targets" => {
-            set_usize(&mut cfg.chrome.managed.max_targets, key, value, 1, 500)
-        }
-        "chrome.managed.max_summary_chars" => set_usize(
-            &mut cfg.chrome.managed.max_summary_chars,
-            key,
-            value,
-            100,
-            100_000,
-        ),
-        "chrome.managed.max_screenshot_dimension" => set_usize(
-            &mut cfg.chrome.managed.max_screenshot_dimension,
-            key,
-            value,
-            32,
-            8_192,
-        ),
-        "chrome.managed.max_screenshot_bytes" => set_usize(
-            &mut cfg.chrome.managed.max_screenshot_bytes,
-            key,
-            value,
-            10_000,
-            50_000_000,
-        ),
-        "chrome.managed.cleanup_on_close" => {
-            set_bool(&mut cfg.chrome.managed.cleanup_on_close, key, value)
-        }
-        "chrome.managed.allow_external_urls" => {
-            set_bool(&mut cfg.chrome.managed.allow_external_urls, key, value)
-        }
-        "chrome.managed.default_headless" => {
-            set_bool(&mut cfg.chrome.managed.default_headless, key, value)
-        }
         "health.low_disk_free_bytes" => set_u64(
             &mut cfg.health.low_disk_free_bytes,
             key,
@@ -2611,7 +2399,6 @@ mod tests {
     fn doctor_non_required_failures_do_not_fail_the_report() {
         let report = DoctorReport::new(vec![
             pass_result("os"),
-            fail_result("chrome"),
             fail_result("disk_space"),
         ]);
         assert!(report.ok);
@@ -2647,7 +2434,7 @@ mod tests {
         let mut cfg = Config::default();
         cfg.tools.profile = "nonsense".to_string();
         assert_eq!(check_tool_profile(&cfg).status, CheckStatus::Fail);
-        cfg.tools.profile = "browser".to_string();
+        cfg.tools.profile = "full".to_string();
         assert_eq!(check_tool_profile(&cfg).status, CheckStatus::Pass);
     }
 
@@ -2668,7 +2455,6 @@ mod tests {
     fn required_check_set_is_stable() {
         assert!(is_required_check("os"));
         assert!(is_required_check("mcp_initialize"));
-        assert!(!is_required_check("chrome"));
         assert!(!is_required_check("disk_space"));
     }
 
@@ -2727,9 +2513,6 @@ mod tests {
         let desc = apply_set(&mut cfg, "limits.operation_timeout_ms", "60000").unwrap();
         assert_eq!(cfg.limits.operation_timeout_ms, 60_000);
         assert!(desc.contains("60000"));
-        let desc = apply_set(&mut cfg, "chrome.managed.startup_timeout_ms", "15000").unwrap();
-        assert_eq!(cfg.chrome.managed.startup_timeout_ms, 15_000);
-        assert!(desc.contains("15000"));
     }
 
     #[test]
@@ -2744,14 +2527,10 @@ mod tests {
     #[test]
     fn configure_set_validates_ranges_and_types() {
         let mut cfg = Config::default();
-        let err = apply_set(&mut cfg, "chrome.managed.max_sessions", "0").unwrap_err();
+        let err = apply_set(&mut cfg, "limits.max_processes", "0").unwrap_err();
         assert!(err.contains("out of range"));
-        assert_eq!(cfg.chrome.managed.max_sessions, 2);
         let err = apply_set(&mut cfg, "limits.operation_timeout_ms", "not-a-number").unwrap_err();
         assert!(err.contains("not an integer"));
-        let err = apply_set(&mut cfg, "chrome.fallback_port", "70000").unwrap_err();
-        assert!(err.contains("not an integer"));
-        assert_eq!(cfg.chrome.fallback_port, 9222);
     }
 
     #[test]

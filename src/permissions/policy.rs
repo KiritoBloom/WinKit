@@ -109,7 +109,6 @@ mod tests {
         let p = Policy::for_mode(PermissionMode::Safe);
         assert!(p.allows(Capability::SystemRead));
         assert!(p.allows(Capability::WindowRead));
-        assert!(!p.allows(Capability::ApplicationTabsRead));
         assert!(!p.allows(Capability::ProcessTerminate));
     }
 
@@ -117,7 +116,7 @@ mod tests {
     fn read_only_mode_allows_all_v1_reads() {
         let p = Policy::for_mode(PermissionMode::ReadOnly);
         assert!(p.allows(Capability::SystemRead));
-        assert!(p.allows(Capability::ApplicationDiagnosticsRead));
+        assert!(p.allows(Capability::EventRead));
     }
 
     #[test]

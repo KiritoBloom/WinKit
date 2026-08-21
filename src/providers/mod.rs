@@ -5,7 +5,6 @@
 //! into providers behind the [`WindowsBackend`] / application-provider
 //! abstractions so everything is mockable.
 
-pub mod applications;
 pub mod mock;
 pub mod windows;
 

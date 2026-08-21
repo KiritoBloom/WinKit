@@ -75,14 +75,11 @@ default = []
 # Mock providers and fixture-backed backends, used only by tests. The
 # fixture mock is compiled unconditionally (integration tests work without
 # the feature); `--features mocks` additionally compiles the mocks-gated
-# unit-test surface (e.g. Chrome session discovery tests). Canonical runs:
+# unit-test surface. Canonical runs:
 # `cargo test --features mocks` and `cargo test --features mocks --test eval`.
 mocks = []
 # Opt-in live Windows tests: `WINKIT_LIVE_WINDOWS=1 cargo test --features live-windows`.
 live-windows = []
-# Opt-in live Chrome tests: `WINKIT_LIVE_CHROME=1 cargo test --features live-chrome`.
-# Starts a real managed Chrome session, inspects a page, and verifies cleanup.
-live-chrome = []
 
 [profile.release]
 opt-level = "z"

@@ -1,7 +1,7 @@
 //! Small shared utilities: logging, time helpers, wide-string helpers,
-//! resource-limit helpers, a minimal HTTP client used for Chrome DevTools
-//! endpoint discovery, plus secret redaction, local-URL validation, and the
-//! bounded web-app probe used by `diagnose_local_webapp`.
+//! resource-limit helpers, a minimal bounded HTTP client, plus secret
+//! redaction, local-URL validation, and the bounded web-app probe used by
+//! `diagnose_local_webapp`.
 
 pub mod blocking;
 pub mod http;

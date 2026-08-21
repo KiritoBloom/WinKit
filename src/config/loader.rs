@@ -59,7 +59,7 @@ log_level = "debug"
 mode = "read_only"
 
 [providers]
-enabled = ["windows", "chrome"]
+enabled = ["windows"]
 
 [tools]
 disabled = []
@@ -68,16 +68,12 @@ disabled = []
 max_processes = 100
 max_events = 50
 
-[chrome]
-observation_window_ms = 2000
-
 [diagnostics]
 high_cpu_percent = 40.0
 "#;
         let c: Config = toml::from_str(text).unwrap();
         assert_eq!(c.server.log_level, "debug");
         assert_eq!(c.limits.max_processes, 100);
-        assert_eq!(c.chrome.observation_window_ms, 2000);
         assert_eq!(c.diagnostics.high_cpu_percent, 40.0);
         // Unspecified fields keep defaults.
         assert_eq!(c.limits.max_events, 50);

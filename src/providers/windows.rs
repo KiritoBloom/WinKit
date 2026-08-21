@@ -37,9 +37,6 @@ pub trait WindowsBackend: Send + Sync {
         visible_only: bool,
     ) -> Result<Vec<WindowInfo>, WinkitError>;
     fn foreground_window_title(&self) -> Result<Option<String>, WinkitError>;
-    /// Aggregate CPU usage of all processes named `chrome.exe` (used for
-    /// cross-layer correlation). Returns `None` when Chrome is not running.
-    fn chrome_process_summary(&self) -> Result<Option<ChromeProcessSummary>, WinkitError>;
     /// Running processes grouped by application, with aggregate memory and
     /// a two-sample CPU percent per group. Thresholds and status flags
     /// are applied by the tool layer.
@@ -65,20 +62,6 @@ pub trait WindowsBackend: Send + Sync {
         include_software: bool,
         max_software: usize,
     ) -> Result<RegistryDiagnostics, WinkitError>;
-}
-
-/// Aggregate view of Chrome processes from the Windows layer.
-#[derive(Debug, Clone)]
-pub struct ChromeProcessSummary {
-    pub processes: Vec<ProcessInfo>,
-    pub total_working_set_bytes: u64,
-    pub total_cpu_time_ms: u64,
-    /// Aggregate CPU percent of total system CPU capacity (100% = all
-    /// logical processors fully busy) sampled over `interval_ms`.
-    pub cpu_percent: Option<f64>,
-    /// Basis of `cpu_percent`: `system_capacity_all_cores`.
-    pub cpu_percent_basis: &'static str,
-    pub sample_interval_ms: u64,
 }
 
 /// The real Windows backend: thin, read-only delegation to
@@ -188,52 +171,6 @@ impl WindowsBackend for RealWindowsBackend {
 
     fn foreground_window_title(&self) -> Result<Option<String>, WinkitError> {
         Ok(crate::platform::windows::win32::foreground_window().map(|(_, title, _)| title))
-    }
-
-    fn chrome_process_summary(&self) -> Result<Option<ChromeProcessSummary>, WinkitError> {
-        let processes = crate::platform::windows::processes::find_process("chrome", 200)?;
-        if processes.is_empty() {
-            return Ok(None);
-        }
-        let total_ws = processes.iter().filter_map(|p| p.working_set_bytes).sum();
-        let total_cpu = processes.iter().filter_map(|p| p.cpu_time_ms).sum();
-        // Sample aggregate CPU over a short window.
-        let first = processes
-            .iter()
-            .map(|p| crate::platform::windows::processes::cpu_time_pair(p.pid))
-            .collect::<Result<Vec<_>, _>>()?;
-        let sys_first = crate::platform::windows::system::cpu_snapshot()?;
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        let sys_second = crate::platform::windows::system::cpu_snapshot()?;
-        let second = processes
-            .iter()
-            .map(|p| crate::platform::windows::processes::cpu_time_pair(p.pid))
-            .collect::<Result<Vec<_>, _>>()?;
-        let total = sys_second
-            .kernel_ms
-            .saturating_sub(sys_first.kernel_ms)
-            .saturating_add(sys_second.user_ms.saturating_sub(sys_first.user_ms));
-        let proc_delta: u64 = first
-            .iter()
-            .zip(second.iter())
-            .filter_map(|(a, b)| match (a, b) {
-                (Some(a), Some(b)) => Some(b.process_ms.saturating_sub(a.process_ms)),
-                _ => None,
-            })
-            .sum();
-        let cpu_percent = if total > 0 {
-            Some(proc_delta as f64 / total as f64 * 100.0)
-        } else {
-            None
-        };
-        Ok(Some(ChromeProcessSummary {
-            processes,
-            total_working_set_bytes: total_ws,
-            total_cpu_time_ms: total_cpu,
-            cpu_percent,
-            cpu_percent_basis: "system_capacity_all_cores",
-            sample_interval_ms: 300,
-        }))
     }
 
     fn application_groups(&self, limit: usize) -> Result<Vec<ApplicationGroupInfo>, WinkitError> {

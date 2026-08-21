@@ -1,17 +1,15 @@
 ﻿# Tool Reference
 
-WinKit registers 72 MCP tools: read-only Windows diagnostics (system,
-processes, network, storage, hardware, power) plus the approval-gated
-managed-browser lifecycle tools. The default `developer` tool profile exposes
-55 of them; `core` exposes 5, `browser` exposes 58, and `full` exposes all 72.
-This reference lists every tool with its arguments and output shape. The JSON
-input schema is also available live via `tools/list` in any MCP client,
-filtered to the effective profile.
+WinKit registers 44 MCP tools: read-only Windows diagnostics (system,
+processes, network, storage, hardware, power). The default `developer` tool
+profile exposes all 44; `core` exposes the 5 safe essentials. This reference
+lists every tool with its arguments and output shape. The JSON input schema
+is also available live via `tools/list` in any MCP client, filtered to the
+effective profile.
 
 Argument conventions:
 
 - `limit` - optional integer, clamped to the domain's configured maximum.
-- `tab_id` - a Chrome target id from `chrome_list_tabs`, or an exact URL.
 
 ## System
 
@@ -329,107 +327,6 @@ long version string). `version_reason` is omitted when the version probed
 cleanly.
 
 Arguments: none.
-
-## Applications
-
-### `list_applications`
-
-List registered application adapters with their availability state and
-capabilities.
-
-Arguments: none.
-
-### `get_application`
-
-Detailed availability and capability information for one application adapter
-(e.g. `chrome`).
-
-Arguments: `id` (required).
-
-## Chrome
-
-All Chrome tools require the Chrome provider to be enabled and - except
-`chrome_info` - a reachable DevTools endpoint. Chrome must be launched with
-`--remote-debugging-port` (see [chrome.md](chrome.md)).
-
-### `chrome_info`
-
-Chrome availability state, browser version, protocol version, tabs count,
-and Chrome processes.
-
-Arguments: none.
-
-### `chrome_list_tabs`
-
-List open Chrome tabs with id, title, URL, and active state.
-
-Arguments: `limit` (default: `max_tabs`).
-
-### `chrome_get_tab`
-
-One Chrome tab by id (or exact URL).
-
-Arguments: `tab_id` (required).
-
-### `chrome_get_active_tab`
-
-The currently active Chrome tab, determined by window-title correlation with
-the Windows foreground window.
-
-Arguments: none.
-
-### `chrome_get_tab_performance`
-
-Performance metrics for one Chrome tab: CPU-ish timing metrics, long tasks,
-script duration, and deltas between two samples.
-
-Arguments: `tab_id` (required).
-
-### `chrome_get_tab_memory`
-
-Memory picture of one Chrome tab: JS heap, DOM counters, and heap growth
-between two samples.
-
-Arguments: `tab_id` (required).
-
-### `chrome_get_tab_network`
-
-Network activity for one Chrome tab during the observation window: request
-counts, failures, latency, slowest requests. **Headers, cookies, and bodies
-are never captured.**
-
-Arguments: `tab_id` (required).
-
-### `chrome_get_tab_runtime`
-
-Console errors, warnings, exceptions, and page state for one Chrome tab
-during the observation window. Output is truncated and never contains
-secrets.
-
-Arguments: `tab_id` (required).
-
-### `chrome_diagnose_tab`
-
-Cross-layer diagnostics for one Chrome tab: tab metadata, Windows-side Chrome
-resource usage, performance, memory, network, runtime, and deterministic
-evidence-based signals with possible causes. **Signals are heuristics, not
-root-cause claims** (see [diagnostics.md](diagnostics.md)).
-
-Arguments: `tab_id` (required).
-
-### `chrome_tab_trend`
-
-Time-series view of one Chrome tab. Samples JS heap plus script and long-task
-deltas every `trend_sample_interval_ms` (default 2 s) across an observation
-window, then reduces the series to what changed: start/end heap, growth in
-bytes, growth rate, a `sustained_growth` flag (repeated upward movement with
-growth still happening at the end - not a single spike), and a deterministic
-evidence-based report that includes the `sustained_heap_growth` signal when
-the rate crosses its threshold. Network and runtime activity are **not**
-measured during trend sampling; the report says so in its limitations.
-
-Arguments: `tab_id` (required), `observe_ms` (optional, default 10000, clamped
-between 2000 and `trend_max_ms`).
 
 ## Machine-wide health
 

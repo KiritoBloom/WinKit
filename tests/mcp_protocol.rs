@@ -6,16 +6,10 @@
 use serde_json::{json, Value};
 use std::sync::Arc;
 use winkit::config::Config;
-use winkit::diagnostics::DiagnosticsEngine;
-use winkit::permissions::PermissionManager;
-use winkit::providers::applications::chrome::managed::ManagedChromeManager;
-use winkit::providers::applications::ApplicationRegistry;
 use winkit::providers::mock::MockWindowsBackend;
 use winkit::providers::windows::WindowsBackend;
-use winkit::providers::ProviderRegistry;
 use winkit::server::protocol::{McpServer, PROTOCOL_VERSION};
 use winkit::server::AppState;
-use winkit::tools::{wrap, ToolDefinition, ToolRegistry};
 
 fn state(config: Config) -> Arc<AppState> {
     let backend: Arc<dyn WindowsBackend> = Arc::new(MockWindowsBackend::with_fixtures());
@@ -56,51 +50,6 @@ fn mock_state_with_payload_limit(bytes: usize) -> Arc<AppState> {
     config.limits.max_payload_bytes = bytes;
     config.providers.enabled = vec!["windows".to_string()];
     state(config)
-}
-
-/// A knowledge-free standalone stub for a managed-browser action tool. Its
-/// handler answer proves the approval/denial path let a real invocation
-/// through; the capability comes from `tool_action_capability`, so no read
-/// capability is declared.
-fn action_stub(name: &'static str) -> ToolDefinition {
-    ToolDefinition {
-        name,
-        description: "test stub for managed-browser action dispatch",
-        input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
-        capability: None,
-        timeout_ms: Some(1000),
-        handler: wrap(|_state, _args| async move { Ok(json!({ "stub_call": true })) }),
-    }
-}
-
-/// State that overrides the managed-browser action tools with knowledge-free
-/// stubs so the protocol permission/approval paths can be exercised
-/// end-to-end without a real Chrome. The real lifecycle definitions are now
-/// registered; the stubs simply decouple dispatch tests from the browser.
-fn stub_action_state(mode: &str) -> Arc<AppState> {
-    let mut config = Config::default();
-    config.permissions.mode = mode.to_string();
-    config.providers.enabled = vec!["windows".to_string()];
-    config.tools.profile = "full".to_string();
-    config.chrome.managed.enabled = true;
-    let backend: Arc<dyn WindowsBackend> = Arc::new(MockWindowsBackend::with_fixtures());
-    let permissions = PermissionManager::new(config.permission_mode().unwrap());
-    let providers = ProviderRegistry::new();
-    let applications = ApplicationRegistry::new();
-    let engine = DiagnosticsEngine::with_config(config.diagnostics.clone());
-    let mut tools = ToolRegistry::build(&config);
-    tools.register(action_stub("chrome_start_managed_session"));
-    let managed = Arc::new(ManagedChromeManager::new(config.chrome.clone(), None));
-    Arc::new(AppState {
-        config,
-        permissions,
-        providers,
-        applications,
-        windows: backend,
-        engine,
-        tools,
-        managed,
-    })
 }
 
 async fn request(server: &McpServer, frame: &str) -> Value {
@@ -212,22 +161,11 @@ async fn tools_list_reflects_effective_profile_and_omits_disabled() {
     assert!(dev.iter().any(|n| *n == "list_dev_servers"));
     assert!(dev.iter().any(|n| *n == "workspace_snapshot"));
     assert!(dev.iter().any(|n| *n == "list_processes"));
-    assert!(!dev.iter().any(|n| *n == "chrome_diagnose_tab"));
-
-    // browser: deep Chrome inspection but no dev-server workflow.
-    let server = initialized_server(mock_state_with_profile("browser")).await;
-    let browser = listed_names(&server).await;
-    assert!(browser.iter().any(|n| *n == "chrome_diagnose_tab"));
-    assert!(browser.iter().any(|n| *n == "chrome_list_tabs"));
-    assert!(browser.iter().any(|n| *n == "get_application"));
-    assert!(!browser.iter().any(|n| *n == "list_dev_servers"));
-    assert!(!browser.iter().any(|n| *n == "workspace_snapshot"));
 
     // full: everything registered.
     let server = initialized_server(mock_state_with_profile("full")).await;
     let full = listed_names(&server).await;
     assert!(full.iter().any(|n| *n == "workspace_snapshot"));
-    assert!(full.iter().any(|n| *n == "chrome_diagnose_tab"));
     assert!(full.iter().any(|n| *n == "list_dev_servers"));
     assert!(full.iter().any(|n| *n == "system_diagnose"));
 
@@ -383,115 +321,22 @@ async fn disabled_tool_call_is_rejected() {
 
 #[tokio::test]
 async fn safe_mode_denial_names_the_capability() {
+    // In safe mode, hardware reads are not granted: the denial must name the
+    // capability so an agent can tell "not permitted" from "broken".
     let server = initialized_server(mock_state_in_mode("safe")).await;
     let out = request(
         &server,
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"chrome_list_tabs","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"hardware_snapshot","arguments":{}}}"#,
     )
     .await;
     assert_eq!(out["error"]["code"], -32603);
     assert_eq!(out["error"]["data"]["winkit_code"], 2);
     let message = out["error"]["message"].as_str().unwrap();
     assert!(
-        message.contains("application.tabs.read"),
+        message.contains("hardware.read"),
         "message names the capability: {message}"
     );
-    assert!(message.contains("chrome_list_tabs"));
-}
-
-#[tokio::test]
-async fn read_only_action_denial_names_the_capability() {
-    // chrome_start_managed_session carries the BrowserLaunch action
-    // capability; in read_only mode it must be denied before dispatch.
-    let state = stub_action_state("read_only");
-    let server = McpServer::new(state.clone());
-    let _ = request(&server, &initialize_frame(1)).await;
-    let out = request(
-        &server,
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"chrome_start_managed_session","arguments":{}}}"#,
-    )
-    .await;
-    assert_eq!(out["error"]["code"], -32603);
-    assert_eq!(out["error"]["data"]["winkit_code"], 2);
-    let message = out["error"]["message"].as_str().unwrap();
-    assert!(
-        message.contains("application.browser.launch"),
-        "message names the action capability: {message}"
-    );
-    assert!(message.contains("chrome_start_managed_session"));
-}
-
-#[tokio::test]
-async fn approval_mode_embeds_request_id_and_grant_consumes_it() {
-    let state = stub_action_state("approval");
-    let server = McpServer::new(state.clone());
-    let _ = request(&server, &initialize_frame(1)).await;
-    let frame = r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"chrome_start_managed_session","arguments":{}}}"#;
-
-    let first = request(&server, frame).await;
-    assert_eq!(first["error"]["code"], -32603);
-    assert_eq!(first["error"]["data"]["winkit_code"], 12);
-    let message = first["error"]["message"].as_str().unwrap();
-    let request_id: u64 = message
-        .split("request_id = ")
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .and_then(|s| s.trim().parse().ok())
-        .expect("message embeds the request id");
-    assert!(message.contains("application.browser.launch"));
-
-    // The explicit grant is consumed by the retry of the same action, so the
-    // approval workflow is usable: grant, then retry succeeds.
-    state.permissions.grant_approval(request_id).unwrap();
-    let second = request(&server, frame).await;
-    assert!(
-        second.get("error").is_none(),
-        "retry after grant must dispatch: {second}"
-    );
-    assert_eq!(
-        second["result"]["content"][0]["text"],
-        "{\"stub_call\":true}"
-    );
-
-    // Grants are per-request, never a standing permission: a fresh action
-    // still requires a fresh approval.
-    let third = request(&server, frame).await;
-    assert_eq!(third["error"]["code"], -32603);
-    assert_eq!(third["error"]["data"]["winkit_code"], 12);
-    let third_message = third["error"]["message"].as_str().unwrap();
-    let third_id: u64 = third_message
-        .split("request_id = ")
-        .nth(1)
-        .and_then(|s| s.split(')').next())
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap();
-    assert_ne!(third_id, request_id, "each call creates a fresh request");
-    assert_eq!(state.permissions.pending_approvals().len(), 1);
-}
-
-#[tokio::test]
-async fn provider_unavailable_maps_to_structured_server_error_not_internal() {
-    // In the full profile the chrome tools are exposed, but with only the
-    // windows provider registered the chrome provider is absent. That is a
-    // structured "provider unavailable" condition, not an internal error:
-    // it must map to a distinct server error code (-32001) with the stable
-    // winkit_code (3) so agents can tell "not enabled" from "broke".
-    let server = initialized_server(mock_state_with_profile("full")).await;
-    let out = request(
-        &server,
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"chrome_info","arguments":{}}}"#,
-    )
-    .await;
-    assert_eq!(out["error"]["code"], -32001);
-    assert_eq!(out["error"]["data"]["winkit_code"], 3);
-    assert!(
-        out["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("chrome provider is not enabled"),
-        "message explains the condition: {}",
-        out["error"]["message"]
-    );
+    assert!(message.contains("hardware_snapshot"));
 }
 
 #[tokio::test]

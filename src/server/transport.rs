@@ -49,9 +49,6 @@ pub async fn run(state: &Arc<AppState>) -> Result<(), WinkitError> {
         }
     }
 
-    // The client disconnected. Clean up only resources WinKit owns: any
-    // managed Chrome sessions and their profiles.
-    state.managed.shutdown_all().await;
     Ok(())
 }
 

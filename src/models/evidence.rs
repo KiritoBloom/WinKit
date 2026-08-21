@@ -42,10 +42,6 @@ pub enum EvidenceSource {
     WindowsEvents,
     ServiceState,
     SystemHealth,
-    ChromeSession,
-    BrowserRuntime,
-    BrowserNetwork,
-    BrowserPerformance,
 }
 
 impl EvidenceSource {
@@ -59,10 +55,6 @@ impl EvidenceSource {
             Self::WindowsEvents => "windows_events",
             Self::ServiceState => "service_state",
             Self::SystemHealth => "system_health",
-            Self::ChromeSession => "chrome_session",
-            Self::BrowserRuntime => "browser_runtime",
-            Self::BrowserNetwork => "browser_network",
-            Self::BrowserPerformance => "browser_performance",
         }
     }
 }
@@ -190,7 +182,6 @@ pub enum FindingCategory {
     Server,
     Port,
     Process,
-    Browser,
     Workspace,
     System,
     Unknown,
@@ -202,7 +193,6 @@ impl FindingCategory {
             Self::Server => "server",
             Self::Port => "port",
             Self::Process => "process",
-            Self::Browser => "browser",
             Self::Workspace => "workspace",
             Self::System => "system",
             Self::Unknown => "unknown",

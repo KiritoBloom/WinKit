@@ -1,19 +1,19 @@
 //! Capability model: every read capability WinKit can grant, plus the
-//! future action capabilities that are declared but never enabled in v1.
+//! future action capabilities that are declared but never enabled.
 
 use serde::Serialize;
 use std::str::FromStr;
 
 /// All capabilities WinKit knows about.
 ///
-/// v1 implements the `*_read` and `application.*` capabilities. The
-/// write/action capabilities (`filesystem.write`, `process.terminate`, ...)
-/// are declared so that policies and documentation stay stable, but nothing
-/// in v1 can ever be granted them — they always fail closed.
+/// WinKit implements the `*_read` capabilities. The write/action
+/// capabilities (`filesystem.write`, `process.terminate`, ...) are declared
+/// so that policies and documentation stay stable, but nothing can ever be
+/// granted them — they always fail closed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Capability {
-    // Windows-level read capabilities (v1).
+    // Windows-level read capabilities.
     SystemRead,
     ProcessRead,
     NetworkRead,
@@ -22,28 +22,14 @@ pub enum Capability {
     EventRead,
     WindowRead,
 
-    // Hardware-level read capabilities (v1).
+    // Hardware-level read capabilities.
     HardwareRead,
     StorageHealthRead,
     PowerRead,
     WifiRead,
     NetworkDiagnosticsRead,
 
-    // Application-level read capabilities (v1).
-    ApplicationDiscover,
-    ApplicationTabsRead,
-    ApplicationPerformanceRead,
-    ApplicationMemoryRead,
-    ApplicationNetworkRead,
-    ApplicationRuntimeRead,
-    ApplicationDiagnosticsRead,
-
-    // Managed-browser action capabilities (permission-gated, feature-gated).
-    BrowserLaunch,
-    BrowserNavigate,
-    BrowserClose,
-
-    // Future action capabilities — declared, never granted in v1.
+    // Future action capabilities — declared, never granted.
     FilesystemRead,
     FilesystemWrite,
     FilesystemDelete,
@@ -70,16 +56,6 @@ impl Capability {
             Self::PowerRead => "hardware.power.read",
             Self::WifiRead => "network.wifi.read",
             Self::NetworkDiagnosticsRead => "network.diagnostics.read",
-            Self::ApplicationDiscover => "application.discover",
-            Self::ApplicationTabsRead => "application.tabs.read",
-            Self::ApplicationPerformanceRead => "application.performance.read",
-            Self::ApplicationMemoryRead => "application.memory.read",
-            Self::ApplicationNetworkRead => "application.network.read",
-            Self::ApplicationRuntimeRead => "application.runtime.read",
-            Self::ApplicationDiagnosticsRead => "application.diagnostics.read",
-            Self::BrowserLaunch => "application.browser.launch",
-            Self::BrowserNavigate => "application.browser.navigate",
-            Self::BrowserClose => "application.browser.close",
             Self::FilesystemRead => "filesystem.read",
             Self::FilesystemWrite => "filesystem.write",
             Self::FilesystemDelete => "filesystem.delete",
@@ -91,7 +67,7 @@ impl Capability {
         }
     }
 
-    /// All capabilities implemented in v1.
+    /// All read capabilities WinKit grants.
     pub const V1_READ_CAPABILITIES: &'static [Capability] = &[
         Capability::SystemRead,
         Capability::ProcessRead,
@@ -106,13 +82,6 @@ impl Capability {
         Capability::WifiRead,
         Capability::NetworkDiagnosticsRead,
         Capability::RegistryRead,
-        Capability::ApplicationDiscover,
-        Capability::ApplicationTabsRead,
-        Capability::ApplicationPerformanceRead,
-        Capability::ApplicationMemoryRead,
-        Capability::ApplicationNetworkRead,
-        Capability::ApplicationRuntimeRead,
-        Capability::ApplicationDiagnosticsRead,
     ];
 }
 
@@ -133,16 +102,6 @@ impl FromStr for Capability {
             "hardware.power.read" => Ok(Self::PowerRead),
             "network.wifi.read" => Ok(Self::WifiRead),
             "network.diagnostics.read" => Ok(Self::NetworkDiagnosticsRead),
-            "application.discover" => Ok(Self::ApplicationDiscover),
-            "application.tabs.read" => Ok(Self::ApplicationTabsRead),
-            "application.performance.read" => Ok(Self::ApplicationPerformanceRead),
-            "application.memory.read" => Ok(Self::ApplicationMemoryRead),
-            "application.network.read" => Ok(Self::ApplicationNetworkRead),
-            "application.runtime.read" => Ok(Self::ApplicationRuntimeRead),
-            "application.diagnostics.read" => Ok(Self::ApplicationDiagnosticsRead),
-            "application.browser.launch" => Ok(Self::BrowserLaunch),
-            "application.browser.navigate" => Ok(Self::BrowserNavigate),
-            "application.browser.close" => Ok(Self::BrowserClose),
             "filesystem.read" => Ok(Self::FilesystemRead),
             "filesystem.write" => Ok(Self::FilesystemWrite),
             "filesystem.delete" => Ok(Self::FilesystemDelete),
@@ -156,7 +115,7 @@ impl FromStr for Capability {
     }
 }
 
-/// Is this capability one of the v1 read-only capabilities?
+/// Is this capability one of the read-only capabilities?
 pub fn is_v1_read_capability(c: Capability) -> bool {
     Capability::V1_READ_CAPABILITIES.contains(&c)
 }

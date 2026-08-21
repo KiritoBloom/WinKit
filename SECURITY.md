@@ -35,46 +35,34 @@ We aim to acknowledge reports within 72 hours and to provide a fix or a
 mitigation plan within two weeks. Until a fix is released, please keep
 details private.
 
-## Security guarantees (v1)
+## Security guarantees
 
 These are invariants, not aspirations. If any of them is violated, that is a
 security bug:
 
-1. **Read-only by default; the only actions are owned managed-browser
-   sessions.** Every inspection tool is a read. The only actions WinKit can
-   take — launching, navigating, and closing Chrome sessions that WinKit
-   itself spawned — are feature-gated by `[chrome.managed] enabled`,
-   permission-gated by the `application.browser.launch/navigate/close`
-   capabilities (denied in `safe`/`read_only`, per-request approval in
-   `approval`), and scoped exclusively to WinKit-owned resources. When a
-   managed browser is force-killed or exits unexpectedly, WinKit reaps only
-   the owned process tree (children matched by the exact canonical owned
-   profile path in their command lines, with a path-boundary match so
-   sibling names cannot collide) and deletes only the profile directory it
-   created — the user's normal Chrome is never touched. The managed
-   browser's stdout is redirected to null so it can never corrupt the MCP
-   stream; its stderr goes into a bounded, redacted diagnostic tail that is
-   never written to MCP stdout. All other write/action capabilities exist
-   in the model but are never implemented or granted.
+1. **Read-only, always.** Every tool is a read. There are no write,
+   execute, or delete code paths: no process termination, no service
+   modification, no filesystem writes, no shell execution. Action
+   capabilities exist in the permission model as declarations but are never
+   implemented or granted.
 2. **Fail closed.** Unknown capabilities, unknown tools, uninitialized
    sessions, malformed frames, and oversized frames are all rejected.
    Denial is the default for anything not explicitly granted.
-3. **No secret capture.** Chrome network inspection never records request
-   headers, cookies, or bodies. Console/runtime output is truncated. URLs
-   are redacted; managed page summaries report form labels without values.
+3. **No secret capture.** Tools report metadata and counts, never file
+   contents or environment values; workspace scanning redacts `.env`-style
+   secrets and never emits their values.
 4. **Bounded work.** Every query is capped by result limits, per-tool
    timeouts, per-response payload caps, and an 8 MiB transport frame cap. A
    hostile or buggy agent cannot trigger unbounded reads. Diagnostics are
    honest about partial views: `system_diagnose` reports
    `evidence_completeness: "limited"` when a dimension could not be measured
    and excludes it from the healthy set.
-5. **Local only.** The only network sockets WinKit opens are loopback
-   connections to Chrome DevTools endpoints. There is no telemetry and no
-   outbound traffic.
-6. **No shelling out.** WinKit reads Windows data through Win32 APIs and CDP
-   (plus bounded `--version` probes of known dev-tool binaries); it never
-   invokes PowerShell or any other shell to gather evidence, and the
-   managed browser is spawned directly with a fixed argument array.
+5. **Local only.** The only network sockets WinKit opens are loopback HTTP
+   probes you explicitly request for local web-app diagnosis. There is no
+   telemetry and no outbound traffic.
+6. **No shelling out.** WinKit reads Windows data through Win32 APIs (plus
+   bounded `--version` probes of known dev-tool binaries); it never invokes
+   PowerShell or any other shell to gather evidence.
 
 ## Permission modes
 

@@ -8,7 +8,7 @@
 use crate::errors::WinkitError;
 use crate::models::*;
 use crate::platform::windows::processes::ProcessEntry;
-use crate::providers::windows::{ChromeProcessSummary, WindowsBackend};
+use crate::providers::windows::WindowsBackend;
 
 /// A deterministic mock of the Windows backend, seeded with the synthetic
 /// fixtures used by the test suite.
@@ -414,26 +414,6 @@ impl WindowsBackend for MockWindowsBackend {
             .iter()
             .find(|w| w.foreground)
             .map(|w| w.title.clone()))
-    }
-
-    fn chrome_process_summary(&self) -> Result<Option<ChromeProcessSummary>, WinkitError> {
-        let chrome: Vec<ProcessInfo> = self
-            .processes
-            .iter()
-            .filter(|p| p.name.eq_ignore_ascii_case("chrome.exe"))
-            .cloned()
-            .collect();
-        if chrome.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(ChromeProcessSummary {
-            total_working_set_bytes: chrome.iter().filter_map(|p| p.working_set_bytes).sum(),
-            total_cpu_time_ms: chrome.iter().filter_map(|p| p.cpu_time_ms).sum(),
-            cpu_percent: Some(42.5),
-            cpu_percent_basis: "system_capacity_all_cores",
-            sample_interval_ms: 0,
-            processes: chrome,
-        }))
     }
 
     fn application_groups(&self, limit: usize) -> Result<Vec<ApplicationGroupInfo>, WinkitError> {

@@ -1,12 +1,8 @@
-//! The 18-scenario failure evaluation suite (see `tests/eval/README.md`).
+//! The failure evaluation suite (see `tests/eval/README.md`).
 //!
 //! Every scenario is deterministic and fixture-backed: the Windows layer is
-//! a mock backend, HTTP scenarios use loopback-only test servers, workspace
-//! scenarios use temporary directories, and the managed-browser scenario
-//! exercises the tool surface (feature gate, permission gate, owned-session
-//! semantics) without a browser. Real-browser lifecycle coverage lives in
-//! the opt-in live test (`WINKIT_LIVE_CHROME=1 cargo test --features
-//! live-chrome`).
+//! a mock backend, HTTP scenarios use loopback-only test servers, and
+//! workspace scenarios use temporary directories.
 //!
 //! Each scenario asserts the report status, important evidence and finding
 //! ids, supporting/contradicting evidence where applicable, redaction,
@@ -21,9 +17,8 @@ use crate::helpers::{
 use serde_json::json;
 use std::sync::Arc;
 use winkit::config::Config;
-use winkit::diagnostics::DiagnosticsEngine;
 use winkit::errors::ErrorKind;
-use winkit::models::{DriveInfo, ProcessInfo, TabDiagnosticData};
+use winkit::models::{DriveInfo, ProcessInfo};
 use winkit::providers::mock::MockWindowsBackend;
 use winkit::server::AppState;
 
@@ -810,238 +805,7 @@ async fn scenario_12_slow_or_timing_out_server() {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 13 — browser runtime failure
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn scenario_13_browser_runtime_failure() {
-    // Deterministic browser evidence: the diagnostics engine classifies a
-    // tab with console errors and exceptions without needing a browser.
-    let engine = DiagnosticsEngine::with_defaults();
-    let data = TabDiagnosticData {
-        cpu_percent: Some(12.0),
-        js_heap_used_bytes: Some(200 * 1024 * 1024),
-        console_errors: 8,
-        exceptions: 4,
-        ..TabDiagnosticData::default()
-    };
-    let report = engine.analyze_tab(&data);
-    assert_eq!(report.status, "signals_detected");
-    assert!(
-        report.signals.iter().any(|s| s.kind == "runtime_errors"),
-        "runtime_errors signal present"
-    );
-    assert!(!report.possible_causes.is_empty());
-    assert!(report.agent_guidance.contains("hypotheses"));
-    assert_no_root_cause_claims(&serde_json::to_value(&report).unwrap());
-
-    // Workflow level: diagnose_workspace with include_browser and no managed
-    // session reports the absence honestly instead of fabricating evidence.
-    let ws = WorkspaceFixture::node_workspace();
-    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
-    let out = call(
-        &state,
-        "diagnose_workspace",
-        json!({ "workspace_path": ws.canonical(), "dev_server_ports": [3000], "include_browser": true }),
-    )
-    .await
-    .unwrap();
-    assert!(
-        out["limitations"].as_array().unwrap().iter().any(|l| l
-            .as_str()
-            .unwrap_or("")
-            .contains("browser evidence skipped")),
-        "browser evidence absence is a limitation, not a fabrication"
-    );
-    assert_bounded_envelope(&out);
-    assert_no_root_cause_claims(&out);
-}
-
-// ---------------------------------------------------------------------------
-// Scenario 14 — browser network failure
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn scenario_14_browser_network_failure() {
-    let engine = DiagnosticsEngine::with_defaults();
-    let data = TabDiagnosticData {
-        cpu_percent: Some(10.0),
-        js_heap_used_bytes: Some(150 * 1024 * 1024),
-        total_requests: 100,
-        failed_requests: 30,
-        avg_response_ms: Some(800.0),
-        p95_response_ms: Some(2_000.0),
-        bytes_transferred: Some(20 * 1024 * 1024),
-        ..TabDiagnosticData::default()
-    };
-    let report = engine.analyze_tab(&data);
-    assert_eq!(report.status, "signals_detected");
-    let failed = report
-        .signals
-        .iter()
-        .find(|s| s.kind == "many_failed_requests")
-        .expect("many_failed_requests signal present");
-    assert!(
-        failed
-            .evidence
-            .iter()
-            .any(|e| e.metric == "failed_requests"),
-        "signal cites the failed-requests measurement"
-    );
-    assert!(!report.possible_causes.is_empty());
-    let network_cause = report
-        .possible_causes
-        .iter()
-        .find(|c| c.hypothesis.contains("network bottleneck"))
-        .expect("failed requests + high latency correlate into a network hypothesis");
-    assert!(network_cause
-        .supporting_signals
-        .iter()
-        .any(|s| s == "many_failed_requests"));
-    assert!(network_cause
-        .reasoning
-        .contains("not a verified root cause"));
-    assert_no_root_cause_claims(&serde_json::to_value(&report).unwrap());
-
-    // Permission behavior: launching a managed browser from diagnose_local_webapp
-    // in read_only mode is a reported limitation, not a silent browser launch.
-    let server = TestServer::new(Behavior::Respond {
-        responses: vec![http_response(200, "ok")],
-        delay_ms: 0,
-    });
-    let state = eval_state(default_config(), ScenarioBackend::with_fixtures());
-    let out = call(
-        &state,
-        "diagnose_local_webapp",
-        json!({ "url": server.url(), "launch_managed_browser": true }),
-    )
-    .await
-    .unwrap();
-    assert!(
-        out["limitations"].as_array().unwrap().iter().any(|l| l
-            .as_str()
-            .unwrap_or("")
-            .contains("managed browser not launched")),
-        "read_only mode reports the launch denial as a limitation"
-    );
-    assert_eq!(
-        state.managed.list().await.len(),
-        0,
-        "no browser was launched"
-    );
-    assert_bounded_envelope(&out);
-    assert_no_root_cause_claims(&out);
-}
-
-// ---------------------------------------------------------------------------
-// Scenario 15 — managed Chrome startup, inspection, and cleanup (tool surface)
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn scenario_15_managed_chrome_tool_surface() {
-    // The managed-browser tools live in the browser/full profiles; use full
-    // so every tool in the scenario is callable.
-    let full_config = || {
-        let mut config = default_config();
-        config.tools.profile = "full".to_string();
-        config
-    };
-
-    // Feature gate: with the default config, lifecycle is disabled and the
-    // denial names the exact configuration required.
-    let state = eval_state(full_config(), ScenarioBackend::with_fixtures());
-    let err = call(&state, "chrome_start_managed_session", json!({}))
-        .await
-        .unwrap_err();
-    assert_eq!(err.kind, ErrorKind::FeatureDisabled);
-    assert!(err.message.contains("[chrome.managed] enabled = true"));
-
-    // Reading the (empty) owned-session list works read-only.
-    let list = call(&state, "chrome_list_managed_sessions", json!({}))
-        .await
-        .unwrap();
-    assert_eq!(list["enabled"], false);
-    assert_eq!(list["count"], 0);
-    assert_eq!(list["sessions"].as_array().unwrap().len(), 0);
-
-    // Permission gate: even with the feature enabled, read_only never grants
-    // lifecycle actions, and the denial names the capability.
-    let mut config = full_config();
-    config.chrome.managed.enabled = true;
-    let state = eval_state(config, ScenarioBackend::with_fixtures());
-    for tool in [
-        "chrome_start_managed_session",
-        "chrome_navigate_managed_session",
-        "chrome_stop_managed_session",
-    ] {
-        let args = if tool == "chrome_navigate_managed_session" {
-            json!({ "session_id": "wk-x", "url": "http://localhost:3000" })
-        } else {
-            json!({ "session_id": "wk-x" })
-        };
-        let err = call(&state, tool, args).await.unwrap_err();
-        assert_eq!(err.kind, ErrorKind::PermissionDenied, "{tool}");
-        assert!(
-            err.message.contains("application.browser."),
-            "{tool} denial names the action capability: {}",
-            err.message
-        );
-    }
-
-    // Owned-session semantics: unknown session ids fail cleanly with stable
-    // errors, never touching anything.
-    let err = call(
-        &state,
-        "chrome_stop_managed_session",
-        json!({ "session_id": "wk-does-not-exist" }),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(
-        err.kind,
-        ErrorKind::PermissionDenied,
-        "read_only gates stop"
-    );
-    let err = call(
-        &state,
-        "chrome_get_page_summary",
-        json!({ "session_id": "wk-does-not-exist" }),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(err.kind, ErrorKind::NotFound);
-    let err = call(
-        &state,
-        "chrome_capture_screenshot",
-        json!({ "session_id": "wk-does-not-exist" }),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(err.kind, ErrorKind::NotFound);
-
-    // The documented state machine surface exists and serializes stably.
-    use winkit::providers::applications::chrome::managed::ManagedState;
-    for state in [
-        ManagedState::Disabled,
-        ManagedState::Starting,
-        ManagedState::Ready,
-        ManagedState::EndpointUnavailable,
-        ManagedState::BrowserExited,
-        ManagedState::Stopping,
-        ManagedState::Closed,
-        ManagedState::CleanupFailed,
-    ] {
-        let s = serde_json::to_string(&state).unwrap();
-        assert!(!s.is_empty(), "all documented states serialize");
-    }
-    assert_eq!(
-        serde_json::to_string(&ManagedState::CleanupFailed).unwrap(),
-        "\"cleanup_failed\""
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Scenario 16 — redaction / privacy boundary
+// Scenario 14 — redaction / privacy boundary
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -1066,7 +830,6 @@ async fn scenario_16_redaction_and_privacy_boundary() {
     assert_eq!(info["tool_profile"], "developer");
     assert_eq!(info["telemetry"]["enabled"], false);
     assert_eq!(info["external_url_policy"]["allow_external"], false);
-    assert_eq!(info["managed_browser"]["enabled"], false);
     assert_eq!(info["history_policy"], "no_history_persisted");
     let excluded: Vec<&str> = info["excluded_data"]
         .as_array()
@@ -1121,15 +884,15 @@ async fn scenario_16_redaction_and_privacy_boundary() {
         "credentials are never echoed into reports"
     );
 
-    // 16e: safe mode denies application reads (permission boundary).
+    // 16e: safe mode denies hardware reads (permission boundary).
     let mut config = default_config();
     config.permissions.mode = "safe".to_string();
     let safe_state = eval_state(config, quiet_backend());
-    let err = call(&safe_state, "chrome_list_tabs", json!({}))
+    let err = call(&safe_state, "hardware_snapshot", json!({}))
         .await
         .unwrap_err();
     assert_eq!(err.kind, ErrorKind::PermissionDenied);
-    assert!(err.message.contains("application.tabs.read"));
+    assert!(err.message.contains("hardware.read"));
 
     // 16f: the report envelope for a healthy web app carries no secrets.
     let server = TestServer::new(Behavior::Respond {
@@ -1167,7 +930,7 @@ async fn scenario_17_registry_integrity_under_eval_state() {
     let names = state.tools.names();
     assert!(!names.is_empty());
     assert!(names.contains(&"diagnose_workspace".to_string()));
-    assert!(names.contains(&"chrome_start_managed_session".to_string()));
+    assert!(names.contains(&"system_diagnose".to_string()));
     let mut sorted = names.clone();
     sorted.sort();
     assert_eq!(names, sorted, "registry names are deterministic");

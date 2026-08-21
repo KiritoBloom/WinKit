@@ -17,7 +17,6 @@ pub struct Config {
     pub workspaces: WorkspacesConfig,
     pub web: WebConfig,
     pub limits: LimitsConfig,
-    pub chrome: ChromeConfig,
     pub hardware: HardwareConfig,
     pub trends: TrendsConfig,
     pub diagnostics: DiagnosticsConfig,
@@ -63,8 +62,7 @@ pub struct ProvidersConfig {
 
 impl Default for ProvidersConfig {
     fn default() -> Self {
-        // Chrome is an optional integration: it is only loaded when enabled
-        // explicitly, so the default is the windows provider alone.
+        // The windows provider is the only built-in provider.
         Self {
             enabled: vec!["windows".to_string()],
         }
@@ -76,7 +74,7 @@ impl Default for ProvidersConfig {
 pub struct ToolsConfig {
     /// Tool names to disable, e.g. `["snapshot"]`.
     pub disabled: Vec<String>,
-    /// Active tool profile: `core`, `developer`, `browser`, or `full`.
+    /// Active tool profile: `core`, `developer`, or `full`.
     /// `tools/list` exposes only the tools of the effective profile.
     pub profile: String,
 }
@@ -205,109 +203,6 @@ impl Default for LimitsConfig {
             max_payload_bytes: 2_000_000,
             operation_timeout_ms: 30_000,
             max_concurrent_diagnostics: 8,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ChromeConfig {
-    /// Timeout for connecting to the browser inspection endpoint (ms).
-    pub connection_timeout_ms: u64,
-    /// Absolute deadline for one full Chrome discovery pass (ms). The pass
-    /// derives a single deadline from this and gives every probe only the
-    /// remaining budget, so discovery stays bounded even when the registry,
-    /// process snapshot, or an endpoint probe stalls.
-    pub discovery_timeout_ms: u64,
-    /// Timeout for a full Chrome operation such as `chrome_diagnose_tab` (ms).
-    pub operation_timeout_ms: u64,
-    /// How long to observe network/runtime activity for one tab (ms).
-    pub observation_window_ms: u64,
-    /// Gap between the two performance/memory samples (ms).
-    pub sample_interval_ms: u64,
-    /// Cap on a single Chrome-related response payload (bytes).
-    pub max_payload_bytes: usize,
-    /// Maximum number of tabs returned by tab-listing tools.
-    pub max_tabs: usize,
-    /// Probe this fixed port as a last-resort endpoint discovery fallback.
-    pub fallback_port: u16,
-    /// Automatically detect and connect, or only report availability.
-    pub auto_connect: bool,
-    /// Gap between consecutive samples of the tab trend tool (ms).
-    pub trend_sample_interval_ms: u64,
-    /// Upper bound the trend tool accepts for its observation window (ms).
-    pub trend_max_ms: u64,
-    /// Managed (WinKit-spawned) Chrome sessions (`[chrome.managed]`).
-    pub managed: ChromeManagedConfig,
-}
-
-impl Default for ChromeConfig {
-    fn default() -> Self {
-        Self {
-            connection_timeout_ms: 5_000,
-            discovery_timeout_ms: 1_500,
-            operation_timeout_ms: 25_000,
-            observation_window_ms: 3_000,
-            sample_interval_ms: 500,
-            max_payload_bytes: 500_000,
-            max_tabs: 200,
-            fallback_port: 9222,
-            auto_connect: true,
-            trend_sample_interval_ms: 2_000,
-            trend_max_ms: 30_000,
-            managed: ChromeManagedConfig::default(),
-        }
-    }
-}
-
-/// Managed (WinKit-spawned) Chrome configuration.
-///
-/// Every field defaults to the safest value. Lifecycle tools stay disabled
-/// until `enabled = true` is set explicitly, and even then every action is
-/// permission-gated and every URL/path is validated.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ChromeManagedConfig {
-    /// Master switch for managed-session lifecycle tools.
-    pub enabled: bool,
-    /// Root directory for WinKit-owned profiles. Empty = system temp dir
-    /// under a `winkit-managed` subdirectory. Cleanup only ever deletes
-    /// canonical paths under this root.
-    pub profile_root: String,
-    /// Timeout for Chrome startup + DevTools endpoint readiness (ms).
-    pub startup_timeout_ms: u64,
-    /// Remove the owned profile directory when a session closes.
-    pub cleanup_on_close: bool,
-    /// Allow navigation to non-localhost hosts from a managed session.
-    pub allow_external_urls: bool,
-    /// Whether spawned sessions are headless by default.
-    pub default_headless: bool,
-    /// Maximum number of concurrent WinKit-owned sessions.
-    pub max_sessions: usize,
-    /// Maximum number of browser targets reported per session.
-    pub max_targets: usize,
-    /// Cap on the page-summary text WinKit returns (characters).
-    pub max_summary_chars: usize,
-    /// Cap on the larger screenshot dimension (pixels).
-    pub max_screenshot_dimension: usize,
-    /// Cap on a serialized screenshot payload (bytes).
-    pub max_screenshot_bytes: usize,
-}
-
-impl Default for ChromeManagedConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            profile_root: String::new(),
-            startup_timeout_ms: 10_000,
-            cleanup_on_close: true,
-            allow_external_urls: false,
-            default_headless: false,
-            max_sessions: 2,
-            max_targets: 50,
-            max_summary_chars: 8_000,
-            max_screenshot_dimension: 1_280,
-            max_screenshot_bytes: 512 * 1024,
         }
     }
 }
@@ -501,9 +396,6 @@ mod tests {
         assert!(c.limits.max_payload_bytes > 0);
         // Tool profiles default to `developer`.
         assert_eq!(c.tools.profile, "developer");
-        // Managed Chrome is off by default.
-        assert!(!c.chrome.managed.enabled);
-        assert_eq!(c.chrome.managed.max_sessions, 2);
         // Hardware telemetry is on, Wi-Fi scanning is off by default.
         assert!(c.hardware.sensors_enabled);
         assert!(!c.hardware.wifi_scan_enabled);
@@ -517,26 +409,6 @@ mod tests {
         assert!(c.workspaces.max_depth > 0);
         assert!(c.trends.max_samples > 0);
         assert!(c.limits.max_concurrent_diagnostics > 0);
-    }
-
-    #[test]
-    fn managed_chrome_section_parses() {
-        let text = r#"
-            [chrome.managed]
-            enabled = true
-            profile_root = "C:\\winkit-profiles"
-            startup_timeout_ms = 15000
-            cleanup_on_close = true
-            allow_external_urls = false
-            default_headless = true
-            max_sessions = 1
-        "#;
-        let c: Config = toml::from_str(text).unwrap();
-        assert!(c.chrome.managed.enabled);
-        assert_eq!(c.chrome.managed.profile_root, "C:\\winkit-profiles");
-        assert_eq!(c.chrome.managed.startup_timeout_ms, 15_000);
-        assert!(c.chrome.managed.default_headless);
-        assert_eq!(c.chrome.managed.max_sessions, 1);
     }
 
     #[test]
@@ -578,8 +450,8 @@ mod tests {
 
     #[test]
     fn tools_profile_parses_and_rejects_unknown() {
-        let c: Config = toml::from_str("[tools]\nprofile = \"browser\"").unwrap();
-        assert_eq!(c.tools.profile, "browser");
+        let c: Config = toml::from_str("[tools]\nprofile = \"full\"").unwrap();
+        assert_eq!(c.tools.profile, "full");
         let bad: Result<Config, _> = toml::from_str("[tools]\nprofile = \"nonsense\"");
         // Parse succeeds; the profile name is validated when resolved.
         assert!(bad.is_ok());

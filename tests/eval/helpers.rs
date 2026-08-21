@@ -18,7 +18,7 @@ use winkit::config::Config;
 use winkit::errors::WinkitError;
 use winkit::models::*;
 use winkit::providers::mock::MockWindowsBackend;
-use winkit::providers::windows::{ChromeProcessSummary, WindowsBackend};
+use winkit::providers::windows::WindowsBackend;
 use winkit::server::{registry, AppState};
 
 /// Serializes socket-drop probes (Windows loopback RST timing is
@@ -156,10 +156,6 @@ impl WindowsBackend for ScenarioBackend {
 
     fn foreground_window_title(&self) -> Result<Option<String>, WinkitError> {
         self.inner.foreground_window_title()
-    }
-
-    fn chrome_process_summary(&self) -> Result<Option<ChromeProcessSummary>, WinkitError> {
-        self.inner.chrome_process_summary()
     }
 
     fn application_groups(&self, limit: usize) -> Result<Vec<ApplicationGroupInfo>, WinkitError> {

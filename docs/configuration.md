@@ -34,7 +34,7 @@ file cannot be loaded.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enabled` | string[] | `["windows", "chrome"]` | Provider ids to activate. Empty means "all built-in providers". |
+| `enabled` | string[] | `["windows"]` | Provider ids to activate. Empty means "all built-in providers". |
 
 ### `[tools]`
 
@@ -54,46 +54,10 @@ limits.
 | `max_events` | integer | 200 | Cap on event log results. |
 | `max_services` | integer | 500 | Cap on `list_services` results. |
 | `max_windows` | integer | 500 | Cap on `list_windows` results. |
-| `max_tabs` | integer | 200 | Cap on `chrome_list_tabs` results. |
 | `max_snapshot_processes` | integer | 25 | Top-N processes in `snapshot`. |
 | `max_find_depth` | integer | 8 | Recursion depth for `get_process_tree`. |
 | `max_payload_bytes` | integer | 2000000 | Cap on any single serialized MCP response payload. |
 | `operation_timeout_ms` | integer | 30000 | Default timeout for a single tool operation. |
-
-### `[chrome]`
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `connection_timeout_ms` | integer | 5000 | Timeout for connecting to the browser inspection endpoint. |
-| `operation_timeout_ms` | integer | 25000 | Timeout for a full Chrome operation such as `chrome_diagnose_tab`. |
-| `observation_window_ms` | integer | 3000 | How long to observe network/runtime activity for one tab. |
-| `sample_interval_ms` | integer | 500 | Gap between the two performance/memory samples. |
-| `max_payload_bytes` | integer | 500000 | Cap on a single Chrome-related response payload. |
-| `max_tabs` | integer | 200 | Maximum tabs returned by tab-listing tools. |
-| `fallback_port` | integer | 9222 | Fixed port probed as a last-resort endpoint discovery fallback. |
-| `auto_connect` | boolean | true | Automatically detect and connect, or only report availability. |
-| `trend_sample_interval_ms` | integer | 2000 | Gap between consecutive samples of the `chrome_tab_trend` tool. |
-| `trend_max_ms` | integer | 30000 | Upper bound the trend tool accepts for its observation window. |
-
-### `[chrome.managed]`
-
-WinKit-owned (spawned) Chrome sessions. Off by default; every session uses an
-isolated profile under the managed root and loopback-only DevTools. See
-[chrome.md](chrome.md) for the full mode contract (headed vs headless).
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `enabled` | boolean | false | Master switch for managed-session lifecycle tools. |
-| `profile_root` | string | `""` (system temp `winkit-managed`) | Root for WinKit-owned profiles. Cleanup only ever deletes canonical, session-named paths under this root. |
-| `startup_timeout_ms` | integer | 10000 | Deadline for Chrome startup + DevTools endpoint readiness. |
-| `cleanup_on_close` | boolean | true | Remove the owned profile directory when a session closes. |
-| `allow_external_urls` | boolean | false | Allow navigation to non-localhost hosts from a managed session. |
-| `default_headless` | boolean | false | **Headed by default**: `false` opens a real visible Chrome window; `true` makes spawned sessions opt-in non-visible (headless) by default. The `headless` argument to `chrome_start_managed_session` overrides this per call. |
-| `max_sessions` | integer | 2 | Maximum concurrent WinKit-owned sessions. |
-| `max_targets` | integer | 50 | Maximum browser targets reported per session. |
-| `max_summary_chars` | integer | 8000 | Cap on the page-summary text WinKit returns (characters). |
-| `max_screenshot_dimension` | integer | 1280 | Cap on the larger screenshot dimension (pixels). |
-| `max_screenshot_bytes` | integer | 524288 | Cap on a serialized screenshot payload (bytes). |
 
 ### `[diagnostics]`
 
@@ -163,7 +127,7 @@ log_level = "info"
 mode = "safe"
 
 [providers]
-enabled = ["windows", "chrome"]
+enabled = ["windows"]
 
 [tools]
 disabled = []
@@ -173,11 +137,6 @@ max_processes = 500
 max_events = 200
 operation_timeout_ms = 30000
 
-[chrome]
-fallback_port = 9222
-auto_connect = true
-
 [diagnostics]
 high_cpu_percent = 30.0
-high_heap_bytes = 536870912
 ```

@@ -24,13 +24,6 @@ pub async fn call_tool(
     if let Some(capability) = tool.capability {
         state.permissions.check(capability, name)?;
     }
-    if let Some(action_capability) = crate::tools::tool_action_capability(name) {
-        state.permissions.check_browser_action(
-            action_capability,
-            name,
-            state.config.chrome.managed.enabled,
-        )?;
-    }
 
     let result = state.tools.call(state, name, args).await?;
 
@@ -45,7 +38,7 @@ pub async fn call_tool(
 /// The "unavailable" family (provider/application/feature/endpoint) maps to
 /// distinct implementation-defined server errors in the `-32000..-32099`
 /// range (JSON-RPC reserves this range for server errors) instead of
-/// `-32603` (internal error), so a caller can tell "the chrome provider is
+/// `-32603` (internal error), so a caller can tell "the provider is
 /// not enabled" from "something broke internally" without parsing the
 /// message. `-32602` (invalid params) and `-32603` remain for the spec
 /// cases.
@@ -56,7 +49,6 @@ pub fn map_protocol_error(err: &WinkitError) -> (i64, serde_json::Value) {
         ErrorKind::ApplicationUnavailable => -32002, // server error: application unreachable
         ErrorKind::FeatureDisabled => -32003,        // server error: feature disabled in config
         ErrorKind::EndpointUnavailable => -32004,    // server error: endpoint unavailable
-        ErrorKind::BrowserExited => -32005,          // server error: managed browser exited
         _ => -32603,                                 // INTERNAL_ERROR
     };
     (code, serde_json::json!({ "winkit_code": err.kind.code() }))

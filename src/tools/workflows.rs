@@ -524,7 +524,6 @@ pub async fn diagnose_workspace_handler(
     let raw = required_string(&args, "workspace_path")?;
     let detail = parse_detail(&args);
     let requested = optional_u16_list(&args, "dev_server_ports");
-    let include_browser = optional_bool(&args, "include_browser").unwrap_or(false);
     let include_events = optional_bool(&args, "include_events").unwrap_or(false);
 
     let mut report =
@@ -867,85 +866,6 @@ pub async fn diagnose_workspace_handler(
             .push("event-log correlation skipped (include_events=false)".to_string());
     }
 
-    // Browser evidence from existing WinKit-owned sessions (read-only: no
-    // browser is ever launched by this tool).
-    if include_browser {
-        let sessions = state.managed.list().await;
-        if sessions.is_empty() {
-            let note = if state.managed.enabled() {
-                "no managed browser session exists; start one with chrome_start_managed_session and re-run to include browser evidence"
-            } else {
-                "managed Chrome is disabled: set [chrome.managed] enabled = true to start sessions"
-            };
-            report
-                .limitations
-                .push(format!("browser evidence skipped: {note}"));
-        } else {
-            let mut summarized = 0usize;
-            for s in sessions.iter().take(5) {
-                let session_id = s
-                    .get("session_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let Ok(session) = state.managed.get(&session_id).await else {
-                    continue;
-                };
-                match state.managed.page_summary(&session, Some(0)).await {
-                    Ok(summary) => {
-                        summarized += 1;
-                        let runtime = summary.get("runtime").cloned().unwrap_or(json!({}));
-                        let network = summary.get("network").cloned().unwrap_or(json!({}));
-                        let ev = EvidenceItem::new(
-                            crate::models::EvidenceSource::BrowserRuntime,
-                            format!("managed tab {session_id}"),
-                            json!({
-                                "title": summary.get("title").and_then(|t| t.as_str()).unwrap_or(""),
-                                "url": summary.get("url").and_then(|u| u.as_str()).unwrap_or(""),
-                                "ready_state": summary.get("ready_state").and_then(|r| r.as_str()).unwrap_or(""),
-                                "runtime": runtime,
-                                "network": network,
-                            }),
-                            EvidenceConfidence::Observed,
-                            None,
-                        );
-                        let ev_id = ev.id.clone();
-                        report.evidence.push(ev);
-                        let errs = runtime
-                            .get("console_errors")
-                            .and_then(|n| n.as_u64())
-                            .unwrap_or(0) as usize;
-                        let fails =
-                            network.get("failed").and_then(|n| n.as_u64()).unwrap_or(0) as usize;
-                        if errs > 0 || fails > 0 {
-                            add_finding(
-                                &mut report,
-                                "browser-runtime-issues",
-                                FindingSeverity::Medium,
-                                "A managed browser tab reports runtime errors or failed requests",
-                                format!(
-                                    "Managed tab {session_id} reported {errs} console errors and {fails} failed network requests."
-                                ),
-                                FindingConfidence::Observed,
-                                FindingCategory::Browser,
-                                &[&ev_id],
-                                &["chrome_get_page_summary", "chrome_capture_screenshot"],
-                                "Open the page summary and correlate the failing requests with the workspace's dev server.",
-                            );
-                        }
-                    }
-                    Err(e) => report.mark_limited(format!(
-                        "managed browser evidence for {session_id} unavailable: {}",
-                        e.message
-                    )),
-                }
-            }
-            report.checked.push(format!(
-                "browser evidence collected from {summarized} managed session(s)"
-            ));
-        }
-    }
-
     if report.findings.is_empty() {
         report.summary = format!(
             "Workspace '{}' looks healthy: {} projects, {} languages, {} dev-port correlations, no issues above threshold.",
@@ -999,7 +919,6 @@ pub fn diagnose_workspace_definition() -> ToolDefinition {
             "properties": {
                 "workspace_path": { "type": "string", "description": "Absolute workspace path." },
                 "dev_server_ports": { "type": "array", "items": { "type": "integer", "minimum": 1, "maximum": 65535 }, "description": "Ports the workspace's dev servers should use (max 50). Empty = auto-discover loopback listeners." },
-                "include_browser": { "type": "boolean", "description": "Include browser evidence when a managed session exists (default false)." },
                 "include_events": { "type": "boolean", "description": "Correlate recent Windows error events (default false)." },
                 "detail": { "type": "string", "enum": ["compact", "normal", "detailed"], "description": "Report projection (default normal)." }
             },
@@ -1104,8 +1023,6 @@ pub async fn diagnose_local_webapp_handler(
     let url = required_string(&args, "url")?;
     let detail = parse_detail(&args);
     let workspace_path = optional_string(&args, "workspace_path");
-    let launch_managed_browser = optional_bool(&args, "launch_managed_browser").unwrap_or(false);
-    let run_browser_diagnostics = optional_bool(&args, "run_browser_diagnostics").unwrap_or(true);
     let wait_for_ready_ms = optional_u64(&args, "wait_for_ready_ms").unwrap_or(0);
 
     // The caller-supplied URL may carry userinfo; never echo credentials
@@ -1395,7 +1312,7 @@ pub async fn diagnose_local_webapp_handler(
             FindingConfidence::Observed,
             FindingCategory::Server,
             &[&res_ev_id],
-            &["system_health", "chrome_get_tab_performance"],
+            &["system_health", "network_snapshot"],
             "Sample response time again and correlate with machine pressure.",
         );
     }
@@ -1414,123 +1331,6 @@ pub async fn diagnose_local_webapp_handler(
         report.summary = format!(
             "{} — no supported failure signal detected.",
             validated.display()
-        );
-    }
-
-    // Browser evidence via a managed Chrome session when requested. The
-    // launch itself is permission-gated: read-only modes cannot launch a
-    // browser, and denials explain exactly what is required.
-    if launch_managed_browser {
-        let manager = state.managed.clone();
-        match state.permissions.check_browser_action(
-            Capability::BrowserLaunch,
-            "diagnose_local_webapp",
-            state.config.chrome.managed.enabled,
-        ) {
-            Err(e) => report.mark_limited(format!("managed browser not launched: {}", e.message)),
-            Ok(()) => {
-                let managed_policy = UrlPolicy {
-                    allow_external: state.config.chrome.managed.allow_external_urls,
-                    dev_hosts: state.config.web.dev_hosts.clone(),
-                    local_tls_allowed: state.config.web.local_tls_allowed,
-                };
-                match validate_url(&url, &managed_policy) {
-                    Err(e) => {
-                        report.mark_limited(format!("managed browser not launched: {}", e.message))
-                    }
-                    Ok(v) => match manager
-                        .start(Some(&v), state.config.chrome.managed.default_headless, None)
-                        .await
-                    {
-                        Err(e) => report
-                            .mark_limited(format!("managed browser launch failed: {}", e.message)),
-                        Ok(session) => {
-                            let ev = EvidenceItem::new(
-                                crate::models::EvidenceSource::ChromeSession,
-                                format!("managed session {}", session.session_id),
-                                json!({
-                                    "session_id": session.session_id,
-                                    "state": session.state(),
-                                    "url": session.initial_url,
-                                    "port": session.port,
-                                }),
-                                EvidenceConfidence::Confirmed,
-                                None,
-                            );
-                            report.evidence.push(ev);
-                            report.checked.push(format!(
-                                "managed browser session {} started for {}",
-                                session.session_id,
-                                v.display()
-                            ));
-                            if run_browser_diagnostics {
-                                match manager.page_summary(&session, None).await {
-                                    Err(e) => report.mark_limited(format!(
-                                        "managed browser page summary failed: {}",
-                                        e.message
-                                    )),
-                                    Ok(summary) => {
-                                        let runtime =
-                                            summary.get("runtime").cloned().unwrap_or(json!({}));
-                                        let network =
-                                            summary.get("network").cloned().unwrap_or(json!({}));
-                                        let b_ev = EvidenceItem::new(
-                                            crate::models::EvidenceSource::BrowserRuntime,
-                                            format!("managed tab {}", v.display()),
-                                            json!({
-                                                "title": summary.get("title").and_then(|t| t.as_str()).unwrap_or(""),
-                                                "url": summary.get("url").and_then(|u| u.as_str()).unwrap_or(""),
-                                                "ready_state": summary.get("ready_state").and_then(|r| r.as_str()).unwrap_or(""),
-                                                "visible_text_chars": summary.get("visible_text_chars").and_then(|n| n.as_u64()).unwrap_or(0),
-                                                "runtime": runtime,
-                                                "network": network,
-                                            }),
-                                            EvidenceConfidence::Observed,
-                                            None,
-                                        );
-                                        let b_id = b_ev.id.clone();
-                                        report.evidence.push(b_ev);
-                                        let errs = runtime
-                                            .get("console_errors")
-                                            .and_then(|n| n.as_u64())
-                                            .unwrap_or(0)
-                                            as usize;
-                                        let fails = network
-                                            .get("failed")
-                                            .and_then(|n| n.as_u64())
-                                            .unwrap_or(0)
-                                            as usize;
-                                        if errs > 0 || fails > 0 {
-                                            add_finding(
-                                                &mut report,
-                                                "browser-runtime-issues",
-                                                FindingSeverity::Medium,
-                                                "The browser reports runtime errors or failed requests",
-                                                format!(
-                                                    "The managed browser observed {errs} console errors and {fails} failed network requests while the HTTP probe itself succeeded."
-                                                ),
-                                                FindingConfidence::Observed,
-                                                FindingCategory::Browser,
-                                                &[&b_id],
-                                                &[
-                                                    "chrome_get_page_summary",
-                                                    "chrome_capture_screenshot",
-                                                ],
-                                                "Re-run the page summary with a longer observe window and inspect the failing request URLs; they may point at the wrong port or a missing API.",
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                }
-            }
-        }
-    } else if run_browser_diagnostics {
-        report.limitations.push(
-            "browser runtime/network evidence unavailable: no managed session was launched (launch_managed_browser=false)"
-                .to_string(),
         );
     }
 
@@ -1557,8 +1357,6 @@ pub fn diagnose_local_webapp_definition() -> ToolDefinition {
             "properties": {
                 "url": { "type": "string", "description": "Local URL, e.g. http://localhost:3000. External hosts are rejected unless configured." },
                 "workspace_path": { "type": "string", "description": "Absolute workspace path used to judge listener relationship." },
-                "launch_managed_browser": { "type": "boolean", "description": "Launch an isolated WinKit-owned Chrome session to collect browser evidence. Requires [chrome.managed] enabled = true and the application.browser.launch permission; in read-only modes this is reported as a limitation." },
-                "run_browser_diagnostics": { "type": "boolean", "description": "Collect browser runtime/network evidence when a managed tab exists (default true)." },
                 "wait_for_ready_ms": { "type": "integer", "minimum": 0, "description": "Wait up to this many ms for the server to become reachable before the final probe (0 = no wait)." },
                 "detail": { "type": "string", "enum": ["compact", "normal", "detailed"] }
             },
@@ -2010,18 +1808,18 @@ pub async fn correlate_recent_failures_handler(
         }
     }
 
-    // 4. Correlation output (heuristic; never asserted as causality).
-    let correlations = crate::diagnostics::correlation::compute_correlations(&signals);
+    // 4. Correlation output (heuristic; never asserted as causality). With
+    // multiple signals, temporal co-occurrence is reported as a cluster —
+    // explicitly not causation.
     if !signals.is_empty() {
         let ev = EvidenceItem::new(
             crate::models::EvidenceSource::WindowsEvents,
             "Signal correlation",
             json!({
                 "signals": signals.iter().map(|s| s.kind.clone()).collect::<Vec<_>>(),
-                "correlations": correlations.iter().map(|c| json!({ "description": c.description, "confidence": c.confidence })).collect::<Vec<_>>(),
             }),
             EvidenceConfidence::Likely,
-            Some("correlations are heuristic co-occurrence, not proven causality".to_string()),
+            Some("co-occurring signals are heuristic, not proven causality".to_string()),
         );
         let ev_id = ev.id.clone();
         evidence_ids.push(ev_id.clone());
@@ -2430,14 +2228,6 @@ pub async fn privacy_info_handler(
         "enabled_providers": cfg.providers.enabled,
         "permission": permission,
         "tool_profile": state.tools.profile.as_str(),
-        "managed_browser": {
-            "enabled": cfg.chrome.managed.enabled,
-            "default_headless": cfg.chrome.managed.default_headless,
-            "max_sessions": cfg.chrome.managed.max_sessions,
-            "profile_root": if cfg.chrome.managed.profile_root.is_empty() { "<system temp>/winkit-managed" } else { &cfg.chrome.managed.profile_root },
-            "cleanup_on_close": cfg.chrome.managed.cleanup_on_close,
-            "allow_external_urls": cfg.chrome.managed.allow_external_urls,
-        },
         "external_url_policy": {
             "allow_external": cfg.web.allow_external_urls,
             "dev_hosts": cfg.web.dev_hosts,
@@ -2453,7 +2243,7 @@ pub async fn privacy_info_handler(
             "credentials", "tokens", "raw environment blocks", "private keys",
             "secret-bearing command lines", ".env and credential stores"
         ],
-        "cleanup_policy": "only WinKit-owned managed profiles are ever deleted; unrelated processes are never terminated",
+        "cleanup_policy": "WinKit never deletes user files; nothing is written or removed",
         "limits": {
             "operation_timeout_ms": cfg.limits.operation_timeout_ms,
             "max_payload_bytes": cfg.limits.max_payload_bytes,
@@ -2472,7 +2262,7 @@ pub async fn privacy_info_handler(
 pub fn privacy_info_definition() -> ToolDefinition {
     ToolDefinition {
         name: "privacy_info",
-        description: "Expose WinKit's privacy posture: enabled providers, permission mode and granted capabilities, active tool profile, managed-browser policy, external URL policy, telemetry state, excluded data categories, history policy, cleanup policy, and active limits. Call this whenever a user asks what WinKit can read, change, or send. Read-only and instantaneous; returns configuration facts, never user data.",
+        description: "Expose WinKit's privacy posture: enabled providers, permission mode and granted capabilities, active tool profile, external URL policy, telemetry state, excluded data categories, history policy, cleanup policy, and active limits. Call this whenever a user asks what WinKit can read, change, or send. Read-only and instantaneous; returns configuration facts, never user data.",
         input_schema: json!({
             "type": "object",
             "properties": {},
@@ -2744,7 +2534,6 @@ mod tests {
             .unwrap();
         assert_eq!(result["telemetry"]["enabled"], false);
         assert_eq!(result["tool_profile"], "developer");
-        assert_eq!(result["managed_browser"]["enabled"], false);
         assert!(result["excluded_data"].as_array().unwrap().len() >= 5);
     }
 
@@ -3161,11 +2950,6 @@ mod tests {
         }
         fn foreground_window_title(&self) -> Result<Option<String>, WinkitError> {
             self.inner.foreground_window_title()
-        }
-        fn chrome_process_summary(
-            &self,
-        ) -> Result<Option<crate::providers::windows::ChromeProcessSummary>, WinkitError> {
-            self.inner.chrome_process_summary()
         }
         fn application_groups(
             &self,

@@ -105,11 +105,10 @@ See [examples/mcp/generic.json](../examples/mcp/generic.json).
 ## What the client gets
 
 After `initialize`, `tools/list` returns the tools of the active profile
-with their JSON input schemas (see [tools.md](tools.md)): 72 tools in the
-`full` profile, 55 in the default `developer` profile, 58 in `browser`, and
-5 in `core`. Each tool is enforced by the permission policy configured for
-the session, and every response is a JSON document wrapped in the standard
-MCP `content`/`isError` envelope.
+with their JSON input schemas (see [tools.md](tools.md)): 44 tools in the
+default `developer` and `full` profiles, 5 in `core`. Each tool is enforced
+by the permission policy configured for the session, and every response is a
+JSON document wrapped in the standard MCP `content`/`isError` envelope.
 
 ## Session lifecycle
 
@@ -132,10 +131,3 @@ WinKit. A minimal session by hand:
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"system_info","arguments":{}}}
 {"jsonrpc":"2.0","method":"exit"}
 ```
-
-## Browser inspection through the client
-
-To use the Chrome tools through an MCP client, launch Chrome with remote
-debugging enabled (see [chrome.md](chrome.md)) before asking the agent to
-inspect tabs. Without it, `chrome_info` reports the exact state (`running`,
-`endpoint_unavailable`, ...) so the agent can tell the user what to fix.

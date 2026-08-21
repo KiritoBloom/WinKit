@@ -6,11 +6,11 @@ with a `PermissionDenied` error and no provider work happens.
 
 ## Capabilities
 
-A capability is the unit of permission. v1 implements 15 read capabilities;
-a set of action capabilities is declared so policies and docs stay stable,
-but nothing in v1 can ever be granted them.
+A capability is the unit of permission. WinKit implements 13 read
+capabilities; a set of action capabilities is declared so policies and docs
+stay stable, but nothing can ever be granted them.
 
-### v1 read capabilities (grantable)
+### Read capabilities (grantable)
 
 | Capability | Protocol name | Tools |
 | --- | --- | --- |
@@ -22,15 +22,13 @@ but nothing in v1 can ever be granted them.
 | Event read | `event.read` | `get_recent_events`, `get_application_errors`, `get_system_errors`, `crash_history`, `shutdown_analysis` |
 | Window read | `window.read` | `list_windows` |
 | Registry read | `registry.read` | `registry_diagnostics` |
-| Application discover | `application.discover` | `list_applications`, `get_application`, `chrome_info` |
-| Application tabs read | `application.tabs.read` | `chrome_list_tabs`, `chrome_get_tab`, `chrome_get_active_tab` |
-| Application performance read | `application.performance.read` | `chrome_get_tab_performance` |
-| Application memory read | `application.memory.read` | `chrome_get_tab_memory` |
-| Application network read | `application.network.read` | `chrome_get_tab_network` |
-| Application runtime read | `application.runtime.read` | `chrome_get_tab_runtime` |
-| Application diagnostics read | `application.diagnostics.read` | `chrome_diagnose_tab`, `chrome_tab_trend` |
+| Hardware read | `hardware.read` | `hardware_snapshot`, `thermal_snapshot` |
+| Storage health read | `storage.health.read` | `disk_health` |
+| Power read | `hardware.power.read` | `battery_status`, `power_status` |
+| Wi-Fi read | `network.wifi.read` | `wifi_status`, `wifi_scan` |
+| Network diagnostics read | `network.diagnostics.read` | `network_diagnose`, `network_snapshot` |
 
-### Declared action capabilities (never granted in v1)
+### Declared action capabilities (never granted)
 
 `filesystem.read`, `filesystem.write`, `filesystem.delete`,
 `process.terminate`, `service.modify`, `powershell.execute`,
@@ -40,17 +38,17 @@ but nothing in v1 can ever be granted them.
 
 Configuration: `[permissions] mode = "..."`. The default is `read_only`.
 
-| Mode | Windows reads | Application reads | Action capabilities |
+| Mode | Windows reads | Hardware reads | Action capabilities |
 | --- | --- | --- | --- |
-| `safe` | Yes | **No** - all application tools, adapter discovery included, are denied | Never |
+| `safe` | Core Windows reads only | **No** - hardware, storage-health, power, Wi-Fi, and network-diagnosis reads are denied | Never |
 | `read_only` | Yes | Yes | Never |
-| `approval` | Yes | Yes | Never - reserved; future action capabilities will require interactive approval |
+| `approval` | Yes | Yes | Never - reserved; future action capabilities would require interactive approval |
 | `unrestricted` | Yes | Yes | Never - only enables the reads that actually exist |
 
-`approval` and `unrestricted` exist for forward compatibility. In v1 they
-grant exactly the read capabilities that exist and nothing else; they can
-never enable an unimplemented capability. This is enforced by
-`Policy::allows`, which fails closed on anything outside the v1 read set.
+`approval` and `unrestricted` exist for forward compatibility. They grant
+exactly the read capabilities that exist and nothing else; they can never
+enable an unimplemented capability. This is enforced by `Policy::allows`,
+which fails closed on anything outside the read set.
 
 ## Enforcement flow
 
@@ -61,9 +59,9 @@ tools/call frame
        ├─ tool disabled by config?(else InvalidArgument)
        └─ PermissionManager::check(capability, tool)
             └─ ApprovalManager::requirement_for(capability)
-                 ├─ not a v1 read  -> Denied      (action capabilities)
-                 ├─ policy allows  -> Allowed
-                 └─ policy denies  -> Denied
+                 ├─ not a read capability -> Denied   (action capabilities)
+                 ├─ policy allows         -> Allowed
+                 └─ policy denies         -> Denied
        └─ ToolRegistry::call (timeout-wrapped handler)
 ```
 
@@ -73,20 +71,18 @@ nothing.
 ## Approval architecture (future)
 
 `src/permissions/approval.rs` defines the surface future action capabilities
-will flow through: an `ApprovalRequest` (id, capability, tool, description,
+would flow through: an `ApprovalRequest` (id, capability, tool, description,
 status, timestamp) and `ApprovalStatus` (`pending`, `approved`, `denied`,
-`expired`). In v1 no tool can reach this path: `requirement_for` returns
-`Allowed` for granted reads and `Denied` for everything else, and
-`request()` errors if you try to request an already-allowed or denied
-capability.
+`expired`). No tool can reach this path: `requirement_for` returns `Allowed`
+for granted reads and `Denied` for everything else, and `request()` errors if
+you try to request an already-allowed or denied capability.
 
 ## Verifying the current mode
 
 - `system_info` reports the active permission mode and the granted
   capability set.
-- `list_applications` / `get_application` are gated by `application.discover`
-  like any other capability - denied in `safe` mode, granted in `read_only`
-  and above.
+- `privacy_info` reports the full posture: mode, granted capabilities,
+  active profile, and redaction boundaries.
 
 ## Configuring
 

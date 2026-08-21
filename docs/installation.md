@@ -1,4 +1,4 @@
-﻿# Installation
+# Installation
 
 WinKit is a read-only, local-first Windows observability MCP server. It runs as
 a stdio subprocess launched by an MCP client (OpenCode, Claude Code, or any MCP
@@ -6,15 +6,14 @@ host). There are two installation paths: **npm** (recommended for end users -
 no Rust toolchain needed) and **build from source** (for contributors and
 anyone tracking `main`). Both end with the same thing: a `winkit` process the
 MCP client spawns. This page walks the whole path: install, smoke test,
-configuration, Chrome deep inspection, client setup, and troubleshooting.
+configuration, client setup, and troubleshooting.
 
 ## Install via npm (recommended)
 
 WinKit ships as two npm packages: `@winkit/mcp` (a thin Node launcher) and
 `@winkit/win32-x64-msvc` (the Windows x64 native runtime, pulled in as an
 optional dependency). The launcher resolves the native binary and spawns it
-directly with an argument array - no shell, no install scripts, no browser-
-automation dependencies. The native executable is an implementation detail;
+directly with an argument array - no shell, no install scripts. The native executable is an implementation detail;
 you never handle `winkit.exe` by hand.
 
 Requirements:
@@ -128,7 +127,7 @@ file cannot be parsed is skipped with a reason - WinKit never guesses.
 
 WinKit is configured with a `winkit.toml` file. Every key has a documented
 default, so a missing file is fine: the server runs in `read_only` permission
-mode with both built-in providers (`windows`, `chrome`), all tools enabled, and
+mode with the built-in windows provider, all tools enabled, and
 the standard limits.
 
 Configuration is resolved in this order (`src/config/loader.rs`):
@@ -153,18 +152,12 @@ log_level = "info"
 mode = "read_only"
 
 [providers]
-enabled = ["windows", "chrome"]
+enabled = ["windows"]
 
 [tools]
 disabled = []
 
-[chrome]
-fallback_port = 9222
-auto_connect = true
-```
 
-Every key above is optional - omit what you do not need. A fully commented
-example with every key and its default lives in
 [config/example.toml](../config/example.toml), and the complete reference is
 [docs/configuration.md](configuration.md).
 
@@ -172,49 +165,6 @@ Unknown keys are rejected, not ignored: `deny_unknown_fields` is set on every
 section, so a typo (`log_levels` instead of `log_level`) fails startup with a
 clear message on stderr. An invalid permission mode also fails startup. An
 invalid `log_level` is the one lenient case - it falls back to `info`.
-
-## Chrome deep inspection setup
-
-Chrome inspection comes in two forms. **Managed sessions** (recommended for
-diagnosing local web apps) need no manual setup: WinKit spawns its own
-isolated Chrome with a throwaway profile and a loopback-only DevTools
-endpoint when `[chrome.managed] enabled = true` and the permission mode
-allows it (see [docs/chrome.md](chrome.md)). **Inspecting an already-running
-Chrome** needs the browser launched with remote debugging enabled - the rest
-of this section covers that.
-
-Launch Chrome with the debugging port and a dedicated profile:
-
-```powershell
-# with user data kept separate from your normal profile
-chrome.exe --remote-debugging-port=9222 --user-data-dir=C:\winkit-chrome-profile
-```
-
-A separate `--user-data-dir` matters for two reasons. First, Chrome refuses to
-honor `--remote-debugging-port` when an instance is already running against
-the same profile, so a normal Chrome session will silently ignore the flag.
-Second, the debugger sees only the tabs in the profile it was launched with;
-without the dedicated directory you would be inspecting (and exposing) your
-real browsing profile. Keep the debugging profile as a throwaway.
-
-WinKit discovers the endpoint by probing `[chrome] fallback_port` (default
-9222) on loopback and connecting over CDP. The port you launch Chrome with must
-match `fallback_port`. If 9222 is already taken by something else, or you want
-a different port, pick a free one and set it in both places:
-
-```powershell
-chrome.exe --remote-debugging-port=9333 --user-data-dir=C:\winkit-chrome-profile
-```
-
-```toml
-[chrome]
-fallback_port = 9333
-```
-
-If Chrome is running without remote debugging, WinKit does not guess: the
-adapter reports the exact state (for example `running` with
-`endpoint_unavailable`) and the agent can tell you what to fix. See
-[docs/chrome.md](chrome.md) for the full discovery lifecycle and caveats.
 
 ## Connect an MCP client
 
@@ -285,7 +235,6 @@ The full protocol contract is in [docs/mcp-integration.md](mcp-integration.md).
 | Symptom | Likely cause and fix |
 | --- | --- |
 | The client reports it cannot start `winkit` | With npx, Node.js must be installed and on `PATH`. When launching the binary directly instead, the binary is not on `PATH` - use the absolute path to `winkit.exe` (for example `C:\dev\WinKit\target\release\winkit.exe`) in the client config. |
-| `chrome_info` reports `running` / `endpoint_unavailable` | Chrome was launched without `--remote-debugging-port`, or the port you chose differs from `[chrome] fallback_port`. Relaunch Chrome with the flag on the matching port. Chrome already running against the same profile silently ignores the flag - use a dedicated `--user-data-dir` and restart it. |
 | Startup prints `error: invalid config ...` and exits | A config file was found but does not parse: a typo'd key (unknown keys are rejected), an invalid permission mode, or malformed TOML. The message names the file and the problem; fix the key or remove the file to fall back to defaults. |
 | Application tools return permission denied | The session runs in `safe` permission mode, which limits the server to Windows-level read tools - application adapters are discoverable but deep inspection is denied. Set `[permissions] mode = "read_only"` for all v1 read capabilities (see [docs/permissions.md](permissions.md)). |
 | Nothing appears on stdout when you run `winkit.exe` directly | Expected. Stdout is reserved for MCP frames only; all diagnostics and log output go to stderr. Run an MCP client against the binary, or pipe frames in as in the smoke test above, and check stderr for the startup log line. |
@@ -296,5 +245,4 @@ The full protocol contract is in [docs/mcp-integration.md](mcp-integration.md).
 - [docs/mcp-integration.md](mcp-integration.md) - protocol version, frame format, session lifecycle
 - [docs/configuration.md](configuration.md) - every config key and default
 - [docs/permissions.md](permissions.md) - modes, capabilities, policy table
-- [docs/chrome.md](chrome.md) - Chrome discovery, CDP, and caveats
 - [docs/security.md](security.md) - threat model and mitigations

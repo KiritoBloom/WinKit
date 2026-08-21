@@ -13,7 +13,6 @@ closes, e.g. "Closes #123". -->
 - [ ] `cargo test --features mocks` passes (full suite)
 - [ ] `cargo clippy --all-targets -- -D warnings` passes
 - [ ] `cargo fmt --check` passes
-- [ ] Manual browser validation done (only if the Chrome adapter changed)
 
 ## Security review
 

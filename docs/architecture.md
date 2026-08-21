@@ -1,4 +1,4 @@
-﻿# Architecture
+# Architecture
 
 WinKit is a Rust crate with two targets: a library (`winkit`) that contains
 everything, and a binary (`winkit`) that runs the MCP server over stdio. The
@@ -9,13 +9,13 @@ unit and integration tests without launching the binary.
 
 ```text
 server (MCP over stdio, JSON-RPC 2.0, session lifecycle)
-  ├── tools        (72 tool definitions + argument handling + registry)
-  │     ├── providers (WindowsBackend / ApplicationProvider traits)
-  │     └── platform::windows (real Win32 implementations, windows-sys 0.59)
-  ├── permissions  (modes, capabilities, policy, approval surface)
-  ├── config       (winkit.toml, strict, deny-unknown-keys)
-  ├── models       (unified data models shared by providers/tools/diagnostics)
-  └── diagnostics  (measurements → signals → ranked findings)
+  +-- tools        (72 tool definitions + argument handling + registry)
+  �     +-- providers (WindowsBackend / ApplicationProvider traits)
+  �     +-- platform::windows (real Win32 implementations, windows-sys 0.59)
+  +-- permissions  (modes, capabilities, policy, approval surface)
+  +-- config       (winkit.toml, strict, deny-unknown-keys)
+  +-- models       (unified data models shared by providers/tools/diagnostics)
+  +-- diagnostics  (measurements ? signals ? ranked findings)
 ```
 
 The two rules that keep this architecture honest:
@@ -44,7 +44,7 @@ MCP client --stdio JSON-RPC--> transport::run --frame--> protocol::handle_messag
                                                           v
                                    provider traits (WindowsBackend / ApplicationProvider)
                                                           v
-                                    platform::windows (Win32) | chrome adapter (CDP)
+                                    platform::windows (Win32)
                                                           v
                                                models -> serde_json -> reply frame
 ```
@@ -81,17 +81,10 @@ shape the JSON response. Tools never call Win32 directly.
 ### `providers/`
 
 - `mod.rs` - the `Provider` trait (id, name, version, availability,
-  capabilities) and `ProviderRegistry` metadata. `BoxFuture` is the async
-  plumbing used by provider traits.
+  capabilities) and `ProviderRegistry` metadata.
 - `windows.rs` - `WindowsBackend`, the trait behind every OS-level read, and
-  `RealWindowsBackend`, the Win32 implementation (a unit struct wrapping the
-  platform layer). `WindowsProvider` adapts it into the provider registry.
-- `applications/mod.rs` - `ApplicationProvider`, the adapter contract, and
-  `ApplicationRegistry`. Default trait methods return
-  `unsupported_capability`, so adapters only implement what they truly
-  support.
-- `applications/chrome/` - the Chrome adapter: discovery, CDP connection,
-  session, and the `ChromeProvider` that implements `ApplicationProvider`.
+  `RealWindowsBackend`, the Win32 implementation. `WindowsProvider` adapts it
+  into the provider registry.
 - `mock.rs` - the fixture-backed mock backend used by tests.
 
 ### `platform/windows/`
@@ -144,7 +137,7 @@ All unsafe blocks are confined to this layer.
   implemented in v1; the action capabilities (`filesystem.write`,
   `process.terminate`, `powershell.execute`, ...) are declared for policy
   stability and can never be granted.
-- `policy.rs` - `PermissionMode` → granted capability set. `approval` and
+- `policy.rs` - `PermissionMode` ? granted capability set. `approval` and
   `unrestricted` behave like `read_only` in v1 because there is nothing else
   to enable.
 - `approval.rs` - the approval request surface reserved for future action
@@ -162,7 +155,6 @@ documented order and `schema.rs` documents every key and default.
 The unified data model: `ProcessInfo`, `PortInfo`, `ConnectionInfo`,
 `DriveInfo`, `DiskUsage`, `FileEntry`, `ServiceInfo`, `EventInfo`,
 `WindowInfo`, `SystemInfo`, `ResourceSnapshot`, `DevEnvironment`, the
-browser models (`TabInfo`, `PerformanceMetrics`, `MemoryInfo`,
 `NetworkSummary`, `RuntimeInfo`, `ApplicationInfo`, ...), the hardware
 models (`HardwareSnapshot`, `ThermalSnapshot`, `BatteryStatus`,
 `PowerStatus`, `DiskHealthReport`, `StorageActivity`, `NetworkSnapshot`,
@@ -180,12 +172,12 @@ The engine, organized as an evidence-first pipeline with three layers -
 
 ```text
                 WinKit
-                  │
-     ┌────────────┼────────────┐
-     │            │            │
+                  �
+     +------------+------------+
+     �            �            �
  Observation  Correlation  Diagnosis
-     │            │            │
-     ↓            ↓            ↓
+     �            �            �
+     ?            ?            ?
  Windows/App   Evidence     Findings
    metrics      linking      ranking
 ```
@@ -203,9 +195,9 @@ The engine, organized as an evidence-first pipeline with three layers -
   with conservative confidence levels (a single signal never exceeds
   `medium`).
 - `findings.rs` - the deterministic 0-100 scoring functions and severity
-  bands (≥90 critical, ≥70 high, ≥50 medium, else low) used to rank findings.
+  bands (=90 critical, =70 high, =50 medium, else low) used to rank findings.
 - `system.rs` - the machine-wide diagnosis engine behind `system_diagnose`:
-  system measurements (CPU, memory, storage, Chrome app evidence) become
+  system measurements (CPU, memory, storage) become
   ranked findings. Failed dimensions are reported as limited
   (`evidence_completeness: "limited"`) instead of being hidden or guessed.
 
@@ -225,7 +217,7 @@ One MCP session per process. The stdio loop is a single tokio task; tool
 handlers run concurrently inside it. Providers that block on Win32 calls run
 those calls inside `tokio::task::spawn_blocking` where needed, and each tool
 call is wrapped in a timeout (`operation_timeout_ms`, or a per-tool override
-such as the Chrome operation timeout). The shared state is `Arc<AppState>`;
+such as the web probe timeout). The shared state is `Arc<AppState>`;
 the pieces that mutate (lifecycle flags) use atomics/mutexes.
 
 ## Why this structure

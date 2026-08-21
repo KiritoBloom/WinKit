@@ -109,13 +109,13 @@ async fn missing_required_argument_is_invalid_argument() {
 }
 
 #[tokio::test]
-async fn safe_mode_denies_application_tools() {
+async fn safe_mode_denies_hardware_tools() {
     let state = mock_state("safe");
-    let err = call(&state, "chrome_list_tabs", json!({}))
+    let err = call(&state, "hardware_snapshot", json!({}))
         .await
         .unwrap_err();
     assert_eq!(err.kind, ErrorKind::PermissionDenied);
-    assert!(err.message.contains("application.tabs.read"));
+    assert!(err.message.contains("hardware.read"));
 }
 
 #[tokio::test]

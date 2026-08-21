@@ -5,11 +5,7 @@
 //! async handler. Handlers are pure functions over [`crate::server::AppState`]
 //! and never touch Win32 directly.
 
-pub mod apps;
-pub mod browser;
-pub mod chrome;
 pub mod developer;
-pub mod diagnostics;
 pub mod events;
 pub mod hardware;
 pub mod health;
@@ -58,10 +54,9 @@ pub struct ToolDefinition {
 /// Profile membership for every tool. This table is the source of
 /// truth for profile filtering; tools not listed here are visible in every
 /// profile. `core` stays minimal and low-latency, `developer` (default)
-/// adds the workspace/server/webapp workflow, `browser` adds the managed
-/// Chrome workflow, `full` exposes everything.
+/// adds the workspace/server/webapp workflow, `full` exposes everything.
 pub fn tool_profiles(name: &str) -> &'static [ToolProfile] {
-    use ToolProfile::{Browser, Core, Developer, Full};
+    use ToolProfile::{Core, Developer, Full};
     match name {
         // Core: safe, low-latency essentials (also in developer and full).
         "workspace_snapshot"
@@ -90,8 +85,6 @@ pub fn tool_profiles(name: &str) -> &'static [ToolProfile] {
         | "shutdown_analysis"
         | "registry_diagnostics"
         | "list_windows"
-        | "list_applications"
-        | "get_application"
         | "system_diagnose"
         | "hardware_snapshot"
         | "thermal_snapshot"
@@ -102,9 +95,8 @@ pub fn tool_profiles(name: &str) -> &'static [ToolProfile] {
         | "network_snapshot"
         | "network_diagnose"
         | "wifi_status"
-        | "wifi_scan" => &[Developer, Browser, Full],
-        // Developer-only workflow: the workspace/server/webapp tools are not
-        // part of the managed-browser profile.
+        | "wifi_scan" => &[Developer, Full],
+        // Developer-only workflow: the workspace/server/webapp tools.
         "dev_environment"
         | "list_dev_servers"
         | "diagnose_workspace"
@@ -114,29 +106,8 @@ pub fn tool_profiles(name: &str) -> &'static [ToolProfile] {
         | "wait_for_process"
         | "correlate_recent_failures"
         | "system_health_trend" => &[Developer, Full],
-        // Browser: discovery, managed-session status, lifecycle (gated),
-        // page summary, screenshot, and the optional Chrome integration.
-        // Chrome observability is not part of the developer profile: it is
-        // an optional integration gated behind `providers.enabled`.
-        "chrome_info"
-        | "chrome_list_tabs"
-        | "chrome_get_tab"
-        | "chrome_get_active_tab"
-        | "chrome_get_tab_performance"
-        | "chrome_get_tab_memory"
-        | "chrome_get_tab_network"
-        | "chrome_get_tab_runtime"
-        | "chrome_diagnose_tab"
-        | "chrome_tab_trend"
-        | "chrome_list_managed_sessions"
-        | "chrome_start_managed_session"
-        | "chrome_navigate_managed_session"
-        | "chrome_stop_managed_session"
-        | "chrome_approve_managed_action"
-        | "chrome_get_page_summary"
-        | "chrome_capture_screenshot" => &[Browser, Full],
         // Unlisted tools (currently none) would be visible in every profile.
-        _ => &[Core, Developer, Browser, Full],
+        _ => &[Core, Developer, Full],
     }
 }
 
@@ -146,17 +117,9 @@ pub fn tool_in_profile(name: &str, profile: ToolProfile) -> bool {
 }
 
 /// The error a gated tool produces when it is not in the active profile.
-///
-/// Chrome/browser tools explain that the *Chrome integration* is what is
-/// gated, so the message is consistent with `get_application`'s
-/// "no application provider with id 'chrome'" for the same underlying
-/// condition (Chrome not enabled) instead of looking like a generic
-/// profile-configuration problem.
 pub fn profile_gate_message(name: &str, profile: ToolProfile) -> String {
-    use ToolProfile::{Browser, Developer, Full};
-    let hint = if tool_profiles(name) == [Browser, Full] {
-        "; the Chrome integration is not enabled in this configuration (enable tool profile 'browser' or 'full' and register the chrome provider to use it)"
-    } else if tool_profiles(name) == [Developer, Full] {
+    use ToolProfile::{Developer, Full};
+    let hint = if tool_profiles(name) == [Developer, Full] {
         "; this developer workflow tool is only enabled in tool profile 'developer' or 'full'"
     } else {
         ""
@@ -164,15 +127,11 @@ pub fn profile_gate_message(name: &str, profile: ToolProfile) -> String {
     format!("tool '{name}' is not available in tool profile '{profile}'{hint}")
 }
 
-/// The action capability for managed-browser lifecycle tools, dispatched
-/// through the approval-aware permission path instead of the read check.
-pub fn tool_action_capability(name: &str) -> Option<Capability> {
-    match name {
-        "chrome_start_managed_session" => Some(Capability::BrowserLaunch),
-        "chrome_navigate_managed_session" => Some(Capability::BrowserNavigate),
-        "chrome_stop_managed_session" => Some(Capability::BrowserClose),
-        _ => None,
-    }
+/// The action capability for tools that mutate state, dispatched through
+/// the approval-aware permission path instead of the read check. WinKit is
+/// read-only, so this is empty today; kept as the single extension point.
+pub fn tool_action_capability(_name: &str) -> Option<Capability> {
+    None
 }
 
 /// The registry of all active tools.
@@ -246,29 +205,6 @@ impl ToolRegistry {
         registry.register(workflows::system_health_trend_definition());
         registry.register(workflows::privacy_info_definition());
 
-        // Managed browser sessions: lifecycle (feature + permission gated),
-        // owned-session inspection, and approval grants.
-        registry.register(browser::chrome_start_managed_session_definition());
-        registry.register(browser::chrome_list_managed_sessions_definition());
-        registry.register(browser::chrome_navigate_managed_session_definition());
-        registry.register(browser::chrome_stop_managed_session_definition());
-        registry.register(browser::chrome_get_page_summary_definition());
-        registry.register(browser::chrome_capture_screenshot_definition());
-        registry.register(browser::chrome_approve_managed_action_definition());
-
-        // Application adapters (Chrome is the first deep adapter).
-        registry.register(apps::list_applications_definition());
-        registry.register(apps::get_application_definition());
-        registry.register(apps::chrome_info_definition(config));
-        registry.register(apps::chrome_list_tabs_definition(config));
-        registry.register(apps::chrome_get_tab_definition(config));
-        registry.register(apps::chrome_get_active_tab_definition(config));
-        registry.register(diagnostics::chrome_get_tab_performance_definition(config));
-        registry.register(diagnostics::chrome_get_tab_memory_definition(config));
-        registry.register(diagnostics::chrome_get_tab_network_definition(config));
-        registry.register(diagnostics::chrome_get_tab_runtime_definition(config));
-        registry.register(diagnostics::chrome_diagnose_tab_definition(config));
-        registry.register(diagnostics::chrome_tab_trend_definition(config));
         registry.register(health::system_health_definition(config));
         registry.register(health::system_diagnose_definition(config));
 
@@ -624,27 +560,10 @@ pub fn verify_integrity(registry: &ToolRegistry) -> Result<usize, WinkitError> {
 mod tests {
     use super::*;
 
-    /// The canonical v1 tool set (source of truth for "everything is
+    /// The canonical tool set (source of truth for "everything is
     /// registered").
     const EXPECTED_TOOLS: &[&str] = &[
         "battery_status",
-        "chrome_approve_managed_action",
-        "chrome_capture_screenshot",
-        "chrome_diagnose_tab",
-        "chrome_get_active_tab",
-        "chrome_get_page_summary",
-        "chrome_get_tab",
-        "chrome_get_tab_memory",
-        "chrome_get_tab_network",
-        "chrome_get_tab_performance",
-        "chrome_get_tab_runtime",
-        "chrome_info",
-        "chrome_list_managed_sessions",
-        "chrome_list_tabs",
-        "chrome_navigate_managed_session",
-        "chrome_start_managed_session",
-        "chrome_stop_managed_session",
-        "chrome_tab_trend",
         "correlate_recent_failures",
         "crash_history",
         "dev_environment",
@@ -655,7 +574,6 @@ mod tests {
         "disk_usage",
         "find_process",
         "find_process_on_port",
-        "get_application",
         "get_application_errors",
         "get_process",
         "get_process_tree",
@@ -663,7 +581,6 @@ mod tests {
         "get_service",
         "get_system_errors",
         "hardware_snapshot",
-        "list_applications",
         "list_connections",
         "list_dev_servers",
         "list_drives",
@@ -742,14 +659,6 @@ mod tests {
             ]
         );
 
-        let mut cfg = Config::default();
-        cfg.tools.profile = "browser".to_string();
-        let browser = ToolRegistry::build(&cfg);
-        let names: Vec<String> = browser.schemas().into_iter().map(|(n, _, _)| n).collect();
-        assert!(names.contains(&"chrome_list_tabs".to_string()));
-        assert!(!names.contains(&"list_dev_servers".to_string()));
-        assert!(!names.contains(&"workspace_snapshot".to_string()));
-
         // Disabled tools are hidden from tools/list and rejected on call.
         let mut cfg = Config::default();
         cfg.tools.disabled = vec!["list_windows".to_string()];
@@ -760,13 +669,12 @@ mod tests {
     #[test]
     fn profile_exposed_tool_counts_are_exact() {
         // Pin the per-profile exposure. Core tools are only in core/developer/
-        // full (not browser), and the developer-only workflow tools are only in
-        // developer/full, so browser = developer group + browser group only.
+        // full, and the developer-only workflow tools are only in
+        // developer/full.
         for (profile, expected) in [
             ("core", 5),
-            ("developer", 46),
-            ("browser", 49),
-            ("full", 63),
+            ("developer", 44),
+            ("full", 44),
         ] {
             let mut cfg = Config::default();
             cfg.tools.profile = profile.to_string();
@@ -795,27 +703,6 @@ mod tests {
     }
 
     #[test]
-    fn action_capabilities_are_browser_lifecycle_tools_only() {
-        assert_eq!(
-            tool_action_capability("chrome_start_managed_session"),
-            Some(Capability::BrowserLaunch)
-        );
-        assert_eq!(
-            tool_action_capability("chrome_navigate_managed_session"),
-            Some(Capability::BrowserNavigate)
-        );
-        assert_eq!(
-            tool_action_capability("chrome_stop_managed_session"),
-            Some(Capability::BrowserClose)
-        );
-        assert_eq!(tool_action_capability("system_health"), None);
-        assert_eq!(
-            tool_action_capability("chrome_approve_managed_action"),
-            None
-        );
-    }
-
-    #[test]
     fn developer_profile_is_a_superset_of_core() {
         for core_tool in [
             "workspace_snapshot",
@@ -827,37 +714,6 @@ mod tests {
             assert!(tool_in_profile(core_tool, ToolProfile::Core));
             assert!(tool_in_profile(core_tool, ToolProfile::Developer));
         }
-    }
-
-    #[test]
-    fn profile_gate_message_names_the_chrome_integration_for_browser_tools() {
-        // With the default developer profile, chrome tools must explain that
-        // the Chrome integration is what is gated — consistent with
-        // get_application's "no application provider with id 'chrome'" for
-        // the same underlying condition.
-        let msg = profile_gate_message("chrome_info", ToolProfile::Developer);
-        assert!(msg.contains("not available in tool profile 'developer'"));
-        assert!(
-            msg.contains("Chrome integration is not enabled"),
-            "message should name the Chrome integration: {msg}"
-        );
-        assert!(msg.contains("'browser' or 'full'"));
-        // Developer-only workflow tools get a workflow-specific hint.
-        let dev_msg = profile_gate_message("system_health_trend", ToolProfile::Browser);
-        assert!(dev_msg.contains("developer workflow tool"));
-        // Core tools outside the profile get the plain message.
-        let core_msg = profile_gate_message("list_processes", ToolProfile::Browser);
-        assert!(!core_msg.contains("Chrome"));
-    }
-
-    #[test]
-    fn browser_profile_excludes_devserver_tools_and_vice_versa() {
-        assert!(!tool_in_profile("list_dev_servers", ToolProfile::Browser));
-        assert!(!tool_in_profile(
-            "chrome_start_managed_session",
-            ToolProfile::Developer
-        ));
-        assert!(tool_in_profile("chrome_diagnose_tab", ToolProfile::Browser));
     }
 
     #[test]

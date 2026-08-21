@@ -1,11 +1,9 @@
 //! Unified data models shared by providers, tools, and diagnostics.
 //!
 //! Everything WinKit returns to an MCP client is a serialization of one of
-//! these structures. Keeping a single model set lets the Windows layer and
-//! the application layer (e.g. Chrome) produce consistent, correlatable
-//! output.
+//! these structures. Keeping a single model set lets the Windows layer
+//! produce consistent, correlatable output.
 
-pub mod browser;
 pub mod diagnostics;
 pub mod event;
 pub mod evidence;
@@ -19,16 +17,11 @@ pub mod storage;
 pub mod system;
 pub mod window;
 
-pub use browser::{
-    ApplicationInfo, ApplicationState, BrowserInfo, BrowserProcessInfo, ConsoleMessage, MemoryInfo,
-    NetworkRequestSummary, NetworkSummary, PerformanceMetrics, RuntimeInfo, TabInfo, TargetInfo,
-    TrendInfo, TrendMemory, TrendSample,
-};
 pub use diagnostics::{
     DiagnosticCorrelation, DiagnosticReport, DiagnosticSignal, EvidencePoint, Measurement,
     PossibleCause, RankedFinding, SystemAppEvidence, SystemBatteryEvidence, SystemDiagnosis,
     SystemDiagnosticData, SystemDriveEvidence, SystemStorageHealthEvidence, SystemThermalEvidence,
-    SystemWifiEvidence, TabDiagnosticData,
+    SystemWifiEvidence,
 };
 pub use event::{EventInfo, EventLevel, EventQuery};
 pub use evidence::{

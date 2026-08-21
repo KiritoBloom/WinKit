@@ -50,16 +50,16 @@ deterministic fixtures; nothing in the test suite touches the real machine.
 ```text
 src/
   server/        MCP protocol, stdio transport, session lifecycle, tool dispatch, profiles
-  tools/         tool definitions, argument parsing, registry (72 tools)
-  providers/     WindowsBackend, ApplicationProvider traits, chrome adapter, mocks
+  tools/         tool definitions, argument parsing, registry
+  providers/     WindowsBackend trait and mocks
   platform/      real Win32 implementations (windows-sys 0.59)
   permissions/   modes, capabilities, policy, approval surface
   config/        winkit.toml loading and schema
   models/        unified data models shared everywhere
-  diagnostics/   threshold scoring + correlation rules
+  diagnostics/   threshold scoring for system diagnosis
   utils/         logging, time, wide-string, HTTP probe helpers
 tests/           protocol, fixture, and mock-tool integration tests; tests/eval is
-                 the fixture-backed evaluation suite (18 scenarios)
+                 the fixture-backed evaluation suite
 npm/             @winkit/mcp launcher, @winkit/win32-x64-msvc native package,
                  Node tests, packaging scripts
 skills/          winkit-developer-debugging/SKILL.md (agent skill)
@@ -96,19 +96,6 @@ skills/          winkit-developer-debugging/SKILL.md (agent skill)
   Node launcher/package tests, npm pack dry-runs, a secret scan, and the
   packed-package smoke test — all on Windows. Make sure the whole set
   passes locally before pushing.
-
-## Testing real Chrome behavior
-
-Unit and integration tests never need a live browser. If you change the Chrome
-adapter and want to validate against a real browser locally:
-
-1. Launch Chrome with `--remote-debugging-port=9222` and a separate
-   `--user-data-dir`.
-2. Run WinKit under an MCP client and call `chrome_info`, `chrome_list_tabs`,
-   and `chrome_diagnose_tab`.
-
-Manual browser validation is appreciated but not a CI requirement, and it is
-never a substitute for the mock tests.
 
 ## Documentation
 

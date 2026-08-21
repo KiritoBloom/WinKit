@@ -4,15 +4,6 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch:
-    inputs:
-      run_live_chrome:
-        description: >-
-          Run the opt-in live managed-Chrome tests (requires a runner with
-          Google Chrome installed; windows-latest has it preinstalled).
-        required: false
-        default: false
-        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
@@ -112,49 +103,3 @@ jobs:
       - name: Packed-package smoke test (isolated install of real tarballs)
         run: powershell -ExecutionPolicy Bypass -File npm/scripts/test-packed.ps1
 
-  # Opt-in live managed-Chrome verification. Never runs on pull requests;
-  # only on an explicit workflow_dispatch with run_live_chrome set. Windows
-  # runners have Google Chrome preinstalled, so this exercises the real
-  # binary path: location without download, owned profile, loopback-only
-  # DevTools, page summary, bounded screenshot, unexpected-exit cleanup
-  # (owned tree reaped, owned profile removed), later-session startup,
-  # graceful stop, unrelated-Chrome safety, and the standalone config
-  # harness. The headless lifecycle test runs unconditionally here; the
-  # headed lifecycle test requires an interactive desktop — on a
-  # non-interactive runner (session 0) it skips itself with an explicit
-  # environment-limitation reason and headed behavior is marked UNVERIFIED
-  # (a skip is never a pass), so the job reports the limitation instead of
-  # pretending headed mode passed. Each mode must pass at least ten
-  # consecutive isolated runs on an interactive desktop before any
-  # release-ready claim (Chrome can expose DevTools moments before an
-  # intermittent GPU-process crash takes it down; a single failed run means
-  # the mode is still unreliable).
-  live-chrome:
-    name: Live managed Chrome (opt-in)
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_live_chrome == 'true'
-    runs-on: windows-latest
-    env:
-      WINKIT_LIVE_CHROME: "1"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Run live headless managed-Chrome lifecycle test
-        run: cargo test --features live-chrome --lib live_managed_chrome_headless_start_inspect_stop -- --nocapture
-
-      - name: Run live headed managed-Chrome lifecycle test (skips without an interactive desktop)
-        run: cargo test --features live-chrome --lib live_managed_chrome_headed_start_inspect_stop -- --nocapture
-
-      - name: Run the standalone headless-config diagnostic harness
-        run: cargo test --features live-chrome --lib live_headless_mode_diagnostic_harness -- --nocapture
-
-      - name: Verify no WinKit-owned Chrome processes remain
-        shell: pwsh
-        run: |
-          $owned = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and ($_.CommandLine -match 'winkit-managed-test' -or $_.CommandLine -match 'session-wk-') }
-          if ($owned.Count -gt 0) { Write-Error "$($owned.Count) WinKit-owned Chrome process(es) remain after the live test"; exit 1 }
-          Write-Host "No WinKit-owned Chrome processes remain."

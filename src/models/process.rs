@@ -27,8 +27,7 @@ pub struct ProcessInfo {
     /// `list_processes_minimal` report `None` here by design, because a
     /// per-process percent requires an extra two-sample pass per PID. For
     /// aggregate CPU evidence use `ApplicationGroupInfo.cpu_percent`
-    /// (`system_health` / `system_diagnose`) or `ChromeProcessSummary`
-    /// (`chrome_diagnose_tab` / `chrome_tab_trend`), which carry an explicit
+    /// (`system_health` / `system_diagnose`), which carries an explicit
     /// `cpu_percent_basis`.
     pub cpu_percent: Option<f64>,
 }

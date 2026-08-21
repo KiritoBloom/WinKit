@@ -51,10 +51,10 @@ then reports measurements, not guesses.
 
 ## Highlights
 
-- **72 MCP tools**, all read-only: system, processes, network, storage,
+- **44 MCP tools**, all read-only: system, processes, network, storage,
   hardware, power, services, event logs, windows, registry, Wi-Fi, and the
-  developer workflow. Tool profiles (`core` 5, `developer` 55 [default],
-  `browser` 58, `full` 72) keep the agent's tool surface lean.
+  developer workflow. Tool profiles (`core` 5, `developer`/`full` 44) keep
+  the agent's tool surface lean.
 - **Answers questions, not just queries** — `system_diagnose`,
   `crash_history`, `shutdown_analysis`, `diagnose_workspace`, and
   `diagnose_local_webapp` are complete problem-solvers: "what crashed last
@@ -67,15 +67,13 @@ then reports measurements, not guesses.
 - **Honest completeness** — `system_diagnose` reports
   `evidence_completeness: "full" | "limited"` when something could not be
   measured. WinKit tells you what it could not see.
-- **Read-only by construction** — the default tool surface is 100% reads;
-  the optional browser integration is feature-gated, off by default, and
-  denied in `safe`/`read_only` modes.
+- **Read-only by construction** — every tool is a read; there are no write,
+  execute, or delete paths anywhere in the codebase.
 - **Local-first, zero telemetry** — stdio transport, runs as your user,
   nothing is persisted and nothing leaves the machine.
-- **Provider architecture** — everything sits behind `WindowsBackend` /
-  `ApplicationProvider` traits; a mock backend plus deterministic fixtures
-  power a 408-test suite (`cargo test --features mocks`) with no machine
-  dependency. An optional Chrome integration plugs in the same way.
+- **Provider architecture** — everything sits behind the `WindowsBackend`
+  trait; a mock backend plus deterministic fixtures power the test suite
+  (`cargo test --features mocks`) with no machine dependency.
 - **Hardened by construction** — bounded results, per-tool timeouts, payload
   caps, an 8 MiB transport frame cap, strict JSON schema validation, and
   stdout kept protocol-clean.
@@ -86,16 +84,12 @@ then reports measurements, not guesses.
 
 This is the section to read twice, because it is the product.
 
-- **Read-only by default.** Every tool is a read. The registry reader is
+- **Read-only, always.** Every tool is a read. The registry reader is
   allowlist-only (OS identity, startup programs, installed software) and
-  never touches values. The only actions in the codebase — launching and
-  closing an optional, isolated browser session for local-app diagnosis —
-  are feature-gated, off by default, never granted in `safe`/`read_only`
-  modes, and only ever touch resources WinKit itself created.
+  never touches values. There are no write, execute, or delete code paths.
 - **No telemetry.** No outbound calls, no update checks, no usage reports,
   no crash uploads. WinKit makes no network connections except a loopback
-  probe when you ask it to inspect a local web app or an optional browser
-  integration.
+  probe when you ask it to inspect a local web app.
 - **Local-first.** A stdio subprocess of your MCP client, running as your
   user, on your machine. No daemon, no server, no account.
 - **Bounded everywhere.** Result caps, timeouts, payload caps, and a
@@ -182,13 +176,7 @@ Every tool below is **read-only**. Full reference with argument schemas:
 | Hardware & power | `hardware_snapshot`, `thermal_snapshot`, `battery_status`, `power_status` |
 | Developer env | `dev_environment`, `workspace_snapshot`, `list_dev_servers`, `diagnose_workspace` |
 | Local web apps | `diagnose_local_webapp`, `wait_for_port`, `wait_for_http`, `wait_for_process` |
-| Applications | `list_applications`, `get_application` |
 | Privacy | `privacy_info` |
-
-The `browser` profile adds Chrome inspection (tabs, performance, memory,
-runtime console) and an optional isolated managed-browser workflow for
-diagnosing local web apps — feature-gated, permission-gated, and off by
-default. See [docs/chrome.md](docs/chrome.md).
 
 ### Try these prompts
 
@@ -284,7 +272,6 @@ See [docs/development.md](docs/development.md) and
 - [docs/permissions.md](docs/permissions.md) — modes, capabilities, policy table
 - [docs/architecture.md](docs/architecture.md) — layering, data flow, provider model
 - [docs/configuration.md](docs/configuration.md) — every config key and default
-- [docs/chrome.md](docs/chrome.md) — the optional Chrome integration
 - [docs/performance.md](docs/performance.md) — benchmark methodology and full table
 - [docs/mcp-integration.md](docs/mcp-integration.md) — client setup examples
 - [SECURITY.md](SECURITY.md) — security policy
