@@ -44,8 +44,8 @@ local run is a good proxy for a green tag build.
   clean (the `--features mocks` form additionally compiles the
   mocks-gated test surface).
 - [ ] **Tests** - `cargo test` (no features) and
-`cargo test --features mocks` pass: 408 tests with the feature (402
-  without), split across lib unit tests, the fixture-backed evaluation
+`cargo test --features mocks` pass with zero failures, split across lib
+  unit tests, the fixture-backed evaluation
   suite (`tests/eval`), protocol, fixture, and mock-tool integration
   tests. No test touches the real machine. The evaluation suite is
   collision-safe and passes under normal parallel Cargo execution.
@@ -66,8 +66,9 @@ local run is a good proxy for a green tag build.
   `init --client …`, `configure --dry-run`, the MCP initialize handshake,
   exit-code propagation, and missing-runtime behavior through the installed
   launcher.
-- [ ] **Docs consistency** - README states 72 tools and the current test
-  count (408 with `--features mocks`, 402 without); the tool count matches the registry
+- [ ] **Docs consistency** - README states the current tool count (51:
+  `core` 6, `developer`/`full` 51) and the current test
+  count; the tool count matches the registry
   in `src/tools/` and the test count matches the `cargo test` output. Every
   link in the README docs list points to an existing file - write any
   missing doc or drop the link before release.
@@ -76,12 +77,11 @@ local run is a good proxy for a green tag build.
   If any median moved beyond noise, update `docs/performance.md` - both the
   table and the measurement-conditions block (host, binary version, date).
   The release notes cite this table.
-- [ ] **Live smoke** - launch Chrome with remote debugging
-  (`chrome.exe --remote-debugging-port=9222 --user-data-dir=C:\winkit-chrome-profile`),
-  then drive the release binary from an MCP client: `initialize`,
-`tools/list` (72 tools in the `full` profile, 55 in the default
-`developer` profile), and one deep read such as `chrome_diagnose_tab`
-  against a real tab. Stdout must carry only protocol frames.
+- [ ] **Live smoke** - drive the release binary from an MCP client:
+  `initialize`,
+  `tools/list` (51 tools in the `developer`/`full`
+  profiles, 6 in `core`), and one deep read such as `system_diagnose`.
+  Stdout must carry only protocol frames.
 - [ ] **Live managed Chrome, both modes (required before any
   "release-ready" claim)** - on an **interactive Windows desktop with
   Google Chrome installed**, run the headed lifecycle test **at least ten

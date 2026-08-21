@@ -1,4 +1,4 @@
-# Architecture
+ï»¿# Architecture
 
 WinKit is a Rust crate with two targets: a library (`winkit`) that contains
 everything, and a binary (`winkit`) that runs the MCP server over stdio. The
@@ -9,9 +9,9 @@ unit and integration tests without launching the binary.
 
 ```text
 server (MCP over stdio, JSON-RPC 2.0, session lifecycle)
-  +-- tools        (72 tool definitions + argument handling + registry)
-  ¦     +-- providers (WindowsBackend / ApplicationProvider traits)
-  ¦     +-- platform::windows (real Win32 implementations, windows-sys 0.59)
+  +-- tools        (51 tool definitions + argument handling + registry)
+  Â¦     +-- providers (WindowsBackend / ApplicationProvider traits)
+  Â¦     +-- platform::windows (real Win32 implementations, windows-sys 0.59)
   +-- permissions  (modes, capabilities, policy, approval surface)
   +-- config       (winkit.toml, strict, deny-unknown-keys)
   +-- models       (unified data models shared by providers/tools/diagnostics)
@@ -172,11 +172,11 @@ The engine, organized as an evidence-first pipeline with three layers -
 
 ```text
                 WinKit
-                  ¦
+                  Â¦
      +------------+------------+
-     ¦            ¦            ¦
+     Â¦            Â¦            Â¦
  Observation  Correlation  Diagnosis
-     ¦            ¦            ¦
+     Â¦            Â¦            Â¦
      ?            ?            ?
  Windows/App   Evidence     Findings
    metrics      linking      ranking
@@ -232,3 +232,4 @@ the pieces that mutate (lifecycle flags) use atomics/mutexes.
 - **Honesty**: adapters report availability (`installed`, `running`,
   `endpoint available`, `connected`) instead of pretending; diagnostics label
   hypotheses as heuristics with confidence, never as verified root causes.
+
