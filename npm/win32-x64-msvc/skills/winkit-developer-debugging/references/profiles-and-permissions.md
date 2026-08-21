@@ -1,6 +1,6 @@
 # Profiles and Permissions
 
-Profiles filter which tools are advertised. They never bypass permission checks. `core` is the smallest surface; `full` is 72 tools.
+Profiles filter which tools are advertised. They never bypass permission checks. `core` is the smallest surface; `developer` and `full` are 44 tools.
 
 ## Profiles
 
@@ -8,8 +8,7 @@ Profiles filter which tools are advertised. They never bypass permission checks.
 |---|---|---|
 | `core` | `workspace_snapshot`, `system_health`, `list_processes`, `list_listening_ports`, `privacy_info` | Minimal, safe essentials only |
 | `developer` (default) | Everything in `core` plus workspace/server/webapp diagnosis, dev-server discovery, bounded waits, failure correlation, trends, and low-level read tools | General development debugging |
-| `browser` | Chrome tab discovery/inspection plus 7 managed-session tools | Browser-level debugging, no workspace/webapp tools |
-| `full` | Everything | Broad exploration, including managed browser actions |
+| `full` | Everything | Broad exploration |
 
 A profile is a *filter*, not a sandbox. Check `npx --yes @winkit/mcp@latest configure` for current profile.
 
@@ -19,14 +18,14 @@ A profile is a *filter*, not a sandbox. Check `npx --yes @winkit/mcp@latest conf
 |---|---|
 | `safe` | Windows reads only; other read capabilities denied |
 | `read_only` (default) | All read capabilities allowed; no mutations |
-| `approval` | Reads allowed; managed-browser lifecycle actions need `chrome_approve_managed_action` per request |
-| `unrestricted` | Reads and managed-browser actions allowed |
+| `approval` | Reads allowed; action capabilities would require per-request approval (none exist) |
+| `unrestricted` | Reads allowed; action capabilities would be allowed (none exist) |
 
-In v1, **no tool ever requires approval in `safe` or `read_only`** — only WinKit-owned browser session lifecycle does. In `approval` mode a lifecycle tool returns `approval_required` with `request_id`; call `chrome_approve_managed_action {request_id}` and retry. Grants are per-request, never standing.
+WinKit is read-only: **no tool ever writes, executes, or deletes anything** in any mode.
 
 ## winkit.toml example
 
-Customize with `npx --yes @winkit/mcp@latest configure` (dry run by default — ` --write` to persist, `.bak` backup first):
+Customize with `npx --yes @winkit/mcp@latest configure` (dry run by default — `--write` to persist, `.bak` backup first):
 
 ```toml
 [permissions]
@@ -34,9 +33,6 @@ mode = "read_only"
 
 [tools]
 profile = "developer"
-
-[chrome.managed]
-enabled = false
 
 [limits]
 operation_timeout_ms = 30000
@@ -48,7 +44,7 @@ operation_timeout_ms = 30000
 npx --yes @winkit/mcp@latest --version      # verify
 npx --yes @winkit/mcp@latest doctor         # pass/fail per check
 npx --yes @winkit/mcp@latest doctor --json  # machine-readable
-npx --yes @winkit/mcp@latest init --client claude-code --write  # writes config
+npx --yes @winkit/mcp@latest init --client claude-code --write  # merges into config
 ```
 
 Emitted config always uses `npx --yes @winkit/mcp@latest`:
