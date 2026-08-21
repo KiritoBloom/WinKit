@@ -1,6 +1,6 @@
 {
   "name": "@winkit/win32-x64-msvc",
-  "version": "0.1.7",
+  "version": "0.2.0",
   "description": "WinKit native binary for Windows x64 (MSVC).",
   "license": "MIT",
   "os": [

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-21
+
 ### Removed
 
 - **Chrome integration removed entirely** - WinKit is a pure Windows
