@@ -85,6 +85,40 @@ jobs:
         run: npm.cmd pack --dry-run --json
         working-directory: npm/win32-${{ matrix.arch }}-msvc
 
+      - name: Secret scan over the packaging tree
+        shell: pwsh
+        run: |
+          $patterns = @(
+            '-----BEGIN [A-Z ]*PRIVATE KEY-----',
+            'ghp_[A-Za-z0-9]{20,}',
+            'sk-[A-Za-z0-9]{20,}',
+            'glpat-[A-Za-z0-9_-]{16,}',
+            'AKIA[0-9A-Z]{16}',
+            '(password|passwd|secret|token)\s*=\s*[^\s"'']{6,}'
+          )
+          $hits = @()
+          Get-ChildItem -Recurse -File -Path npm | Where-Object { $_.Extension -ne '.exe' } | ForEach-Object {
+            $path = $_.FullName
+            Get-Content -ErrorAction SilentlyContinue $_.FullName | ForEach-Object {
+              foreach ($p in $patterns) {
+                if ($_ -match $p) {
+                  # Redact the matched span; show enough context to diagnose.
+                  $snippet = $_.Trim() -replace '(ghp_\S{6})\S+', '$1...' -replace '(sk-\S{4})\S+', '$1...'
+                  if ($snippet.Length -gt 160) { $snippet = $snippet.Substring(0, 160) + '...' }
+                  $hits += "$path :: pattern [$p] :: line: $snippet"
+                }
+              }
+            }
+          }
+          if ($hits.Count -gt 0) {
+            # Print every hit with file and pattern so the failure is
+            # diagnosable straight from the CI log. Matched spans inside the
+            # snippet are redacted above; never publish on a hit.
+            $hits | Sort-Object -Unique | ForEach-Object { Write-Host "::error::secret pattern match: $_" }
+            exit 1
+          }
+          Write-Host "Secret scan clean."
+
       - name: Packed-package smoke test (host architecture only)
         if: matrix.target == 'x86_64-pc-windows-msvc'
         run: powershell -ExecutionPolicy Bypass -File npm/scripts/test-packed.ps1

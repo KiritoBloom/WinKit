@@ -88,14 +88,21 @@ jobs:
           )
           $hits = @()
           Get-ChildItem -Recurse -File -Path npm | Where-Object { $_.Extension -ne '.exe' } | ForEach-Object {
-            $text = Get-Content -Raw -ErrorAction SilentlyContinue $_.FullName
-            if (-not $text) { return }
-            foreach ($p in $patterns) {
-              if ($text -match $p) { $hits += $_.FullName }
+            $path = $_.FullName
+            Get-Content -ErrorAction SilentlyContinue $_.FullName | ForEach-Object {
+              foreach ($p in $patterns) {
+                if ($_ -match $p) {
+                  $snippet = $_.Trim()
+                  if ($snippet.Length -gt 160) { $snippet = $snippet.Substring(0, 160) + '...' }
+                  $hits += "$path :: pattern [$p] :: line: $snippet"
+                }
+              }
             }
           }
           if ($hits.Count -gt 0) {
-            $hits | Sort-Object -Unique | ForEach-Object { Write-Error "secret pattern match in: $_" }
+            # Print every hit with file, pattern, and the matching line so the
+            # failure is diagnosable straight from the CI log.
+            $hits | Sort-Object -Unique | ForEach-Object { Write-Host "::error::secret pattern match: $_" }
             exit 1
           }
           Write-Host "Secret scan clean."
