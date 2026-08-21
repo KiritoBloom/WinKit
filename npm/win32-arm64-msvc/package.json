@@ -1,13 +1,13 @@
 {
-  "name": "@winkit/win32-x64-msvc",
+  "name": "@winkit/win32-arm64-msvc",
   "version": "0.3.0",
-  "description": "WinKit native binary for Windows x64 (MSVC).",
+  "description": "WinKit native binary for Windows ARM64 (MSVC).",
   "license": "MIT",
   "os": [
     "win32"
   ],
   "cpu": [
-    "x64"
+    "arm64"
   ],
   "bin": {
     "winkit": "bin/winkit.exe"
@@ -23,4 +23,3 @@
     "devtools"
   ]
 }
-

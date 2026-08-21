@@ -1,7 +1,7 @@
 ---
 name: winkit-developer-debugging
 description: Debug local Windows dev problems (port conflicts, HTTP 5xx, slow machines, hanging tests, crashes) via WinKit MCP. Use whenever user mentions local app broken, port in use, localhost not responding, machine slow, BSOD/crash, or asks about WinKit/workspace/dev server. Always use for Windows local diagnostics.
-compatibility: Requires Windows 10/11 x64, Node.js >=18
+compatibility: Requires Windows 10/11 (x64 or ARM64), Node.js >=18
 license: Complete terms in LICENSE.txt
 metadata:
   author: winkit

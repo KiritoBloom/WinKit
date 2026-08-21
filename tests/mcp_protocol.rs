@@ -103,12 +103,66 @@ async fn listed_names(server: &McpServer) -> Vec<String> {
 async fn initialize_negotiates_protocol_and_server_info() {
     let server = McpServer::new(mock_state());
     let out = request(&server, &initialize_frame(1)).await;
-    assert_eq!(out["result"]["protocolVersion"], PROTOCOL_VERSION);
+    // The default frame requests 2024-11-05, a supported version, so it is
+    // echoed back verbatim.
+    assert_eq!(out["result"]["protocolVersion"], "2024-11-05");
     assert_eq!(out["result"]["serverInfo"]["name"], "winkit");
     let version = out["result"]["serverInfo"]["version"].as_str().unwrap();
     assert!(!version.is_empty());
     assert_eq!(out["result"]["capabilities"]["tools"]["listChanged"], false);
     assert_eq!(out["id"], 1);
+}
+
+#[tokio::test]
+async fn initialize_echoes_each_supported_protocol_version() {
+    for requested in ["2025-06-18", "2025-03-26", "2024-11-05"] {
+        let server = McpServer::new(mock_state());
+        let frame = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": requested,
+                "capabilities": {},
+                "clientInfo": { "name": "winkit-test", "version": "0.0.0" },
+            },
+        })
+        .to_string();
+        let out = request(&server, &frame).await;
+        assert_eq!(
+            out["result"]["protocolVersion"], requested,
+            "a supported version must be echoed back"
+        );
+    }
+}
+
+#[tokio::test]
+async fn initialize_falls_back_to_latest_for_unknown_or_missing_version() {
+    for params in [
+        json!({
+            "protocolVersion": "1999-01-01",
+            "capabilities": {},
+            "clientInfo": { "name": "winkit-test", "version": "0.0.0" },
+        }),
+        json!({
+            "capabilities": {},
+            "clientInfo": { "name": "winkit-test", "version": "0.0.0" },
+        }),
+    ] {
+        let server = McpServer::new(mock_state());
+        let frame = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": params,
+        })
+        .to_string();
+        let out = request(&server, &frame).await;
+        assert_eq!(
+            out["result"]["protocolVersion"], PROTOCOL_VERSION,
+            "unknown/missing versions get the server's latest"
+        );
+    }
 }
 
 #[tokio::test]

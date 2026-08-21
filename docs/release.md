@@ -1,6 +1,6 @@
-﻿# Release
+# Release
 
-A WinKit release is a tagged build of the `winkit` crate plus the two npm
+A WinKit release is a tagged build of the `winkit` crate plus the three npm
 packages that ship the binary to end users:
 
 - `@winkit/mcp` - the launcher (`bin/winkit.js`): a thin, shell-free Node
@@ -18,7 +18,7 @@ runtime dependencies (the native package is an optional dependency of the
 launcher), and no browser-automation dependencies.
 
 A release therefore consists of: the SemVer tag and GitHub release with the
-binary and the documentation, **plus** publishing the two npm packages to the
+binary and the documentation, **plus** publishing the three npm packages to the
 npm registry. Publication is a separate, explicit, credentialed step - it is
 never done by pull-request CI and never happens automatically. This page
 describes the whole process; the crate is also a library (`src/lib.rs`), so
@@ -163,24 +163,45 @@ carries the name.
 ## Publishing the npm packages
 
 Publishing is a **separate, explicit, credentialed step** - pull-request CI
-never publishes, and nothing is published automatically. The package version
-must match the crate version (`0.1.4` today). Requirements:
+never publishes. Two paths exist:
+
+### Automated build, manual publish (recommended)
+
+Pushing a `v*` tag triggers `.github/workflows/release.yml`. It builds both
+architectures (`x86_64-pc-windows-msvc` and `aarch64-pc-windows-msvc`),
+stages each binary into its npm package, validates launchers and packed
+contents, and uploads artifacts. **A tag push never publishes.**
+
+Publishing is a separate, deliberate action: run the same workflow by hand
+from the GitHub Actions tab ("Run workflow") with `publish` checked. That
+publish job only exists for hand-triggered runs, targets the protected
+`npm` environment, and authenticates with the `NPM_TOKEN` secret. For a
+second approval step, configure the `npm` environment with required
+reviewers in the repository settings; without that setting the single
+manual trigger is still the only way anything reaches the registry.
+
+### Manual fallback
+
+The package version
+must match the crate version (`0.3.0` today). Requirements:
 
 1. Both packages have been staged and validated locally (the checklist above
    covers pack dry-runs, package-content validation, and the packed-package
    smoke test).
-2. The version bump for this release is committed in both
-   `npm/mcp/package.json` and `npm/win32-x64-msvc/package.json` (plus the
-   `optionalDependencies` entry in the launcher), matching `Cargo.toml`.
-3. The release binary is staged (`npm/scripts/copy-native.ps1` after
-   `cargo build --release`) so `@winkit/win32-x64-msvc` actually ships
-   `bin/winkit.exe`.
+2. The version bump for this release is committed in
+   `npm/mcp/package.json`, `npm/win32-x64-msvc/package.json`, and
+   `npm/win32-arm64-msvc/package.json` (plus the `optionalDependencies`
+   entries in the launcher), matching `Cargo.toml`.
+3. The release binaries are staged (`npm/scripts/copy-native.ps1` for x64,
+   `-Arch arm64 -Target aarch64-pc-windows-msvc` for ARM64) so each native
+   package actually ships `bin/winkit.exe`.
 
-Then publish from the repository root, native package first (the launcher
-resolves it as an optional dependency):
+Then publish from the repository root, native packages first (the launcher
+resolves them as optional dependencies):
 
 ```powershell
 npm publish npm/win32-x64-msvc --access public
+npm publish npm/win32-arm64-msvc --access public
 npm publish npm/mcp --access public
 ```
 
@@ -190,7 +211,7 @@ final `npm pack --dry-run` and the packed-package smoke test right before
 publishing. After publishing, verify from a clean directory:
 
 ```bash
-npx --yes @winkit/mcp@0.1.4 doctor
+npx --yes @winkit/mcp@0.3.0 doctor
 ```
 
 ## GitHub release notes
@@ -271,7 +292,7 @@ observation: `chrome_diagnose_tab` about 3.5 s and `chrome_tab_trend` about
 
 ### Installation
 
-The recommended path is npm (Windows 10/11 x64, Node.js >= 18):
+The recommended path is npm (Windows 10/11 x64 or ARM64, Node.js >= 18):
 
 ```bash
 npx --yes @winkit/mcp@latest doctor

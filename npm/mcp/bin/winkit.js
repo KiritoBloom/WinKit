@@ -9,21 +9,46 @@
 
 const { spawn } = require('node:child_process');
 
-const NATIVE_PACKAGE = '@winkit/win32-x64-msvc/bin/winkit.exe';
+const NATIVE_PACKAGES = {
+  x64: '@winkit/win32-x64-msvc/bin/winkit.exe',
+  arm64: '@winkit/win32-arm64-msvc/bin/winkit.exe',
+};
 
-const WINDOWS_X64_MESSAGE =
-  'WinKit currently ships only for Windows x64. Install the native package ' +
-  '(@winkit/win32-x64-msvc) or build from source.';
+// Kept for backward compatibility with existing consumers of the module.
+const NATIVE_PACKAGE = NATIVE_PACKAGES.x64;
+
+const WINDOWS_NATIVE_MESSAGE =
+  'WinKit ships native binaries for Windows x64 and Windows ARM64. Install ' +
+  'the matching native package (@winkit/win32-x64-msvc or ' +
+  '@winkit/win32-arm64-msvc) or build from source.';
+
+function nativePackageForArch(arch) {
+  return NATIVE_PACKAGES[arch] || null;
+}
+
+function unsupportedPlatformMessage(arch) {
+  if (arch === 'x64' || arch === 'arm64') {
+    return WINDOWS_NATIVE_MESSAGE;
+  }
+  return (
+    `WinKit does not ship a native binary for Windows ${arch}. ` +
+    WINDOWS_NATIVE_MESSAGE
+  );
+}
 
 // WINKIT_NATIVE_PATH overrides the packaged binary so tests can exercise
 // the launcher without a real installation. Never set in production.
-function resolveNativeBinary() {
+function resolveNativeBinary(arch) {
   const override = process.env.WINKIT_NATIVE_PATH;
   if (override) {
     return override;
   }
+  const pkg = nativePackageForArch(arch || process.arch);
+  if (!pkg) {
+    return null;
+  }
   try {
-    return require.resolve(NATIVE_PACKAGE);
+    return require.resolve(pkg);
   } catch (err) {
     return null;
   }
@@ -33,10 +58,11 @@ function isSupportedPlatform(platform) {
   return platform === 'win32';
 }
 
-function launch(binPath, args, platformOverride) {
+function launch(binPath, args, platformOverride, archOverride) {
   const platform = platformOverride || process.platform;
+  const arch = archOverride || process.arch;
   if (!isSupportedPlatform(platform)) {
-    console.error(WINDOWS_X64_MESSAGE);
+    console.error(WINDOWS_NATIVE_MESSAGE);
     process.exit(1);
   }
 
@@ -50,7 +76,7 @@ function launch(binPath, args, platformOverride) {
 
   child.on('error', (err) => {
     console.error(`Failed to launch WinKit native binary at ${binPath}: ${err.message}`);
-    console.error(WINDOWS_X64_MESSAGE);
+    console.error(unsupportedPlatformMessage(arch));
     process.exit(1);
   });
 
@@ -76,12 +102,12 @@ function launch(binPath, args, platformOverride) {
 
 function main() {
   if (!isSupportedPlatform(process.platform)) {
-    console.error(WINDOWS_X64_MESSAGE);
+    console.error(WINDOWS_NATIVE_MESSAGE);
     process.exit(1);
   }
   const binPath = resolveNativeBinary();
   if (!binPath) {
-    console.error(WINDOWS_X64_MESSAGE);
+    console.error(unsupportedPlatformMessage(process.arch));
     process.exit(1);
   }
   launch(binPath, process.argv.slice(2));
@@ -92,8 +118,11 @@ if (require.main === module) {
 }
 
 module.exports = {
-  WINDOWS_X64_MESSAGE,
+  WINDOWS_NATIVE_MESSAGE,
   NATIVE_PACKAGE,
+  NATIVE_PACKAGES,
+  nativePackageForArch,
+  unsupportedPlatformMessage,
   resolveNativeBinary,
   isSupportedPlatform,
   launch,

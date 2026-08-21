@@ -1,4 +1,4 @@
-﻿# Profiles and Permissions
+# Profiles and Permissions
 
 Profiles filter which tools are advertised. They never bypass permission checks. `core` is the smallest surface; `developer` and `full` are 51 tools.
 
@@ -25,7 +25,7 @@ WinKit is read-only: **no tool ever writes, executes, or deletes anything** in a
 
 ## winkit.toml example
 
-Customize with `npx --yes @winkit/mcp@latest configure` (dry run by default â€” `--write` to persist, `.bak` backup first):
+Customize with `npx --yes @winkit/mcp@latest configure` (dry run by default " `--write` to persist, `.bak` backup first):
 
 ```toml
 [permissions]

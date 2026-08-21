@@ -80,7 +80,10 @@ pub fn path_audit() -> PathAudit {
     for (idx, raw) in entries.iter().enumerate() {
         let expanded = expand_env_vars(raw.trim());
         let is_empty = raw.trim().is_empty();
-        let exists = !is_empty && std::fs::metadata(&expanded).map(|m| m.is_dir()).unwrap_or(false);
+        let exists = !is_empty
+            && std::fs::metadata(&expanded)
+                .map(|m| m.is_dir())
+                .unwrap_or(false);
         let key = raw.trim().to_lowercase();
         let scopes = seen_scope.get(&key).cloned().unwrap_or_default();
 
@@ -104,7 +107,11 @@ pub fn path_audit() -> PathAudit {
         out.issues.push(format!(
             "{} duplicate entr{} across scopes (first shadows later ones)",
             out.duplicate_indexes.len(),
-            if out.duplicate_indexes.len() == 1 { "y" } else { "ies" }
+            if out.duplicate_indexes.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            }
         ));
     }
     if !out.empty_indexes.is_empty() {
@@ -117,14 +124,20 @@ pub fn path_audit() -> PathAudit {
         out.issues.push(format!(
             "{} entr{} point to directories that do not exist",
             out.missing_indexes.len(),
-            if out.missing_indexes.len() == 1 { "y" } else { "ies" }
+            if out.missing_indexes.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            }
         ));
     }
     if !out.machine_path_available {
-        out.issues.push("machine-scope Path could not be read".to_string());
+        out.issues
+            .push("machine-scope Path could not be read".to_string());
     }
     if !out.user_path_available {
-        out.issues.push("user-scope Path could not be read".to_string());
+        out.issues
+            .push("user-scope Path could not be read".to_string());
     }
     out
 }

@@ -703,11 +703,7 @@ mod tests {
         // Pin the per-profile exposure. Core tools are only in core/developer/
         // full, and the developer-only workflow tools are only in
         // developer/full.
-        for (profile, expected) in [
-            ("core", 6),
-            ("developer", 51),
-            ("full", 51),
-        ] {
+        for (profile, expected) in [("core", 6), ("developer", 51), ("full", 51)] {
             let mut cfg = Config::default();
             cfg.tools.profile = profile.to_string();
             let reg = ToolRegistry::build(&cfg);

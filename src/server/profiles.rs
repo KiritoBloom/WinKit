@@ -62,11 +62,7 @@ mod tests {
 
     #[test]
     fn profile_names_round_trip() {
-        for p in [
-            ToolProfile::Core,
-            ToolProfile::Developer,
-            ToolProfile::Full,
-        ] {
+        for p in [ToolProfile::Core, ToolProfile::Developer, ToolProfile::Full] {
             assert_eq!(p.to_string().parse::<ToolProfile>().unwrap(), p);
             assert_eq!(p.as_str(), p.to_string());
         }

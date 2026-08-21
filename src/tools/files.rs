@@ -12,7 +12,10 @@
 use crate::errors::WinkitError;
 use crate::permissions::Capability;
 use crate::server::AppState;
-use crate::tools::{optional_non_empty_string, optional_u32, optional_usize, required_string, validated_path, wrap, ToolDefinition};
+use crate::tools::{
+    optional_non_empty_string, optional_u32, optional_usize, required_string, validated_path, wrap,
+    ToolDefinition,
+};
 use crate::utils::filesys::{
     self, DEFAULT_FIND_DEPTH, DEFAULT_READ_BYTES, MAX_DIR_WALK_ENTRIES, MAX_FIND_DEPTH,
     MAX_FIND_RESULTS, MAX_READ_BYTES,
@@ -75,7 +78,10 @@ fn canonicalize_file(
 // read_text_file
 // ---------------------------------------------------------------------------
 
-pub async fn read_text_file_handler(_state: Arc<AppState>, args: Value) -> Result<Value, WinkitError> {
+pub async fn read_text_file_handler(
+    _state: Arc<AppState>,
+    args: Value,
+) -> Result<Value, WinkitError> {
     let raw = required_string(&args, "path")?;
     // Length bound before touching the filesystem (same cap as workspace paths).
     if raw.len() > 4096 {
@@ -100,9 +106,10 @@ pub async fn read_text_file_handler(_state: Arc<AppState>, args: Value) -> Resul
         &_state.config.workspaces.allow_roots,
         &_state.config.workspaces.deny_roots,
     )?;
-    let out = tokio::task::spawn_blocking(move || filesys::read_text_slice(&canonical, mode, max_bytes))
-        .await
-        .map_err(|e| WinkitError::internal(format!("read task failed: {e}")))??;
+    let out =
+        tokio::task::spawn_blocking(move || filesys::read_text_slice(&canonical, mode, max_bytes))
+            .await
+            .map_err(|e| WinkitError::internal(format!("read task failed: {e}")))??;
     Ok(json!({
         "path": raw.trim(),
         "mode": out.mode,
@@ -205,9 +212,14 @@ pub fn find_files_definition() -> ToolDefinition {
 // directory_overview
 // ---------------------------------------------------------------------------
 
-pub async fn directory_overview_handler(state: Arc<AppState>, args: Value) -> Result<Value, WinkitError> {
+pub async fn directory_overview_handler(
+    state: Arc<AppState>,
+    args: Value,
+) -> Result<Value, WinkitError> {
     let raw = required_string(&args, "path")?;
-    let max_children = optional_usize(&args, "max_children").unwrap_or(50).clamp(1, 500);
+    let max_children = optional_usize(&args, "max_children")
+        .unwrap_or(50)
+        .clamp(1, 500);
     let canonical = workspace::canonicalize_workspace(
         &raw,
         &state.config.workspaces.allow_roots,
@@ -304,10 +316,8 @@ mod tests {
 
     /// Unique temp dir for this test binary run.
     fn temp_root(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "winkit-file-tools-{tag}-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("winkit-file-tools-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -323,21 +333,36 @@ mod tests {
         drop(f);
         let p = path.to_string_lossy().into_owned();
 
-        let out = read_text_file_handler(state(), json!({ "path": p, "max_bytes": 512 })).await.unwrap();
+        let out = read_text_file_handler(state(), json!({ "path": p, "max_bytes": 512 }))
+            .await
+            .unwrap();
         assert_eq!(out["mode"], "head");
         assert_eq!(out["truncated"], true);
-        assert!(out["content"].as_str().unwrap().starts_with("2026-08-21 log line 0000"));
+        assert!(out["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("2026-08-21 log line 0000"));
 
-        let out = read_text_file_handler(state(), json!({ "path": p, "mode": "tail", "max_bytes": 512 })).await.unwrap();
+        let out = read_text_file_handler(
+            state(),
+            json!({ "path": p, "mode": "tail", "max_bytes": 512 }),
+        )
+        .await
+        .unwrap();
         assert_eq!(out["mode"], "tail");
         let content = out["content"].as_str().unwrap();
         assert!(content.trim_end().ends_with("0499 some detail"));
 
-        let out = read_text_file_handler(state(), json!({ "path": p, "mode": "all" })).await.unwrap();
+        let out = read_text_file_handler(state(), json!({ "path": p, "mode": "all" }))
+            .await
+            .unwrap();
         assert_eq!(out["truncated"], false);
 
         let err = read_text_file_handler(state(), json!({ "path": p, "mode": "middle" })).await;
-        assert_eq!(err.unwrap_err().kind, crate::errors::ErrorKind::InvalidArgument);
+        assert_eq!(
+            err.unwrap_err().kind,
+            crate::errors::ErrorKind::InvalidArgument
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -348,12 +373,17 @@ mod tests {
         let path = dir.join("blob.bin");
         std::fs::write(&path, [0x4D, 0x5A, 0x00, 0x90, 0x00, 0x01]).unwrap();
         let p = path.to_string_lossy().into_owned();
-        let err = read_text_file_handler(state(), json!({ "path": p })).await.unwrap_err();
-        assert!(err.message.contains("binary"));
-
-        let err = read_text_file_handler(state(), json!({ "path": dir.join("nope.txt").to_string_lossy().to_string() }))
+        let err = read_text_file_handler(state(), json!({ "path": p }))
             .await
             .unwrap_err();
+        assert!(err.message.contains("binary"));
+
+        let err = read_text_file_handler(
+            state(),
+            json!({ "path": dir.join("nope.txt").to_string_lossy().to_string() }),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err.kind, crate::errors::ErrorKind::NotFound);
 
         let err = read_text_file_handler(state(), json!({ "path": "relative\\file.txt" }))
@@ -374,19 +404,28 @@ mod tests {
         std::fs::write(nested.join("gamma.log"), b"3").unwrap();
 
         let root = dir.to_string_lossy().into_owned();
-        let out = find_files_handler(state(), json!({ "root": root, "pattern": "*.log" })).await.unwrap();
+        let out = find_files_handler(state(), json!({ "root": root, "pattern": "*.log" }))
+            .await
+            .unwrap();
         assert_eq!(out["count"], 2);
         assert_eq!(out["truncated"], false);
-        assert!(out["files"].as_array().unwrap().iter().all(|f| f["path"]
-            .as_str()
+        assert!(out["files"]
+            .as_array()
             .unwrap()
-            .ends_with(".log")));
+            .iter()
+            .all(|f| f["path"].as_str().unwrap().ends_with(".log")));
 
         let err = find_files_handler(state(), json!({ "root": root, "pattern": "a/b" })).await;
-        assert_eq!(err.unwrap_err().kind, crate::errors::ErrorKind::InvalidArgument);
+        assert_eq!(
+            err.unwrap_err().kind,
+            crate::errors::ErrorKind::InvalidArgument
+        );
 
         let err = find_files_handler(state(), json!({ "root": "C:\\", "pattern": "*" })).await;
-        assert_eq!(err.unwrap_err().kind, crate::errors::ErrorKind::PathRejected);
+        assert_eq!(
+            err.unwrap_err().kind,
+            crate::errors::ErrorKind::PathRejected
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -403,10 +442,15 @@ mod tests {
         std::fs::write(dir.join("loose.bin"), vec![9u8; 100]).unwrap();
 
         let root = dir.to_string_lossy().into_owned();
-        let out = directory_overview_handler(state(), json!({ "path": root })).await.unwrap();
+        let out = directory_overview_handler(state(), json!({ "path": root }))
+            .await
+            .unwrap();
         let children = out["children"].as_array().unwrap();
         assert_eq!(children.len(), 3);
-        assert_eq!(children[0]["path"].as_str().unwrap().replace('/', "\\"), big.to_string_lossy());
+        assert_eq!(
+            children[0]["path"].as_str().unwrap().replace('/', "\\"),
+            big.to_string_lossy()
+        );
         assert_eq!(children[0]["size_bytes"], 5000);
         // 5000 (big/data.bin) + 2 (tiny/note.txt) + 100 (loose.bin).
         let expected: u64 = 5102;

@@ -1,0 +1,139 @@
+name: Release
+
+# Two independent flows:
+#
+#   1. Build (automatic): any v* tag push or manual dispatch builds both
+#      architectures, validates everything, and uploads artifacts.
+#      It NEVER publishes.
+#
+#   2. Publish (manual only): run this workflow by hand from the Actions tab
+#      with publish=true. Requires the `npm` GitHub environment, which should
+#      have required reviewers configured in repo settings for a second
+#      approval step. Tag pushes can never reach this job.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to npm after building (requires the npm environment)'
+        required: true
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x64
+          - target: aarch64-pc-windows-msvc
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Test (mock providers, host target)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        run: cargo test --features mocks
+
+      - name: Release build (${{ matrix.target }})
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Stage the native binary into its npm package
+        run: >
+          powershell -ExecutionPolicy Bypass -File npm/scripts/copy-native.ps1
+          -Arch ${{ matrix.arch }} -Target ${{ matrix.target }}
+
+      - name: Node launcher and package validation
+        run: node --test npm/test/launcher.test.js npm/test/package.test.js
+
+      - name: npm pack dry-run (launcher package)
+        run: npm.cmd pack --dry-run --json
+        working-directory: npm/mcp
+
+      - name: npm pack dry-run (native package)
+        run: npm.cmd pack --dry-run --json
+        working-directory: npm/win32-${{ matrix.arch }}-msvc
+
+      - name: Packed-package smoke test (host architecture only)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        run: powershell -ExecutionPolicy Bypass -File npm/scripts/test-packed.ps1
+
+      - name: Upload native package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-win32-${{ matrix.arch }}-msvc
+          path: |
+            npm/mcp/bin/**
+            npm/win32-${{ matrix.arch }}-msvc/**
+
+  publish:
+    name: Publish npm packages (manual)
+    needs: build
+    runs-on: windows-latest
+    # Reachable ONLY via a hand-triggered workflow_dispatch with publish=true.
+    # A tag push evaluates this condition as false because github.event_name
+    # is 'push', so automated releases stop at the artifacts above.
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+
+      - name: Download staged packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: npm-win32-*-msvc
+          merge-multiple: true
+          path: .
+
+      - name: Publish native packages, then the launcher
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Native packages first so the launcher's optionalDependencies are
+          # resolvable the moment @winkit/mcp hits the registry.
+          foreach ($pkg in @('npm\win32-x64-msvc', 'npm\win32-arm64-msvc')) {
+            Push-Location $pkg
+            npm.cmd publish --access public
+            Pop-Location
+          }
+          Push-Location npm\mcp
+          npm.cmd publish --access public
+          Pop-Location

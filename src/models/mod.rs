@@ -47,8 +47,8 @@ pub use registry::{
 pub use service::ServiceInfo;
 pub use storage::{DiskUsage, DriveInfo};
 pub use system::{
-    is_development_port, CpuSnapshot, DevEnvironment, DevServerInfo, DevTool,
-    DiskSnapshotEntry, Hotfix, PathAudit, PathEntry, ResourceSnapshot, SystemInfo,
-    UpdateStatus, KNOWN_DEV_SERVER_NAMES, KNOWN_DEV_TOOLS,
+    is_development_port, CpuSnapshot, DevEnvironment, DevServerInfo, DevTool, DiskSnapshotEntry,
+    Hotfix, PathAudit, PathEntry, ResourceSnapshot, SystemInfo, UpdateStatus,
+    KNOWN_DEV_SERVER_NAMES, KNOWN_DEV_TOOLS,
 };
 pub use window::WindowInfo;

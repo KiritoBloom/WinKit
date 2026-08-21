@@ -5,21 +5,50 @@ client as a subprocess, and all protocol traffic flows as newline-delimited
 JSON-RPC 2.0 frames over stdin/stdout. Diagnostics go to stderr so stdout
 stays protocol-clean.
 
-- Protocol version: `2024-11-05`
+- Protocol versions: `2025-06-18` (latest), `2025-03-26`, `2024-11-05`
 - Transport: stdio, one JSON-RPC frame per line
 - Max frame size: 8 MiB (larger frames are rejected)
 - Methods: `initialize`, `notifications/initialized`, `ping`, `tools/list`,
   `tools/call`, `shutdown`, `exit`
 
+## Protocol version negotiation
+
+WinKit follows the MCP spec's version-negotiation rule during `initialize`:
+
+1. The client sends its requested `protocolVersion`.
+2. If WinKit supports it (one of the three versions above), the reply echoes
+   that exact version.
+3. Otherwise (unknown version, or no version sent) the reply carries
+   WinKit's latest, `2025-06-18`. The client then decides whether to proceed
+   or disconnect.
+
+The tools surface, argument schemas, and error codes are identical under all
+supported versions; negotiation only pins the envelope semantics. The
+negotiated version is logged to stderr at startup.
+
+```text
+client -> {"jsonrpc":"2.0","id":1,"method":"initialize",
+           "params":{"protocolVersion":"2025-03-26", ...}}
+server -> {"jsonrpc":"2.0","id":1,"result":
+           {"protocolVersion":"2025-03-26", ...}}     # echoed
+
+client -> {"jsonrpc":"2.0","id":1,"method":"initialize",
+           "params":{"protocolVersion":"1999-01-01", ...}}
+server -> {"jsonrpc":"2.0","id":1,"result":
+           {"protocolVersion":"2025-06-18", ...}}     # latest, client decides
+```
+
 ## Install
 
 ### Via npm (recommended)
 
-WinKit ships as two npm packages - `@winkit/mcp` (launcher) and
-`@winkit/win32-x64-msvc` (Windows x64 native runtime, pulled in as an
-optional dependency). The launcher spawns the native binary directly (no
-shell, no install scripts) and inherits stdio, so the MCP protocol flows
-straight through. Requirements: Windows 10/11 x64 and Node.js >= 18.
+WinKit ships as three npm packages: `@winkit/mcp` (launcher) plus one
+architecture-specific native runtime pulled in as an optional dependency,
+`@winkit/win32-x64-msvc` (Windows x64) or `@winkit/win32-arm64-msvc`
+(Windows ARM64). The launcher resolves the right binary by `process.arch`
+and spawns it directly (no shell, no install scripts) and inherits stdio, so
+the MCP protocol flows straight through. Requirements: Windows 10/11 (x64
+or ARM64) and Node.js >= 18.
 
 ```bash
 npx --yes @winkit/mcp@latest doctor   # verify the install

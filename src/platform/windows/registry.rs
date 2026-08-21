@@ -423,12 +423,15 @@ const CBS_REBOOT_PENDING: &str =
 const WU_REBOOT_REQUIRED: &str =
     "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired";
 const SESSION_MANAGER: &str = "SYSTEM\\CurrentControlSet\\Control\\Session Manager";
-const MACHINE_ENVIRONMENT_KEY: &str = "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
+const MACHINE_ENVIRONMENT_KEY: &str =
+    "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment";
 const USER_ENVIRONMENT_KEY: &str = "Environment";
 
 /// True when the fixed allowlisted key can be opened (existence probe).
 pub fn allowlisted_key_exists(root: HKEY, path: &str) -> bool {
-    open_key(root, path).map(|k| unsafe { RegCloseKey(k) }).is_ok()
+    open_key(root, path)
+        .map(|k| unsafe { RegCloseKey(k) })
+        .is_ok()
 }
 
 /// Read one allowlisted string-ish value (`REG_SZ` / `REG_EXPAND_SZ`),
@@ -457,7 +460,11 @@ pub fn pending_reboot_signals() -> Vec<String> {
     if allowlisted_key_exists(HKEY_LOCAL_MACHINE, WU_REBOOT_REQUIRED) {
         signals.push("windows_update_reboot_required".to_string());
     }
-    if allowlisted_value_present(HKEY_LOCAL_MACHINE, SESSION_MANAGER, "PendingFileRenameOperations") {
+    if allowlisted_value_present(
+        HKEY_LOCAL_MACHINE,
+        SESSION_MANAGER,
+        "PendingFileRenameOperations",
+    ) {
         signals.push("pending_file_rename_operations".to_string());
     }
     signals

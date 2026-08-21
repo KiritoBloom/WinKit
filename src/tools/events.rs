@@ -75,11 +75,20 @@ async fn run_event_query(
     let mut events = state.windows.get_recent_events(&query)?;
     let skip_nulls = optional_bool(&args, "skip_null_messages")
         .unwrap_or(skip_null_default && query.provider.is_none() && query.event_id.is_none());
-    let cap = message_cap_used(optional_usize(&args, "max_message_chars"), DEFAULT_MESSAGE_CHARS, MAX_MESSAGE_CHARS);
+    let cap = message_cap_used(
+        optional_usize(&args, "max_message_chars"),
+        DEFAULT_MESSAGE_CHARS,
+        MAX_MESSAGE_CHARS,
+    );
     if skip_nulls {
         let dropped = events.iter().filter(|e| e.message.is_none()).count();
         events.retain(|e| e.message.is_some());
-        let count = bounded_events(&mut events, optional_usize(&args, "max_message_chars"), DEFAULT_MESSAGE_CHARS, MAX_MESSAGE_CHARS);
+        let count = bounded_events(
+            &mut events,
+            optional_usize(&args, "max_message_chars"),
+            DEFAULT_MESSAGE_CHARS,
+            MAX_MESSAGE_CHARS,
+        );
         return Ok(json!({
             "log": query.log,
             "events": events,
@@ -89,7 +98,12 @@ async fn run_event_query(
             "message_char_cap": cap,
         }));
     }
-    let count = bounded_events(&mut events, optional_usize(&args, "max_message_chars"), DEFAULT_MESSAGE_CHARS, MAX_MESSAGE_CHARS);
+    let count = bounded_events(
+        &mut events,
+        optional_usize(&args, "max_message_chars"),
+        DEFAULT_MESSAGE_CHARS,
+        MAX_MESSAGE_CHARS,
+    );
     Ok(json!({
         "log": query.log,
         "events": events,
@@ -115,7 +129,10 @@ fn bounded_events(
     for e in events.iter_mut() {
         let over = e.message.as_deref().map(|m| m.chars().count()).unwrap_or(0) > cap;
         if over {
-            e.message = Some(crate::utils::truncate(e.message.as_deref().unwrap_or(""), cap));
+            e.message = Some(crate::utils::truncate(
+                e.message.as_deref().unwrap_or(""),
+                cap,
+            ));
             e.message_truncated = Some(true);
         }
     }

@@ -224,7 +224,10 @@ mod tests {
             .iter()
             .map(|p| p["working_set_bytes"].as_u64().unwrap_or(0))
             .collect();
-        assert!(mem.windows(2).all(|w| w[0] >= w[1]), "must be memory-descending");
+        assert!(
+            mem.windows(2).all(|w| w[0] >= w[1]),
+            "must be memory-descending"
+        );
 
         let out = list_processes_handler(state(), json!({ "sort_by": "name", "top": 3 }))
             .await

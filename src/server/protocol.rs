@@ -13,8 +13,24 @@ use crate::server::AppState;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// The MCP protocol version WinKit speaks.
-pub const PROTOCOL_VERSION: &str = "2024-11-05";
+/// The newest MCP protocol version WinKit speaks. Returned when a client
+/// requests a version WinKit does not know (or sends none), per the spec's
+/// version-negotiation rule.
+pub const PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// Every protocol version WinKit can speak, newest first. If the client's
+/// requested `protocolVersion` appears here it is echoed back verbatim;
+/// otherwise the server replies with [`PROTOCOL_VERSION`] and the client
+/// decides whether to continue or disconnect.
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
+
+/// Resolve the negotiated protocol version for an `initialize` request.
+fn negotiate_protocol_version(requested: Option<&str>) -> &'static str {
+    requested
+        .and_then(|v| SUPPORTED_PROTOCOL_VERSIONS.iter().find(|s| **s == v))
+        .copied()
+        .unwrap_or(PROTOCOL_VERSION)
+}
 
 /// One MCP session.
 pub struct McpServer {
@@ -135,8 +151,10 @@ impl McpServer {
     fn initialize(&self, params: &Value) -> Value {
         self.lifecycle.mark_initialized(params);
         let client = params.get("clientInfo");
+        let requested = params.get("protocolVersion").and_then(|v| v.as_str());
+        let negotiated = negotiate_protocol_version(requested);
         log_debug!(
-            "initialize from '{}' (version {})",
+            "initialize from '{}' (version {}, protocol {})",
             client
                 .and_then(|c| c.get("name"))
                 .and_then(|v| v.as_str())
@@ -144,10 +162,11 @@ impl McpServer {
             client
                 .and_then(|c| c.get("version"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
+                .unwrap_or("unknown"),
+            negotiated
         );
         json!({
-            "protocolVersion": PROTOCOL_VERSION,
+            "protocolVersion": negotiated,
             "capabilities": { "tools": { "listChanged": false } },
             "serverInfo": { "name": "winkit", "version": env!("CARGO_PKG_VERSION") },
         })

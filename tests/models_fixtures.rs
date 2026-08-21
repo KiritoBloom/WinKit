@@ -50,4 +50,3 @@ fn events_fixture_deserializes_with_levels() {
     assert_eq!(events[2].level, EventLevel::Warning);
     assert_eq!(events[0].channel.as_deref(), Some("Application"));
 }
-

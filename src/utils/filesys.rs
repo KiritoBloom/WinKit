@@ -156,9 +156,10 @@ fn to_file_entry(path: &Path, meta: &std::fs::Metadata) -> FileEntry {
     FileEntry {
         path: display_path(path),
         size_bytes: meta.len(),
-        modified_at: meta.modified().ok().and_then(|t: SystemTime| {
-            crate::utils::time::format_rfc3339_opt(t)
-        }),
+        modified_at: meta
+            .modified()
+            .ok()
+            .and_then(|t: SystemTime| crate::utils::time::format_rfc3339_opt(t)),
     }
 }
 
@@ -168,7 +169,12 @@ fn to_file_entry(path: &Path, meta: &std::fs::Metadata) -> FileEntry {
 ///
 /// When `pattern` is `Some`, only file names matching it are collected
 /// (directories still recurse regardless of the match).
-pub fn walk_files(root: &Path, max_depth: u32, max_files: usize, pattern: Option<&str>) -> WalkOutcome {
+pub fn walk_files(
+    root: &Path,
+    max_depth: u32,
+    max_files: usize,
+    pattern: Option<&str>,
+) -> WalkOutcome {
     let mut out = WalkOutcome::default();
     // Small deferred queue keeps ordering breadth-first-ish per directory
     // while bounding memory to the directory width.
@@ -220,7 +226,10 @@ fn walk_dir(
             return false;
         }
         if let Some(p) = pattern {
-            let name = path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = path
+                .file_name()
+                .map(|f| f.to_string_lossy().into_owned())
+                .unwrap_or_default();
             if !wildcard_match(&name, p) {
                 continue;
             }
@@ -280,7 +289,9 @@ fn measure_tree(dir: &Path, budget: usize, used: &mut usize) -> TreeStats {
             break;
         }
         // Never follow reparse points; count them as opaque files.
-        let Ok(sym) = std::fs::symlink_metadata(&child) else { continue };
+        let Ok(sym) = std::fs::symlink_metadata(&child) else {
+            continue;
+        };
         if sym.is_symlink() {
             stats.size_bytes += sym.len();
             stats.files += 1;
@@ -324,18 +335,22 @@ pub fn read_text_slice(
     max_bytes: usize,
 ) -> Result<TextReadOutcome, crate::errors::WinkitError> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut f = std::fs::File::open(path)
-        .map_err(|e| {
-            crate::errors::WinkitError::not_found(format!(
-                "cannot open '{}': {e}",
-                crate::utils::filesys::display_path(path)
-            ))
-        })?;
-    let total = f.metadata().map_err(crate::errors::WinkitError::from)?.len();
+    let mut f = std::fs::File::open(path).map_err(|e| {
+        crate::errors::WinkitError::not_found(format!(
+            "cannot open '{}': {e}",
+            crate::utils::filesys::display_path(path)
+        ))
+    })?;
+    let total = f
+        .metadata()
+        .map_err(crate::errors::WinkitError::from)?
+        .len();
 
     // Binary sniff on the first 8 KiB.
     let mut sniff = [0u8; 8192];
-    let n = f.read(&mut sniff).map_err(crate::errors::WinkitError::from)?;
+    let n = f
+        .read(&mut sniff)
+        .map_err(crate::errors::WinkitError::from)?;
     if is_probably_binary(&sniff[..n]) {
         return Err(crate::errors::WinkitError::invalid_argument(format!(
             "'{}' appears to be a binary file; text tools refuse binary content",
@@ -353,11 +368,14 @@ pub fn read_text_slice(
         _ => ("head", 0, total > want),
     };
 
-    f.seek(SeekFrom::Start(start)).map_err(crate::errors::WinkitError::from)?;
+    f.seek(SeekFrom::Start(start))
+        .map_err(crate::errors::WinkitError::from)?;
     let mut buf = vec![0u8; want.min(usize::MAX as u64) as usize];
     let mut filled = 0usize;
     loop {
-        let read = f.read(&mut buf[filled..]).map_err(crate::errors::WinkitError::from)?;
+        let read = f
+            .read(&mut buf[filled..])
+            .map_err(crate::errors::WinkitError::from)?;
         if read == 0 {
             break;
         }

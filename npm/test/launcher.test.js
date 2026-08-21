@@ -32,15 +32,37 @@ function runWithInput(args, input, env) {
   });
 }
 
-test('launcher module exposes helpers and a Windows-x64-only message', () => {
+test('launcher module exposes helpers and a Windows-native message', () => {
   const mod = require(launcher);
   assert.strictEqual(typeof mod.resolveNativeBinary, 'function');
   assert.strictEqual(typeof mod.launch, 'function');
   assert.strictEqual(mod.isSupportedPlatform('win32'), true);
   assert.strictEqual(mod.isSupportedPlatform('darwin'), false);
   assert.strictEqual(mod.isSupportedPlatform('linux'), false);
-  assert.match(mod.WINDOWS_X64_MESSAGE, /Windows x64/);
-  assert.match(mod.WINDOWS_X64_MESSAGE, /build from source/);
+  assert.match(mod.WINDOWS_NATIVE_MESSAGE, /Windows x64/);
+  assert.match(mod.WINDOWS_NATIVE_MESSAGE, /ARM64/);
+  assert.match(mod.WINDOWS_NATIVE_MESSAGE, /build from source/);
+});
+
+test('native package selection follows the architecture', () => {
+  const mod = require(launcher);
+  assert.strictEqual(
+    mod.nativePackageForArch('x64'),
+    '@winkit/win32-x64-msvc/bin/winkit.exe'
+  );
+  assert.strictEqual(
+    mod.nativePackageForArch('arm64'),
+    '@winkit/win32-arm64-msvc/bin/winkit.exe'
+  );
+  assert.strictEqual(mod.nativePackageForArch('ia32'), null);
+  // The unsupported-arch message names the arch; the supported ones do not.
+  assert.match(mod.unsupportedPlatformMessage('x64'), /x64 and Windows ARM64/);
+  assert.match(mod.unsupportedPlatformMessage('arm64'), /x64 and Windows ARM64/);
+  assert.doesNotMatch(mod.unsupportedPlatformMessage('x64'), /does not ship a native binary for Windows x64/);
+  assert.match(
+    mod.unsupportedPlatformMessage('riscv64'),
+    /does not ship a native binary for Windows riscv64/
+  );
 });
 
 test('unsupported platform prints an actionable error and exits non-zero', () => {

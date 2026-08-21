@@ -88,10 +88,11 @@ tests/
   tools_mock.rs    mock-backed tool tests
   models_fixtures.rs
 npm/
-  mcp/             @winkit/mcp launcher package (bin/winkit.js)
-  win32-x64-msvc/  @winkit/win32-x64-msvc native package (bin/winkit.exe)
-  test/            Node launcher + package validation tests
-  scripts/         copy-native.ps1, test-packed.ps1 (isolated packed install)
+  mcp/              @winkit/mcp launcher package (bin/winkit.js)
+  win32-x64-msvc/   @winkit/win32-x64-msvc native package (bin/winkit.exe)
+  win32-arm64-msvc/ @winkit/win32-arm64-msvc native package (bin/winkit.exe)
+  test/             Node launcher + package validation tests
+  scripts/          copy-native.ps1, test-packed.ps1 (isolated packed install)
 skills/
   winkit-developer-debugging/  SKILL.md for coding agents
 config/example.toml
@@ -102,10 +103,11 @@ docs/             this documentation
 
 ## npm launcher and packages
 
-WinKit ships two npm packages: `@winkit/mcp` (a thin Node launcher) and
-`@winkit/win32-x64-msvc` (the Windows x64 native runtime, an optional
-package). The native executable is an implementation detail; users run
-`npx --yes @winkit/mcp@latest`. Both packages have no install scripts.
+WinKit ships three npm packages: `@winkit/mcp` (a thin Node launcher) plus
+one native runtime per architecture, `@winkit/win32-x64-msvc` and
+`@winkit/win32-arm64-msvc`. The launcher picks the runtime by
+`process.arch`. The native executable is an implementation detail; users run
+`npx --yes @winkit/mcp@latest`. All packages have no install scripts.
 
 Validate them locally (from the repository root, after `cargo build
 --release`):
@@ -114,6 +116,15 @@ Validate them locally (from the repository root, after `cargo build
 powershell -ExecutionPolicy Bypass -File npm/scripts/copy-native.ps1
 node --test npm\test\launcher.test.js npm\test\package.test.js
 powershell -ExecutionPolicy Bypass -File npm/scripts/test-packed.ps1
+```
+
+For an ARM64 build, cross-compile from an x64 host or build on ARM64
+hardware, then stage with the architecture flags:
+
+```powershell
+rustup target add aarch64-pc-windows-msvc
+cargo build --release --target aarch64-pc-windows-msvc
+powershell -ExecutionPolicy Bypass -File npm/scripts/copy-native.ps1 -Arch arm64 -Target aarch64-pc-windows-msvc
 ```
 
 `test-packed.ps1` packs the real tarballs, installs them into an isolated
@@ -182,3 +193,24 @@ suite (`cargo test --features mocks --test eval`), a release build, Node
 launcher and package validation, npm pack dry-runs for both packages, a
 secret scan over the packaging tree, and the packed-package smoke test. The
 `RUSTFLAGS: -D warnings` environment variable makes warnings fail the build.
+
+## Release
+
+`.github/workflows/release.yml` runs on version tags (`v*`): it builds the
+release binary for both `x86_64-pc-windows-msvc` and
+`aarch64-pc-windows-msvc`, stages each into its npm package, validates
+launchers and packed contents, and uploads artifacts. Publishing never
+happens automatically: the publish job only runs on a hand-triggered
+workflow dispatch with `publish` checked, authenticated by the `NPM_TOKEN`
+secret. See [docs/release.md](release.md) for the full checklist.
+
+## Documentation hygiene
+
+Markdown files are ASCII-punctuation-only by house style: no em dashes (use a
+plain `-`), no curly quotes. Copy-pasted rich text can silently introduce
+double-encoded characters; scan for them any time docs change:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/fix-mojibake.ps1          # report only
+powershell -ExecutionPolicy Bypass -File scripts/fix-mojibake.ps1 -Fix     # repair in place
+```

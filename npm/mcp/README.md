@@ -1,22 +1,24 @@
 # @winkit/mcp
 
-WinKit MCP server — local Windows observability and diagnostics for AI
-agents, launched as an MCP stdio subprocess. Runs on Windows 10/11 (x64).
+WinKit MCP server - local Windows observability and diagnostics for AI
+agents, launched as an MCP stdio subprocess. Runs on Windows 10/11 (x64 or
+ARM64).
 
 ```bash
 npx --yes @winkit/mcp@latest
 ```
 
-The package is a thin launcher. It resolves the Windows x64 native binary
-(`@winkit/win32-x64-msvc`) and spawns it with your arguments, inheriting
-stdio so the MCP protocol flows straight through to the client.
+The package is a thin launcher. It resolves the native binary for your
+architecture (`@winkit/win32-x64-msvc` on x64, `@winkit/win32-arm64-msvc`
+on ARM64) and spawns it with your arguments, inheriting stdio so the MCP
+protocol flows straight through to the client.
 
 ## Requirements
 
 - Node.js >= 18
-- Windows 10 or 11, x64
-- On non-Windows platforms the launcher prints an error and exits — WinKit
-  currently ships only for Windows x64.
+- Windows 10 or 11, x64 or ARM64
+- On non-Windows platforms the launcher prints an error and exits; WinKit
+  is Windows-only by design.
 
 ## Verifying an installation
 
@@ -26,7 +28,8 @@ npx --yes @winkit/mcp@latest doctor            # pass/fail per check
 npx --yes @winkit/mcp@latest doctor --json     # machine-readable report
 ```
 
-`doctor` exits 0 only when every required check passes.
+`doctor` exits 0 only when every required check passes. It also reports
+whether your session is elevated and which reads are privilege-gated.
 
 ## Client setup
 
@@ -39,14 +42,21 @@ npx --yes @winkit/mcp@latest init --client claude-code
 npx --yes @winkit/mcp@latest init --client codex
 ```
 
+Or register WinKit in every detected coding agent at once:
+
+```bash
+npx --yes @winkit/mcp@latest install --list    # preview
+npx --yes @winkit/mcp@latest install --yes     # install everywhere
+```
+
 The generic/claude-code shape is `mcpServers` JSON; the codex shape is
 `mcp_servers.winkit` TOML. All use `npx --yes @winkit/mcp@latest`, so no
 manual binary path is needed.
 
 ## Configuration
 
-By default WinKit runs in `read_only` permission mode with both built-in
-providers (`windows`, `chrome`). Create a `winkit.toml` to tune it:
+By default WinKit runs in `read_only` permission mode with the windows
+provider enabled. Create a `winkit.toml` to tune it:
 
 ```toml
 [permissions]

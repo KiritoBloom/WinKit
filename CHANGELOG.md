@@ -5,6 +5,37 @@ All notable changes to WinKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-21
+
+### Added
+
+- **MCP protocol version negotiation** - the server now speaks
+  `2025-06-18`, `2025-03-26`, and `2024-11-05`. An `initialize` request
+  naming a supported version is answered with that exact version; an
+  unknown or missing version gets the server's latest (`2025-06-18`) per
+  the spec's negotiation rule, so current clients stop falling back to the
+  oldest common version. Protocol tests cover every branch.
+- **Windows ARM64 support** - new `@winkit/win32-arm64-msvc` native npm
+  package; the launcher resolves the binary by `process.arch`
+  (x64 and arm64) with a precise error message for other architectures.
+  `winkit doctor` accepts `aarch64`, and a release workflow builds and
+  validates both architectures on version tags. Publishing stays manual:
+  it requires an explicit hand-triggered workflow run with `publish`
+  checked, so no tag push can ever reach the registry.
+- **Elevation awareness in `doctor`** - a new informational check reports
+  whether the process runs with an elevated token and names exactly which
+  reads are elevation-gated (ACPI thermal zones, ATA S.M.A.R.T.
+  pass-through, the NTFS MFT fast path). It never fails the report; it
+  sets expectations before a user wonders why `thermal_snapshot` says
+  `permission_denied`.
+
+### Changed
+
+- Docs overhaul: new platform-support matrix, troubleshooting guide, FAQ,
+  protocol-versioning documentation, and an elevation/permissions
+  deep-dive; README, installation, security, and MCP-integration docs
+  updated to match.
+
 ## [0.2.1] - 2026-08-21
 
 ### Added

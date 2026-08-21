@@ -33,7 +33,9 @@ const SKIP_NATIVE = haveNative
   : 'release binary not present; run `cargo build --release` then npm/scripts/copy-native.ps1';
 
 function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
+  // Strip a UTF-8 BOM if present; JSON.parse rejects it.
+  const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+  return JSON.parse(text);
 }
 
 function packDryRun(dir) {
@@ -62,7 +64,7 @@ test('launcher package.json declares the right identity and bin', () => {
   assert.match(pkg.version, /^\d+\.\d+\.\d+$/);
   assert.strictEqual(pkg.license, 'MIT');
   assert.strictEqual(pkg.bin.winkit, 'bin/winkit.js');
-  assert.deepStrictEqual(pkg.files, ['bin']);
+  assert.deepStrictEqual(pkg.files, ['bin', 'skills']);
   assert.ok(pkg.engines && pkg.engines.node, 'launcher declares an engines.node floor');
 });
 
@@ -73,14 +75,13 @@ test('launcher has no install scripts and no runtime dependencies', () => {
     !pkg.scripts || !pkg.scripts.install,
     'launcher must not ship an install script'
   );
-  // The only dependency surface is the optional native runtime.
+  // The only dependency surface is the optional native runtimes.
   assert.ok(!pkg.dependencies, 'launcher must not depend on anything at runtime');
   const optional = pkg.optionalDependencies || {};
-  assert.deepStrictEqual(
-    Object.keys(optional),
-    ['@winkit/win32-x64-msvc'],
-    'the only optional dependency is the native runtime'
-  );
+  assert.deepStrictEqual(Object.keys(optional).sort(), [
+    '@winkit/win32-arm64-msvc',
+    '@winkit/win32-x64-msvc',
+  ], 'the only optional dependencies are the native runtimes');
   // No browser-automation stack anywhere in the dependency graph.
   const dependencyNames = Object.keys(optional);
   for (const name of dependencyNames) {
@@ -95,16 +96,21 @@ test('launcher has no install scripts and no runtime dependencies', () => {
 // Native package metadata
 // ---------------------------------------------------------------------------
 
-test('native package.json declares Windows x64 and the binary', () => {
-  const pkg = readJson(path.join(nativeDir, 'package.json'));
-  assert.strictEqual(pkg.name, '@winkit/win32-x64-msvc');
-  assert.deepStrictEqual(pkg.os, ['win32']);
-  assert.deepStrictEqual(pkg.cpu, ['x64']);
-  assert.strictEqual(pkg.bin.winkit, 'bin/winkit.exe');
-  assert.deepStrictEqual(pkg.files, ['bin']);
-  assert.ok(!pkg.scripts || !pkg.scripts.install, 'native package must not have install scripts');
-  assert.ok(!pkg.dependencies, 'native package carries no dependencies');
-});
+for (const [dir, name, cpu] of [
+  ['win32-x64-msvc', '@winkit/win32-x64-msvc', 'x64'],
+  ['win32-arm64-msvc', '@winkit/win32-arm64-msvc', 'arm64'],
+]) {
+  test(`${name} package.json declares Windows ${cpu} and the binary`, () => {
+    const pkg = readJson(path.join(root, 'npm', dir, 'package.json'));
+    assert.strictEqual(pkg.name, name);
+    assert.deepStrictEqual(pkg.os, ['win32']);
+    assert.deepStrictEqual(pkg.cpu, [cpu]);
+    assert.strictEqual(pkg.bin.winkit, 'bin/winkit.exe');
+    assert.deepStrictEqual(pkg.files, ['bin', 'skills']);
+    assert.ok(!pkg.scripts || !pkg.scripts.install, 'native package must not have install scripts');
+    assert.ok(!pkg.dependencies, 'native package carries no dependencies');
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Packed contents
@@ -121,8 +127,12 @@ test('launcher packed contents are exactly the launcher surface', () => {
     assert.ok(!/\.env|\.pem|\.key|\.p12|credentials|secret/i.test(f), `clean file name: ${f}`);
     assert.ok(!f.includes('\\'), 'packed paths use forward slashes');
   }
-  // The launcher surface is bounded: bin + package.json + README only.
-  const unexpected = files.filter((f) => !/^(bin\/winkit\.js|package\.json|README\.md)$/.test(f));
+  // The launcher surface is bounded: bin + package.json + README + skill.
+  const unexpected = files.filter(
+    (f) =>
+      !/^(bin\/winkit\.js|package\.json|README\.md)$/.test(f) &&
+      !/^skills\/winkit-developer-debugging\/.+/.test(f)
+  );
   assert.deepStrictEqual(unexpected, [], 'no unexpected files in the launcher package');
 });
 
@@ -136,7 +146,11 @@ test('native packed contents include the binary', { skip: SKIP_NATIVE }, () => {
     bin.size > 1_000_000,
     `release binary must be a real executable, got ${bin.size} bytes`
   );
-  const unexpected = files.filter((f) => !/^(bin\/winkit\.exe|package\.json|README\.md)$/.test(f));
+  const unexpected = files.filter(
+    (f) =>
+      !/^(bin\/winkit\.exe|package\.json|README\.md)$/.test(f) &&
+      !/^skills\/winkit-developer-debugging\/.+/.test(f)
+  );
   assert.deepStrictEqual(unexpected, [], 'no unexpected files in the native package');
 });
 

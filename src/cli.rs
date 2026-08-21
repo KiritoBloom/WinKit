@@ -351,6 +351,7 @@ fn doctor_checks(loaded: &LoadedConfig) -> Vec<CheckResult> {
         check_loopback_port(),
         check_disk_space(cfg),
         check_telemetry(),
+        check_elevation(),
     ]
 }
 
@@ -364,14 +365,79 @@ fn check_os() -> CheckResult {
             format!("WinKit targets Windows only; current OS is '{os}' ({arch})"),
         );
     }
-    if arch != "x86_64" {
-        return CheckResult::fail(
+    match arch {
+        "x86_64" => CheckResult::pass("os", "Operating system", format!("Windows ({arch})")),
+        "aarch64" => CheckResult::pass(
             "os",
             "Operating system",
-            format!("Windows detected but architecture is '{arch}'; the shipped native package is win32-x64"),
-        );
+            "Windows on ARM (aarch64) — supported since 0.3.0 via @winkit/win32-arm64-msvc".to_string(),
+        ),
+        other => CheckResult::fail(
+            "os",
+            "Operating system",
+            format!("Windows detected but architecture is '{other}'; shipped native packages cover x64 and ARM64"),
+        ),
     }
-    CheckResult::pass("os", "Operating system", format!("Windows ({arch})"))
+}
+
+/// Informational elevation check. Several Windows reads are elevation-gated
+/// (ACPI thermal zones, ATA S.M.A.R.T. pass-through, the NTFS MFT fast path
+/// for whole-volume scans); everything else works at normal privilege. This
+/// never fails the doctor — it sets expectations up front instead of letting
+/// a user discover `limited` reports later.
+fn check_elevation() -> CheckResult {
+    match is_elevated() {
+        Some(true) => CheckResult::pass(
+            "elevation",
+            "Elevation",
+            "elevated token: thermal zones, S.M.A.R.T. attributes, and the MFT fast path are available".to_string(),
+        ),
+        Some(false) => CheckResult::skip(
+            "elevation",
+            "Elevation",
+            "not elevated: ACPI thermal zones, ATA S.M.A.R.T. pass-through, and the NTFS MFT fast path will report limited/unavailable; all other tools work normally".to_string(),
+        ),
+        None => CheckResult::skip(
+            "elevation",
+            "Elevation",
+            "could not query the process token; elevation status unknown".to_string(),
+        ),
+    }
+}
+
+#[cfg(windows)]
+fn is_elevated() -> Option<bool> {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    unsafe {
+        let mut token: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return None;
+        }
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut returned = 0u32;
+        let ok = GetTokenInformation(
+            token,
+            TokenElevation,
+            &mut elevation as *mut _ as *mut core::ffi::c_void,
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut returned,
+        );
+        CloseHandle(token);
+        if ok == 0 {
+            return None;
+        }
+        Some(elevation.TokenIsElevated != 0)
+    }
+}
+
+#[cfg(not(windows))]
+fn is_elevated() -> Option<bool> {
+    None
 }
 
 fn check_launcher_version() -> CheckResult {
@@ -604,13 +670,6 @@ fn human_bytes(n: u64) -> String {
     } else {
         format!("{n} bytes")
     }
-}
-
-fn unique_stamp() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or_default()
 }
 
 // init
@@ -848,8 +907,8 @@ fn init_write(
             ));
         }
     };
-    let existing =
-        std::fs::read_to_string(dest).map_err(|e| format!("cannot read {}: {e}", dest.display()))?;
+    let existing = std::fs::read_to_string(dest)
+        .map_err(|e| format!("cannot read {}: {e}", dest.display()))?;
     match parse_and_merge(target, Some(existing.as_str())) {
         Ok(Some(merged)) => {
             let backup_note = write_with_restore(dest, &merged)?
@@ -1257,18 +1316,6 @@ fn set_u32(slot: &mut u32, key: &str, value: &str, min: u32, max: u32) -> Result
     Ok(format!("{key}: {old} -> {parsed}"))
 }
 
-fn set_u16(slot: &mut u16, key: &str, value: &str, min: u16, max: u16) -> Result<String, String> {
-    let parsed = value
-        .parse::<u16>()
-        .map_err(|_| format!("{key}: '{value}' is not an integer"))?;
-    if !(min..=max).contains(&parsed) {
-        return Err(format!("{key}: {parsed} is out of range [{min}, {max}]"));
-    }
-    let old = *slot;
-    *slot = parsed;
-    Ok(format!("{key}: {old} -> {parsed}"))
-}
-
 fn set_bool(slot: &mut bool, key: &str, value: &str) -> Result<String, String> {
     let parsed = parse_on_off(value)
         .ok_or_else(|| format!("{key}: '{value}' is not a boolean (on, off, true, false)"))?;
@@ -1442,7 +1489,13 @@ fn skill_source_dir() -> Option<PathBuf> {
             candidates.push(dir.join("skills").join(SKILL_NAME));
             candidates.push(dir.join("..").join("skills").join(SKILL_NAME));
             candidates.push(dir.join("..").join("..").join("skills").join(SKILL_NAME));
-            candidates.push(dir.join("..").join("..").join("..").join("skills").join(SKILL_NAME));
+            candidates.push(
+                dir.join("..")
+                    .join("..")
+                    .join("..")
+                    .join("skills")
+                    .join(SKILL_NAME),
+            );
         }
     }
     candidates.push(PathBuf::from("skills").join(SKILL_NAME));
@@ -1466,10 +1519,20 @@ fn skill_source_dir() -> Option<PathBuf> {
 fn install_skill_path(target: InstallTarget, home: &Path, appdata: &Path) -> Option<PathBuf> {
     match target {
         InstallTarget::ClaudeCode => Some(home.join(".claude").join("skills").join(SKILL_NAME)),
-        InstallTarget::Opencode => Some(home.join(".config").join("opencode").join("skills").join(SKILL_NAME)),
+        InstallTarget::Opencode => Some(
+            home.join(".config")
+                .join("opencode")
+                .join("skills")
+                .join(SKILL_NAME),
+        ),
         InstallTarget::Codex => Some(home.join(".codex").join("skills").join(SKILL_NAME)),
         InstallTarget::Cursor => Some(home.join(".cursor").join("skills").join(SKILL_NAME)),
-        InstallTarget::Windsurf => Some(home.join(".codeium").join("windsurf").join("skills").join(SKILL_NAME)),
+        InstallTarget::Windsurf => Some(
+            home.join(".codeium")
+                .join("windsurf")
+                .join("skills")
+                .join(SKILL_NAME),
+        ),
         InstallTarget::GeminiCli => Some(home.join(".gemini").join("skills").join(SKILL_NAME)),
         InstallTarget::Zed => Some(appdata.join("Zed").join("skills").join(SKILL_NAME)),
         InstallTarget::Cline => Some(home.join(".cline").join("skills").join(SKILL_NAME)),
@@ -1494,10 +1557,8 @@ fn install_skill_paths(target: InstallTarget, home: &Path, appdata: &Path) -> Ve
             | InstallTarget::Cline
             | InstallTarget::RooCode
     );
-    if !is_universal_primary && needs_universal {
-        if !v.iter().any(|p| p == &universal) {
-            v.push(universal);
-        }
+    if !is_universal_primary && needs_universal && !v.iter().any(|p| p == &universal) {
+        v.push(universal);
     }
     v.sort();
     v.dedup();
@@ -1506,7 +1567,9 @@ fn install_skill_paths(target: InstallTarget, home: &Path, appdata: &Path) -> Ve
 
 fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dest).map_err(|e| format!("cannot create {}: {e}", dest.display()))?;
-    for entry in std::fs::read_dir(src).map_err(|e| format!("cannot read {}: {e}", src.display()))? {
+    for entry in
+        std::fs::read_dir(src).map_err(|e| format!("cannot read {}: {e}", src.display()))?
+    {
         let entry = entry.map_err(|e| e.to_string())?;
         let src_path = entry.path();
         // Never follow symlinks/junctions: a link could point outside the
@@ -1527,8 +1590,13 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), String> {
                         .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
                 }
             }
-            std::fs::copy(&src_path, &dest_path)
-                .map_err(|e| format!("cannot copy {} -> {}: {e}", src_path.display(), dest_path.display()))?;
+            std::fs::copy(&src_path, &dest_path).map_err(|e| {
+                format!(
+                    "cannot copy {} -> {}: {e}",
+                    src_path.display(),
+                    dest_path.display()
+                )
+            })?;
         }
     }
     Ok(())
@@ -1541,8 +1609,8 @@ fn dir_stats(dir: &Path) -> Result<(usize, u64), String> {
     let mut files = 0usize;
     let mut bytes = 0u64;
     fn walk(cur: &Path, files: &mut usize, bytes: &mut u64) -> Result<(), String> {
-        for entry in std::fs::read_dir(cur)
-            .map_err(|e| format!("cannot read {}: {e}", cur.display()))?
+        for entry in
+            std::fs::read_dir(cur).map_err(|e| format!("cannot read {}: {e}", cur.display()))?
         {
             let entry = entry.map_err(|e| e.to_string())?;
             let p = entry.path();
@@ -1580,11 +1648,16 @@ fn dir_content_hash(dir: &Path) -> Result<String, String> {
         entries.sort_by_key(|e| e.file_name());
         for e in entries {
             let p = e.path();
-            let rel = p.strip_prefix(base).unwrap_or(&p).to_string_lossy().to_string();
+            let rel = p
+                .strip_prefix(base)
+                .unwrap_or(&p)
+                .to_string_lossy()
+                .to_string();
             if p.is_dir() {
                 walk(base, &p, map)?;
             } else {
-                let bytes = std::fs::read(&p).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
+                let bytes =
+                    std::fs::read(&p).map_err(|e| format!("cannot read {}: {e}", p.display()))?;
                 map.insert(rel, bytes);
             }
         }
@@ -1630,7 +1703,11 @@ fn install_skill_dir(src: &Path, dest: &Path) -> Result<Option<PathBuf>, String>
         return Err(format!("skill source not found: {}", src.display()));
     }
     if !src.join(SKILL_FILE).exists() {
-        return Err(format!("skill source missing {}: {}", SKILL_FILE, src.display()));
+        return Err(format!(
+            "skill source missing {}: {}",
+            SKILL_FILE,
+            src.display()
+        ));
     }
     if dest.exists() && dirs_are_identical(src, dest) {
         return Ok(None);
@@ -1657,7 +1734,8 @@ fn install_skill_dir(src: &Path, dest: &Path) -> Result<Option<PathBuf>, String>
                 backup_stats
             ));
         }
-        std::fs::remove_dir_all(dest).map_err(|e| format!("cannot clear {}: {e}", dest.display()))?;
+        std::fs::remove_dir_all(dest)
+            .map_err(|e| format!("cannot clear {}: {e}", dest.display()))?;
         Some(b)
     } else {
         None
@@ -1672,9 +1750,16 @@ fn install_skill_dir(src: &Path, dest: &Path) -> Result<Option<PathBuf>, String>
                     b.display()
                 ));
             }
-            return Err(format!("cannot write {}: {e} (restored from {})", dest.display(), b.display()));
+            return Err(format!(
+                "cannot write {}: {e} (restored from {})",
+                dest.display(),
+                b.display()
+            ));
         }
-        return Err(format!("cannot write {}: {e} (no prior backup)", dest.display()));
+        return Err(format!(
+            "cannot write {}: {e} (no prior backup)",
+            dest.display()
+        ));
     }
     Ok(backup)
 }
@@ -2070,7 +2155,9 @@ fn install_run(args: &[String]) -> ExitCode {
         i += 1;
     }
     if with_skill_explicit && without_skill {
-        eprintln!("error: --with-skill and --without-skill are mutually exclusive\n\n{INSTALL_USAGE}");
+        eprintln!(
+            "error: --with-skill and --without-skill are mutually exclusive\n\n{INSTALL_USAGE}"
+        );
         return ExitCode::FAILURE;
     }
     let install_skill = !without_skill;
@@ -2274,10 +2361,7 @@ fn install_run(args: &[String]) -> ExitCode {
                 }
                 let mcp_not_installed = outcomes.iter().any(|o| {
                     o.target == target.label()
-                        && matches!(
-                            o.status,
-                            InstallStatus::Declined | InstallStatus::Error
-                        )
+                        && matches!(o.status, InstallStatus::Declined | InstallStatus::Error)
                 });
                 if mcp_not_installed && !yes {
                     for dest in dests {
@@ -2355,13 +2439,23 @@ fn install_run(args: &[String]) -> ExitCode {
                 println!("Skills: SKIPPED — source not found (expected skills/{SKILL_NAME}/SKILL.md next to binary)");
             } else {
                 for s in &skill_outcomes {
-                    println!("[{}] skill:{} — {} ({})", s.status.label(), s.target, s.detail, s.path);
+                    println!(
+                        "[{}] skill:{} — {} ({})",
+                        s.status.label(),
+                        s.target,
+                        s.detail,
+                        s.path
+                    );
                 }
             }
         }
     }
 
-    if outcomes.iter().any(|o| o.status == InstallStatus::Error) || skill_outcomes.iter().any(|s| s.status == SkillStatus::Error) {
+    if outcomes.iter().any(|o| o.status == InstallStatus::Error)
+        || skill_outcomes
+            .iter()
+            .any(|s| s.status == SkillStatus::Error)
+    {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
@@ -2397,12 +2491,17 @@ mod tests {
 
     #[test]
     fn doctor_non_required_failures_do_not_fail_the_report() {
-        let report = DoctorReport::new(vec![
-            pass_result("os"),
-            fail_result("disk_space"),
-        ]);
+        let report = DoctorReport::new(vec![pass_result("os"), fail_result("disk_space")]);
         assert!(report.ok);
         assert!(report.failed_checks.is_empty());
+    }
+
+    #[test]
+    fn check_elevation_is_informational_and_never_fails() {
+        let result = check_elevation();
+        assert_ne!(result.status, CheckStatus::Fail);
+        assert!(!result.required, "elevation is informational by design");
+        assert_eq!(result.id, "elevation");
     }
 
     #[test]
@@ -2863,7 +2962,8 @@ mod tests {
     fn init_write_merges_into_existing_codex_config_without_losing_entries() {
         let dir = temp_dir("init-merge-codex");
         let dest = dir.join("config.toml");
-        let original = "model = \"gpt-5\"\n\n[mcp_servers.other]\ncommand = \"uvx\"\nargs = [\"srv\"]\n";
+        let original =
+            "model = \"gpt-5\"\n\n[mcp_servers.other]\ncommand = \"uvx\"\nargs = [\"srv\"]\n";
         std::fs::write(&dest, original).unwrap();
 
         let message = init_write(&dest, ClientKind::Codex, &codex_toml(), false).unwrap();
@@ -2900,11 +3000,13 @@ mod tests {
     fn init_write_merges_into_existing_claude_config_and_preserves_other_servers() {
         let dir = temp_dir("init-merge-claude");
         let dest = dir.join(".claude.json");
-        let original = r#"{"mcpServers":{"mine":{"command":"node","args":["a.js"]}},"theme":"dark"}"#;
+        let original =
+            r#"{"mcpServers":{"mine":{"command":"node","args":["a.js"]}},"theme":"dark"}"#;
         std::fs::write(&dest, original).unwrap();
 
         init_write(&dest, ClientKind::ClaudeCode, &mcp_servers_json(), false).unwrap();
-        let value: JsonValue = serde_json::from_str(&std::fs::read_to_string(&dest).unwrap()).unwrap();
+        let value: JsonValue =
+            serde_json::from_str(&std::fs::read_to_string(&dest).unwrap()).unwrap();
         assert_eq!(value["mcpServers"]["mine"]["command"], "node");
         assert_eq!(value["theme"], "dark");
         assert_eq!(value["mcpServers"]["winkit"]["command"], "npx");
@@ -2969,7 +3071,9 @@ mod tests {
         std::fs::create_dir_all(&dest).unwrap();
         std::fs::write(dest.join(SKILL_FILE), "v1 body").unwrap();
 
-        let backup = install_skill_dir(&src, &dest).unwrap().expect("backup expected");
+        let backup = install_skill_dir(&src, &dest)
+            .unwrap()
+            .expect("backup expected");
 
         // Sibling skills are untouched.
         assert_eq!(
@@ -2977,7 +3081,10 @@ mod tests {
             "do not touch"
         );
         // New content in place, including nested files.
-        assert_eq!(std::fs::read_to_string(dest.join(SKILL_FILE)).unwrap(), "v2 body");
+        assert_eq!(
+            std::fs::read_to_string(dest.join(SKILL_FILE)).unwrap(),
+            "v2 body"
+        );
         assert_eq!(
             std::fs::read_to_string(dest.join("references").join("deep.md")).unwrap(),
             "deep v2"

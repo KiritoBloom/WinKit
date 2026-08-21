@@ -10,16 +10,18 @@ configuration, client setup, and troubleshooting.
 
 ## Install via npm (recommended)
 
-WinKit ships as two npm packages: `@winkit/mcp` (a thin Node launcher) and
-`@winkit/win32-x64-msvc` (the Windows x64 native runtime, pulled in as an
-optional dependency). The launcher resolves the native binary and spawns it
+WinKit ships as three npm packages: `@winkit/mcp` (a thin Node launcher) plus
+one architecture-specific native runtime pulled in as an optional dependency,
+`@winkit/win32-x64-msvc` (Windows x64) or `@winkit/win32-arm64-msvc`
+(Windows ARM64). The launcher resolves the right binary by `process.arch` and
+spawns it
 directly with an argument array - no shell, no install scripts. The native executable is an implementation detail;
 you never handle `winkit.exe` by hand.
 
 Requirements:
 
-- Windows 10 or 11, x64 (WinKit is Windows-only; the launcher refuses other
-  platforms with a clear message).
+- Windows 10 or 11, x64 or ARM64 (WinKit is Windows-only; the launcher refuses
+  other platforms with a clear message).
 - Node.js 18 or newer.
 
 ```bash
@@ -64,7 +66,7 @@ Check the binary responds:
 
 ```powershell
 .\target\release\winkit --help
-.\target\release\winkit --version   # prints "winkit 0.1.0"
+.\target\release\winkit --version   # prints "winkit 0.3.0"
 ```
 
 `--help` prints usage and the supported flags (`--config`, `--version`,
@@ -230,6 +232,24 @@ defaults. After the client connects, `initialize` completes the handshake,
 and each `tools/call` is enforced by the permission policy for the session.
 The full protocol contract is in [docs/mcp-integration.md](mcp-integration.md).
 
+## Elevation: what to expect
+
+WinKit never elevates. It runs as your user and reads what your user can
+read. Most tools are complete without elevation; a few hardware reads degrade
+honestly:
+
+- ACPI thermal zones are usually administrator-only and report
+  `permission_denied` with a reason.
+- ATA S.M.A.R.T. pass-through needs elevation; NVMe S.M.A.R.T. and the OS
+  storage-stack health status still report without it.
+- The Security event log is admin-only by Windows policy.
+
+`winkit doctor` reports your current elevation state and names exactly which
+reads are affected. If you want the full hardware picture, launch your MCP
+client from an elevated shell occasionally and run the hardware tools then.
+The complete privilege table lives in
+[docs/platform-support.md](platform-support.md).
+
 ## Troubleshooting
 
 | Symptom | Likely cause and fix |
@@ -242,7 +262,12 @@ The full protocol contract is in [docs/mcp-integration.md](mcp-integration.md).
 ## Further reading
 
 - [README.md](../README.md) - overview, quick start, and tool surface
-- [docs/mcp-integration.md](mcp-integration.md) - protocol version, frame format, session lifecycle
+- [docs/tools.md](tools.md) - full tool reference with arguments
+- [docs/agent-workflows.md](agent-workflows.md) - end-to-end recipes for common questions
+- [docs/platform-support.md](platform-support.md) - OS/architecture matrix, privilege table, protocol versions
+- [docs/troubleshooting.md](troubleshooting.md) - symptom-first guide for install, doctor, tools, and clients
+- [docs/faq.md](faq.md) - short answers to common questions
+- [docs/mcp-integration.md](mcp-integration.md) - protocol versioning, frame format, session lifecycle
 - [docs/configuration.md](configuration.md) - every config key and default
 - [docs/permissions.md](permissions.md) - modes, capabilities, policy table
 - [docs/security.md](security.md) - threat model and mitigations
