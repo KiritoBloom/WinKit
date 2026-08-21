@@ -58,7 +58,7 @@ Default path for "app broken": `diagnose_workspace → diagnose_local_webapp →
 | "Tests are hanging" | `wait_for_port` / `wait_for_http` + `list_processes` + `system_health` |
 | "Is this dev server related to my workspace?" | `list_dev_servers` → `diagnose_workspace` → `workspace_snapshot` |
 | "Where is the project / what runs it?" | `workspace_snapshot` → `dev_environment` |
-| "Disk is full" | `list_drives` → `disk_scan` → `disk_scan_largest_folders` → `disk_scan_find` (`disk_scan_start`/`status` for huge drives) |
+| "Disk is full" | `list_drives` → `disk_usage` (per-volume free/used; WinKit does not walk file trees) |
 | "Something crashed" | `crash_history` / `shutdown_analysis` or `get_recent_events` |
 | "What did WinKit touch?" | `privacy_info` |
 

@@ -74,7 +74,7 @@ impl Default for ProvidersConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ToolsConfig {
-    /// Tool names to disable, e.g. `["find_large_files"]`.
+    /// Tool names to disable, e.g. `["snapshot"]`.
     pub disabled: Vec<String>,
     /// Active tool profile: `core`, `developer`, `browser`, or `full`.
     /// `tools/list` exposes only the tools of the effective profile.
@@ -177,7 +177,6 @@ impl Default for TrendsConfig {
 pub struct LimitsConfig {
     pub max_processes: usize,
     pub max_network_results: usize,
-    pub max_storage_results: usize,
     pub max_events: usize,
     pub max_services: usize,
     pub max_windows: usize,
@@ -197,7 +196,6 @@ impl Default for LimitsConfig {
         Self {
             max_processes: 500,
             max_network_results: 1000,
-            max_storage_results: 200,
             max_events: 200,
             max_services: 500,
             max_windows: 500,

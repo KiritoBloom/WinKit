@@ -174,7 +174,7 @@ Every tool below is **read-only**. Full reference with argument schemas:
 | Machine health | `system_health`, `system_diagnose`, `system_health_trend`, `correlate_recent_failures` |
 | Processes | `list_processes`, `get_process`, `get_process_tree`, `find_process` |
 | Network | `list_listening_ports`, `find_process_on_port`, `list_network_interfaces`, `list_connections`, `network_snapshot`, `network_diagnose`, `wifi_status`, `wifi_scan` |
-| Storage | `list_drives`, `disk_usage`, `disk_health`, `disk_performance`, `find_large_files`, `disk_scan*` (bounded full-volume scanning) |
+| Storage | `list_drives`, `disk_usage`, `disk_health`, `disk_performance` |
 | Services | `list_services`, `get_service` |
 | Event logs | `get_recent_events`, `get_application_errors`, `get_system_errors`, `crash_history`, `shutdown_analysis` |
 | Registry | `registry_diagnostics` (allowlist-only reads) |
@@ -192,7 +192,7 @@ default. See [docs/chrome.md](docs/chrome.md).
 
 ### Try these prompts
 
-- **"Why is my disk full?"** → `list_drives` + `find_large_files`
+- **"Is my disk failing?"** → `disk_health` + `list_drives`
 - **"What crashed last night?"** → `crash_history(since_minutes=720)`
 - **"Did my PC shut down cleanly?"** → `shutdown_analysis`
 - **"Why is the fan spinning?"** → `thermal_snapshot` + `hardware_snapshot`

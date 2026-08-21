@@ -7,7 +7,6 @@
 
 pub mod browser;
 pub mod diagnostics;
-pub mod diskscan;
 pub mod event;
 pub mod evidence;
 pub mod hardware;
@@ -31,11 +30,6 @@ pub use diagnostics::{
     SystemDiagnosticData, SystemDriveEvidence, SystemStorageHealthEvidence, SystemThermalEvidence,
     SystemWifiEvidence, TabDiagnosticData,
 };
-pub use diskscan::{
-    DiskQueryKind, DiskQueryRequest, DiskQueryResult, DiskScanInfo, DiskScanRequest,
-    DiskScanStatusInfo, ScanCapacity, ScanFileEntry, ScanFindFile, ScanFolderEntry, ScanFolderSize,
-    ScannerKind,
-};
 pub use event::{EventInfo, EventLevel, EventQuery};
 pub use evidence::{
     sort_findings, stable_id, DetailLevel, EvidenceConfidence, EvidenceItem, EvidenceSource,
@@ -58,7 +52,7 @@ pub use registry::{
     InstalledSoftware, RegistryCounts, RegistryDiagnostics, StartupProgram, SystemIdentity,
 };
 pub use service::ServiceInfo;
-pub use storage::{DiskUsage, DriveInfo, FileEntry, FindLargeFilesRequest};
+pub use storage::{DiskUsage, DriveInfo};
 pub use system::{
     is_development_port, CpuSnapshot, DevEnvironment, DevServerInfo, DevTool, DiskSnapshotEntry,
     ResourceSnapshot, SystemInfo, KNOWN_DEV_SERVER_NAMES, KNOWN_DEV_TOOLS,

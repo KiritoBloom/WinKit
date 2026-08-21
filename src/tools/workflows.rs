@@ -805,7 +805,7 @@ pub async fn diagnose_workspace_handler(
                     FindingConfidence::Observed,
                     FindingCategory::System,
                     &[&ev_id],
-                    &["disk_usage", "find_large_files"],
+                    &["disk_usage", "list_drives"],
                     "Free space on the drive and re-run the diagnosis.",
                 );
             }
@@ -3133,39 +3133,6 @@ mod tests {
         }
         fn disk_usage(&self, path: &str) -> Result<crate::models::DiskUsage, WinkitError> {
             self.inner.disk_usage(path)
-        }
-        fn find_large_files(
-            &self,
-            request: crate::models::FindLargeFilesRequest,
-        ) -> Result<Vec<crate::models::FileEntry>, WinkitError> {
-            self.inner.find_large_files(request)
-        }
-        fn disk_scan(
-            &self,
-            request: &crate::models::DiskScanRequest,
-        ) -> Result<crate::models::DiskScanInfo, WinkitError> {
-            self.inner.disk_scan(request)
-        }
-        fn disk_scan_start(
-            &self,
-            request: &crate::models::DiskScanRequest,
-        ) -> Result<crate::models::DiskScanStatusInfo, WinkitError> {
-            self.inner.disk_scan_start(request)
-        }
-        fn disk_scan_status(
-            &self,
-            scan_id: &str,
-        ) -> Result<Option<crate::models::DiskScanStatusInfo>, WinkitError> {
-            self.inner.disk_scan_status(scan_id)
-        }
-        fn disk_scan_cancel(&self, scan_id: &str) -> Result<bool, WinkitError> {
-            self.inner.disk_scan_cancel(scan_id)
-        }
-        fn disk_scan_query(
-            &self,
-            request: &crate::models::DiskQueryRequest,
-        ) -> Result<crate::models::DiskQueryResult, WinkitError> {
-            self.inner.disk_scan_query(request)
         }
         fn list_services(
             &self,

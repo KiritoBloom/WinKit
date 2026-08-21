@@ -1194,10 +1194,6 @@ fn configure_summary(loaded: &LoadedConfig) -> String {
         "  max_network_results = {}\n",
         l.max_network_results
     ));
-    out.push_str(&format!(
-        "  max_storage_results = {}\n",
-        l.max_storage_results
-    ));
     out.push_str(&format!("  max_events = {}\n", l.max_events));
     out.push_str(&format!("  max_services = {}\n", l.max_services));
     out.push_str(&format!("  max_windows = {}\n", l.max_windows));
@@ -1305,9 +1301,6 @@ fn apply_set(cfg: &mut Config, key: &str, value: &str) -> Result<String, String>
         "limits.max_processes" => set_usize(&mut cfg.limits.max_processes, key, value, 1, 100_000),
         "limits.max_network_results" => {
             set_usize(&mut cfg.limits.max_network_results, key, value, 1, 100_000)
-        }
-        "limits.max_storage_results" => {
-            set_usize(&mut cfg.limits.max_storage_results, key, value, 1, 100_000)
         }
         "limits.max_events" => set_usize(&mut cfg.limits.max_events, key, value, 1, 100_000),
         "limits.max_services" => set_usize(&mut cfg.limits.max_services, key, value, 1, 100_000),

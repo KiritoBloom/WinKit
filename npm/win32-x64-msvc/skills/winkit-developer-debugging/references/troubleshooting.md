@@ -12,8 +12,6 @@
 | "Chrome not found" on start | Chrome not installed in standard location. WinKit never downloads a browser. |
 | Webapp probe says "connection refused" | Nothing listening. Check `list_listening_ports` + `list_dev_servers` before blaming the app. |
 | Output looks truncated | Bounded caps are working as designed — narrow scope (specific pid/port/path) instead of full dump. |
-| Disk scan slow / fallback 100s | Without elevated token the NTFS fast path is unavailable (`fast_path_unavailable` in result) and the parallel fallback walks the tree. Run elevated for MFT fast path (seconds). |
-| `disk_scan` says volume not NTFS | Filesystem is FAT32/exFAT/ReFS — fallback walks the requested directory as documented. |
 | Chrome session `browser_exited` | User closed window or GPU crash — start fresh session, don't reuse. |
 | `doctor` `managed_chrome` probe fails | Profile root not writable — check `winkit.toml [chrome.managed] profile_root` and disk permissions. |
 

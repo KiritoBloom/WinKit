@@ -40,7 +40,7 @@ file cannot be loaded.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `disabled` | string[] | `[]` | Tool names to disable entirely, e.g. `["find_large_files"]`. Disabled tools return an error when called. |
+| `disabled` | string[] | `[]` | Tool names to disable entirely, e.g. `["snapshot"]`. Disabled tools return an error when called. |
 
 ### `[limits]`
 
@@ -51,13 +51,12 @@ limits.
 | --- | --- | --- | --- |
 | `max_processes` | integer | 500 | Cap on `list_processes` results. |
 | `max_network_results` | integer | 1000 | Cap on port/connection listing results. |
-| `max_storage_results` | integer | 200 | Cap on `find_large_files` and `disk_scan_*` results. |
 | `max_events` | integer | 200 | Cap on event log results. |
 | `max_services` | integer | 500 | Cap on `list_services` results. |
 | `max_windows` | integer | 500 | Cap on `list_windows` results. |
 | `max_tabs` | integer | 200 | Cap on `chrome_list_tabs` results. |
 | `max_snapshot_processes` | integer | 25 | Top-N processes in `snapshot`. |
-| `max_find_depth` | integer | 8 | Recursion depth for `find_large_files`. |
+| `max_find_depth` | integer | 8 | Recursion depth for `get_process_tree`. |
 | `max_payload_bytes` | integer | 2000000 | Cap on any single serialized MCP response payload. |
 | `operation_timeout_ms` | integer | 30000 | Default timeout for a single tool operation. |
 

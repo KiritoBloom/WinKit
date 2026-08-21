@@ -28,7 +28,7 @@ mode = "read_only"
 enabled = ["windows", "chrome"]
 
 [tools]
-# Tools to disable entirely, e.g. ["find_large_files"].
+# Tools to disable entirely, e.g. ["snapshot"].
 disabled = []
 # Active tool profile: core | developer | browser | full. tools/list exposes
 # only the tools of the effective profile.
@@ -65,7 +65,6 @@ max_redirects = 10
 # Result caps for AI-agent requests (which can be broad).
 max_processes = 500
 max_network_results = 1000
-max_storage_results = 200
 max_events = 200
 max_services = 500
 max_windows = 500

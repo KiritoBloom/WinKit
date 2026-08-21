@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Disk-scan tool family** - `disk_scan`, `disk_scan_start`, `disk_scan_status`,
+  `disk_scan_cancel`, `disk_scan_largest_files`, `disk_scan_largest_folders`,
+  `disk_scan_folder_size`, `disk_scan_find`, and `find_large_files` are removed.
+  Recursive filesystem scanning was slow without an elevated token, could
+  consume large amounts of RAM/CPU on big volumes, and duplicated what
+  dedicated tools do better. Storage observability keeps the cheap,
+  read-only surface: `list_drives`, `disk_usage`, `disk_health`,
+  `disk_performance`. The `limits.max_storage_results` config key is gone
+  with it (configs containing it are rejected; delete the line).
+
 ## [0.1.7] - 2026-08-21
 
 ### Fixed

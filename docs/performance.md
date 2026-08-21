@@ -65,15 +65,9 @@ dispatch, and provider work. This is what a client actually experiences.
 | `disk_performance` | 3 | 6377 | 6405 | 6538 |
 | `chrome_tab_trend` | 2 | 10458 | 10612 | 10612 |
 
-Not benchmarked: `find_large_files`, `get_application_errors`,
-`get_system_errors`, `chrome_get_active_tab`, and the `disk_scan_*` family
-(pathological or environment-dependent by nature - whole-volume scans and
-event-log reads vary wildly with the machine). For the `disk_scan_*` family
-specifically: with an elevated token the NTFS fast path streams a volume in
-seconds, while without one the fallback walks the tree in parallel and is
-bound by the disk - on the benchmark machine a full 4.2 M-entry volume
-takes roughly 100 seconds, versus about 18 minutes when the enumeration is
-serialized (see [docs/tools.md](tools.md)).
+Not benchmarked: `get_application_errors`,
+`get_system_errors`, and `chrome_get_active_tab`
+(event-log reads vary wildly with the machine).
 
 ## Reading the numbers
 

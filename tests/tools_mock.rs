@@ -140,51 +140,6 @@ async fn disabled_tool_is_rejected() {
 }
 
 #[tokio::test]
-async fn disk_scan_tool_returns_mock_info() {
-    let state = mock_state("read_only");
-    let out = call(&state, "disk_scan", json!({ "path": "C:\\" }))
-        .await
-        .unwrap();
-    let scan = &out["scan"];
-    assert_eq!(scan["volume"], "C:\\");
-    assert_eq!(scan["scanner"], "recursive_fallback");
-    assert!(scan["fast_path_unavailable"].is_string());
-    assert_eq!(scan["files_indexed"], 0);
-}
-
-#[tokio::test]
-async fn disk_scan_requires_path() {
-    let state = mock_state("read_only");
-    let err = call(&state, "disk_scan", json!({})).await.unwrap_err();
-    assert_eq!(err.kind, ErrorKind::InvalidArgument);
-    assert!(err.message.contains("path"));
-}
-
-#[tokio::test]
-async fn disk_scan_status_unknown_id_is_not_found() {
-    let state = mock_state("read_only");
-    let err = call(&state, "disk_scan_status", json!({ "scan_id": "scan-999" }))
-        .await
-        .unwrap_err();
-    assert_eq!(err.kind, ErrorKind::NotFound);
-}
-
-#[tokio::test]
-async fn disk_scan_query_reports_mock_limitation() {
-    let state = mock_state("read_only");
-    // The mock backend has no snapshot; the query tool must surface that
-    // honestly instead of inventing numbers.
-    let err = call(
-        &state,
-        "disk_scan_largest_files",
-        json!({ "path": "C:\\", "limit": 5 }),
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(err.kind, ErrorKind::NotFound);
-}
-
-#[tokio::test]
 async fn snapshot_is_structured_and_bounded() {
     let state = mock_state("read_only");
     let out = call(&state, "snapshot", json!({})).await.unwrap();

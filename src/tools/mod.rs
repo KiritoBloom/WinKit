@@ -10,7 +10,6 @@ pub mod browser;
 pub mod chrome;
 pub mod developer;
 pub mod diagnostics;
-pub mod diskscan;
 pub mod events;
 pub mod hardware;
 pub mod health;
@@ -82,15 +81,6 @@ pub fn tool_profiles(name: &str) -> &'static [ToolProfile] {
         | "list_connections"
         | "list_drives"
         | "disk_usage"
-        | "find_large_files"
-        | "disk_scan"
-        | "disk_scan_start"
-        | "disk_scan_status"
-        | "disk_scan_cancel"
-        | "disk_scan_largest_files"
-        | "disk_scan_largest_folders"
-        | "disk_scan_folder_size"
-        | "disk_scan_find"
         | "list_services"
         | "get_service"
         | "get_recent_events"
@@ -218,15 +208,6 @@ impl ToolRegistry {
         registry.register(network::list_connections_definition());
         registry.register(storage::list_drives_definition());
         registry.register(storage::disk_usage_definition());
-        registry.register(storage::find_large_files_definition());
-        registry.register(diskscan::disk_scan_definition());
-        registry.register(diskscan::disk_scan_start_definition());
-        registry.register(diskscan::disk_scan_status_definition());
-        registry.register(diskscan::disk_scan_cancel_definition());
-        registry.register(diskscan::disk_scan_largest_files_definition());
-        registry.register(diskscan::disk_scan_largest_folders_definition());
-        registry.register(diskscan::disk_scan_folder_size_definition());
-        registry.register(diskscan::disk_scan_find_definition());
         registry.register(services::list_services_definition());
         registry.register(services::get_service_definition());
         registry.register(events::get_recent_events_definition());
@@ -671,16 +652,7 @@ mod tests {
         "diagnose_workspace",
         "disk_health",
         "disk_performance",
-        "disk_scan",
-        "disk_scan_cancel",
-        "disk_scan_find",
-        "disk_scan_folder_size",
-        "disk_scan_largest_files",
-        "disk_scan_largest_folders",
-        "disk_scan_start",
-        "disk_scan_status",
         "disk_usage",
-        "find_large_files",
         "find_process",
         "find_process_on_port",
         "get_application",
@@ -792,9 +764,9 @@ mod tests {
         // developer/full, so browser = developer group + browser group only.
         for (profile, expected) in [
             ("core", 5),
-            ("developer", 55),
-            ("browser", 58),
-            ("full", 72),
+            ("developer", 46),
+            ("browser", 49),
+            ("full", 63),
         ] {
             let mut cfg = Config::default();
             cfg.tools.profile = profile.to_string();

@@ -9,7 +9,6 @@ use crate::errors::WinkitError;
 use crate::models::*;
 use crate::platform::windows::processes::ProcessEntry;
 use crate::providers::windows::{ChromeProcessSummary, WindowsBackend};
-use std::sync::atomic::AtomicBool;
 
 /// A deterministic mock of the Windows backend, seeded with the synthetic
 /// fixtures used by the test suite.
@@ -339,65 +338,6 @@ impl WindowsBackend for MockWindowsBackend {
             used_bytes: Some(600_000_000_000),
             percent_used: Some(60.0),
         })
-    }
-
-    fn find_large_files(
-        &self,
-        request: FindLargeFilesRequest,
-    ) -> Result<Vec<FileEntry>, WinkitError> {
-        let cancel = AtomicBool::new(false);
-        if !request.path.is_dir() {
-            return Ok(Vec::new());
-        }
-        crate::platform::windows::storage::find_large_files(&request, &cancel)
-    }
-
-    fn disk_scan(&self, _request: &DiskScanRequest) -> Result<DiskScanInfo, WinkitError> {
-        Ok(DiskScanInfo {
-            volume: "C:\\".into(),
-            filesystem: "NTFS".into(),
-            scanner: ScannerKind::RecursiveFallback.as_str().into(),
-            fast_path_unavailable: Some("mock backend: no real volume access".into()),
-            cached: false,
-            cache_age_ms: None,
-            scan_duration_ms: 0,
-            scanned_at: None,
-            files_indexed: 0,
-            directories_indexed: 0,
-            hard_links: 0,
-            reparse_points: 0,
-            orphans: 0,
-            size_unknown: 0,
-            stale_records_dropped: 0,
-            duplicate_names_dropped: 0,
-            total_logical_bytes: 0,
-            capacity: None,
-            largest_files: Vec::new(),
-            largest_folders: Vec::new(),
-        })
-    }
-
-    fn disk_scan_start(
-        &self,
-        _request: &DiskScanRequest,
-    ) -> Result<DiskScanStatusInfo, WinkitError> {
-        Err(WinkitError::unsupported_capability(
-            "background disk scans require the real Windows backend",
-        ))
-    }
-
-    fn disk_scan_status(&self, _scan_id: &str) -> Result<Option<DiskScanStatusInfo>, WinkitError> {
-        Ok(None)
-    }
-
-    fn disk_scan_cancel(&self, _scan_id: &str) -> Result<bool, WinkitError> {
-        Ok(false)
-    }
-
-    fn disk_scan_query(&self, _request: &DiskQueryRequest) -> Result<DiskQueryResult, WinkitError> {
-        Err(WinkitError::not_found(
-            "no disk snapshot available in the mock backend",
-        ))
     }
 
     fn list_services(&self, limit: usize) -> Result<Vec<ServiceInfo>, WinkitError> {

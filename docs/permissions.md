@@ -17,7 +17,7 @@ but nothing in v1 can ever be granted them.
 | System read | `system.read` | `system_info`, `snapshot` |
 | Process read | `process.read` | `list_processes`, `get_process`, `get_process_tree`, `find_process`, `dev_environment`, `system_health`, `system_diagnose` |
 | Network read | `network.read` | `list_listening_ports`, `find_process_on_port`, `list_network_interfaces`, `list_connections` |
-| Storage read | `storage.read` | `list_drives`, `disk_usage`, `find_large_files`, `disk_scan`, `disk_scan_start`, `disk_scan_status`, `disk_scan_cancel`, `disk_scan_largest_files`, `disk_scan_largest_folders`, `disk_scan_folder_size`, `disk_scan_find` |
+| Storage read | `storage.read` | `list_drives`, `disk_usage` |
 | Service read | `service.read` | `list_services`, `get_service` |
 | Event read | `event.read` | `get_recent_events`, `get_application_errors`, `get_system_errors`, `crash_history`, `shutdown_analysis` |
 | Window read | `window.read` | `list_windows` |
