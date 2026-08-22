@@ -6,49 +6,100 @@
 
 use crate::errors::WinkitError;
 use crate::models::{
-    InstalledSoftware, RegistryCounts, RegistryDiagnostics, StartupProgram, SystemIdentity,
+    assess_startup_impact, extract_executable_path, InstalledSoftware, RegistryCounts,
+    RegistryDiagnostics, StartupProgram, SystemIdentity,
 };
 use crate::utils::{to_wide, wide_to_string};
+use std::path::PathBuf;
 use std::ptr::null_mut;
 use windows_sys::Win32::Foundation::ERROR_NO_MORE_ITEMS;
 use windows_sys::Win32::System::Registry::{
     RegCloseKey, RegEnumKeyExW, RegEnumValueW, RegOpenKeyExW, RegQueryValueExW, HKEY,
-    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, REG_DWORD, REG_EXPAND_SZ, REG_SZ,
+    HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, REG_DWORD, REG_EXPAND_SZ, REG_MULTI_SZ,
+    REG_SZ,
 };
 
 const KEY_WOW64_64KEY: u32 = 0x0100;
 const REG_ACCESS: u32 = KEY_READ | KEY_WOW64_64KEY;
 
 const OS_IDENTITY_KEY: &str = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
-const RUN_KEYS: &[(HKEY, &str, &str)] = &[
-    (
-        HKEY_LOCAL_MACHINE,
-        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
-        "machine",
-    ),
-    (
-        HKEY_LOCAL_MACHINE,
-        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
-        "machine",
-    ),
-    (
-        HKEY_LOCAL_MACHINE,
-        "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run",
-        "machine",
-    ),
-    (
-        HKEY_CURRENT_USER,
-        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
-        "user",
-    ),
-    (
-        HKEY_CURRENT_USER,
-        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
-        "user",
-    ),
-];
-const STARTUP_APPROVED_KEY: &str =
+
+/// One allowlisted Run/RunOnce source key with the `StartupApproved`
+/// subkey(s) that carry its enabled/disabled state. `hidden` marks entries
+/// Windows does not surface in Task Manager's Startup apps list.
+struct RunSource {
+    root: HKEY,
+    key_path: &'static str,
+    scope: &'static str,
+    entry_type: &'static str,
+    hidden: bool,
+    /// Tried in order; the first key that exists and contains the value
+    /// name decides the state (Task Manager writes per-scope variants).
+    approved: &'static [&'static str],
+}
+
+const APPROVED_RUN: &str =
     "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
+const APPROVED_RUN32: &str =
+    "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run32";
+const APPROVED_RUN_ONCE: &str =
+    "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\RunOnce";
+const RUN_SOURCES: &[RunSource] = &[
+    RunSource {
+        root: HKEY_LOCAL_MACHINE,
+        key_path: "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+        scope: "machine",
+        entry_type: "run",
+        hidden: false,
+        approved: &[APPROVED_RUN],
+    },
+    RunSource {
+        root: HKEY_LOCAL_MACHINE,
+        key_path: "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+        scope: "machine",
+        entry_type: "run_once",
+        // Task Manager's Startup apps list does not show RunOnce entries.
+        hidden: true,
+        approved: &[APPROVED_RUN_ONCE],
+    },
+    RunSource {
+        root: HKEY_LOCAL_MACHINE,
+        key_path: "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Run",
+        scope: "machine",
+        entry_type: "run",
+        hidden: false,
+        approved: &[
+            "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
+            APPROVED_RUN32,
+        ],
+    },
+    RunSource {
+        root: HKEY_CURRENT_USER,
+        key_path: "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+        scope: "user",
+        entry_type: "run",
+        hidden: false,
+        approved: &[APPROVED_RUN],
+    },
+    RunSource {
+        root: HKEY_CURRENT_USER,
+        key_path: "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce",
+        scope: "user",
+        entry_type: "run_once",
+        hidden: true,
+        approved: &[APPROVED_RUN_ONCE],
+    },
+];
+
+const WINLOGON_KEY: &str = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon";
+/// Winlogon values that launch executables, checked in this order.
+const WINLOGON_VALUES: &[&str] = &["Userinit", "Shell", "AppSetup", "Taskman", "UIHost"];
+const ACTIVE_SETUP_KEYS: &[&str] = &[
+    "SOFTWARE\\Microsoft\\Active Setup\\Installed Components",
+    "SOFTWARE\\WOW6432Node\\Microsoft\\Active Setup\\Installed Components",
+];
+const APPROVED_STARTUP_FOLDER: &str =
+    "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\StartupFolder";
 const UNINSTALL_KEYS: &[&str] = &[
     "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
     "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall",
@@ -119,46 +170,320 @@ fn read_system_identity(warnings: &mut Vec<String>) -> SystemIdentity {
     }
 }
 
+/// Intermediate entry before impact enrichment.
+struct RawStartup {
+    name: String,
+    command: String,
+    scope: String,
+    source_key: String,
+    enabled: bool,
+    entry_type: String,
+    hidden: bool,
+}
+
 fn read_startup_programs(warnings: &mut Vec<String>) -> Vec<StartupProgram> {
-    let mut out = Vec::new();
-    for (root, path, scope) in RUN_KEYS {
-        match open_key(*root, path) {
+    let mut raw = Vec::new();
+
+    // 1. Run/RunOnce registry keys (HKLM, HKCU, WOW6432Node).
+    for src in RUN_SOURCES {
+        match open_key(src.root, src.key_path) {
             Ok(key) => {
                 for (name, command) in enum_string_values(key) {
-                    let enabled = startup_entry_enabled(*root, &name);
-                    out.push(StartupProgram {
+                    let enabled = startup_entry_enabled(src.root, src.approved, &name);
+                    raw.push(RawStartup {
                         name,
                         command,
-                        scope: (*scope).to_string(),
+                        scope: src.scope.to_string(),
                         source_key: format!(
                             "{}\\{}",
-                            if *root == HKEY_LOCAL_MACHINE {
+                            if src.root == HKEY_LOCAL_MACHINE {
                                 "HKLM"
                             } else {
                                 "HKCU"
                             },
-                            path
+                            src.key_path
                         ),
                         enabled,
+                        entry_type: src.entry_type.to_string(),
+                        hidden: src.hidden,
                     });
                 }
                 unsafe { RegCloseKey(key) };
             }
-            Err(_) => warnings.push(format!("unable to open registry key (Run) {path}")),
+            Err(_) => warnings.push(format!(
+                "unable to open registry key (Run) {}",
+                src.key_path
+            )),
         }
     }
+
+    // 2. Winlogon boot-phase executables (hidden from Startup apps).
+    read_winlogon_entries(&mut raw, warnings);
+
+    // 3. Session Manager BootExecute (runs before logon; hidden).
+    read_boot_execute_entry(&mut raw, warnings);
+
+    // 4. Active Setup StubPath components (per-user logon stubs; hidden).
+    read_active_setup_entries(&mut raw, warnings);
+
+    // 5. Startup folder items (user + all-users .lnk files).
+    read_startup_folder_entries(&mut raw, warnings);
+
+    let out: Vec<StartupProgram> = raw
+        .into_iter()
+        .map(|entry| {
+            // Expand %VAR% segments for the size probe only; the reported
+            // command keeps its original text.
+            let exe_size = extract_executable_path(&entry.command)
+                .map(crate::platform::windows::environment::expand_env_vars)
+                .and_then(|path| std::fs::metadata(path).ok())
+                .map(|meta| meta.len());
+            let (impact, reasons) =
+                assess_startup_impact(&entry.entry_type, &entry.command, exe_size, entry.enabled);
+            StartupProgram {
+                name: entry.name,
+                command: entry.command,
+                scope: entry.scope,
+                source_key: entry.source_key,
+                enabled: entry.enabled,
+                entry_type: entry.entry_type,
+                hidden: entry.hidden,
+                impact,
+                impact_reasons: reasons,
+            }
+        })
+        .collect();
     out
 }
 
-fn startup_entry_enabled(root: HKEY, name: &str) -> bool {
-    match open_key(root, STARTUP_APPROVED_KEY) {
-        Ok(key) => {
-            let bytes = read_value_bytes(key, name);
-            unsafe { RegCloseKey(key) };
-            startup_approved_enabled(bytes.as_deref().unwrap_or(&[]))
+/// Split a Winlogon value (comma-separated executables) into individual
+/// commands, dropping empty segments (e.g. the trailing `"userinit.exe,"`).
+fn split_winlogon_command(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(|segment| segment.trim().to_string())
+        .filter(|segment| !segment.is_empty())
+        .collect()
+}
+
+/// Winlogon values are comma-separated lists of executables run during
+/// logon. Each non-empty segment becomes one entry; there is no approval
+/// mechanism, so these always report as enabled.
+fn read_winlogon_entries(out: &mut Vec<RawStartup>, warnings: &mut Vec<String>) {
+    const ROOT_TEXT: &str = "HKLM";
+    let Ok(key) = open_key(HKEY_LOCAL_MACHINE, WINLOGON_KEY) else {
+        warnings.push(format!(
+            "unable to open registry key (Winlogon) {WINLOGON_KEY}"
+        ));
+        return;
+    };
+    for value_name in WINLOGON_VALUES {
+        if let Some(value) = read_value_string(key, value_name) {
+            let segments = split_winlogon_command(&value);
+            let multiple = segments.len() > 1;
+            for (index, segment) in segments.into_iter().enumerate() {
+                let name = if multiple {
+                    format!("{value_name} #{}", index + 1)
+                } else {
+                    (*value_name).to_string()
+                };
+                out.push(RawStartup {
+                    name,
+                    command: segment,
+                    scope: "machine".to_string(),
+                    source_key: format!("{ROOT_TEXT}\\{WINLOGON_KEY}"),
+                    enabled: true,
+                    entry_type: "winlogon".to_string(),
+                    hidden: true,
+                });
+            }
         }
-        Err(_) => true,
     }
+    unsafe { RegCloseKey(key) };
+}
+
+/// `Session Manager\BootExecute` is a REG_MULTI_SZ executed by smss at
+/// boot, before any user session exists.
+fn read_boot_execute_entry(out: &mut Vec<RawStartup>, warnings: &mut Vec<String>) {
+    let Ok(key) = open_key(HKEY_LOCAL_MACHINE, SESSION_MANAGER) else {
+        warnings.push(format!(
+            "unable to open registry key (Session Manager) {SESSION_MANAGER}"
+        ));
+        return;
+    };
+    for (index, command) in read_value_multi_sz(key, "BootExecute")
+        .into_iter()
+        .filter(|s| !s.trim().is_empty())
+        .enumerate()
+    {
+        let name = if index == 0 {
+            "BootExecute".to_string()
+        } else {
+            format!("BootExecute #{}", index + 1)
+        };
+        out.push(RawStartup {
+            name,
+            command,
+            scope: "machine".to_string(),
+            source_key: format!("HKLM\\{SESSION_MANAGER}"),
+            enabled: true,
+            entry_type: "boot_execute".to_string(),
+            hidden: true,
+        });
+    }
+    unsafe { RegCloseKey(key) };
+}
+
+/// Open an absolute HKLM subkey path (root key + full path).
+fn open_hklm_path(path: &str) -> Option<HKEY> {
+    let path_wide = to_wide(path);
+    let mut key = null_mut();
+    let rc = unsafe {
+        RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            path_wide.as_ptr(),
+            0,
+            REG_ACCESS,
+            &mut key,
+        )
+    };
+    if rc == 0 && !key.is_null() {
+        Some(key)
+    } else {
+        None
+    }
+}
+
+/// Active Setup runs each component's `StubPath` once per user at logon.
+/// `IsInstalled = 0` marks a component disabled.
+fn read_active_setup_entries(out: &mut Vec<RawStartup>, warnings: &mut Vec<String>) {
+    for base_path in ACTIVE_SETUP_KEYS {
+        let Ok(base) = open_key(HKEY_LOCAL_MACHINE, base_path) else {
+            warnings.push(format!(
+                "unable to open registry key (Active Setup) {base_path}"
+            ));
+            continue;
+        };
+        for subkey_name in enum_subkeys(base) {
+            let subkey_path = format!("{base_path}\\{subkey_name}");
+            let Some(subkey) = open_hklm_path(&subkey_path) else {
+                continue;
+            };
+            let stub = read_value_string(subkey, "StubPath");
+            let display = read_value_string(subkey, "")
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| subkey_name.clone());
+            let installed = read_value_dword(subkey, "IsInstalled");
+            unsafe { RegCloseKey(subkey) };
+            let Some(stub) = stub.filter(|s| !s.trim().is_empty()) else {
+                continue;
+            };
+            out.push(RawStartup {
+                name: display,
+                command: stub,
+                scope: "machine".to_string(),
+                source_key: format!("HKLM\\{subkey_path}"),
+                enabled: installed != Some(0),
+                entry_type: "active_setup".to_string(),
+                hidden: true,
+            });
+        }
+        unsafe { RegCloseKey(base) };
+    }
+}
+
+/// Explorer metadata files inside a Startup folder (`desktop.ini`,
+/// dotfiles) are never autostart entries.
+fn is_startup_folder_metadata(file_name: &str) -> bool {
+    let lower = file_name.to_ascii_lowercase();
+    lower == "desktop.ini" || lower.starts_with('.')
+}
+
+/// Startup-folder items (`shell:startup` and `shell:common startup`) are
+/// plain `.lnk`/`.exe` files; their approved state lives under
+/// `StartupApproved\StartupFolder` (HKCU per-user, HKLM machine-wide).
+fn read_startup_folder_entries(out: &mut Vec<RawStartup>, _warnings: &mut Vec<String>) {
+    let folders: [(String, &str); 2] = [
+        (std::env::var("APPDATA").unwrap_or_default(), "user"),
+        (std::env::var("PROGRAMDATA").unwrap_or_default(), "machine"),
+    ];
+    for (base, scope) in folders.into_iter().filter(|(base, _)| !base.is_empty()) {
+        let dir = PathBuf::from(base)
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs")
+            .join("Startup");
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            // A missing Startup folder is normal (no items); not a warning.
+            continue;
+        };
+        for item in entries.flatten() {
+            let path = item.path();
+            if path.is_dir() {
+                continue;
+            }
+            let raw_name = item.file_name();
+            if is_startup_folder_metadata(&raw_name.to_string_lossy()) {
+                continue;
+            }
+            let file_name = item.file_name();
+            let name = std::path::Path::new(&file_name)
+                .file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+                .unwrap_or_else(|| file_name.to_string_lossy().into_owned());
+            let command = path.to_string_lossy().into_owned();
+            let enabled = startup_folder_enabled(&name);
+            out.push(RawStartup {
+                name,
+                command,
+                scope: scope.to_string(),
+                source_key: dir.to_string_lossy().into_owned(),
+                enabled,
+                entry_type: "startup_folder".to_string(),
+                hidden: false,
+            });
+        }
+    }
+}
+
+/// Approved state for a Startup-folder item name; HKCU first (Task
+/// Manager writes per-user), then HKLM.
+fn startup_folder_enabled(item_name: &str) -> bool {
+    for root in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        match open_key(root, APPROVED_STARTUP_FOLDER) {
+            Ok(key) => {
+                let bytes = read_value_bytes(key, item_name);
+                unsafe { RegCloseKey(key) };
+                if let Some(bytes) = bytes {
+                    return startup_approved_enabled(&bytes);
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    true
+}
+
+/// Resolve the enabled state from the first allowlisted `StartupApproved`
+/// key that both opens and contains the value name. Absent entries mean
+/// enabled, matching Task Manager's behavior.
+fn startup_entry_enabled(root: HKEY, approved_paths: &[&str], name: &str) -> bool {
+    for path in approved_paths {
+        match open_key(root, path) {
+            Ok(key) => {
+                let bytes = read_value_bytes(key, name);
+                unsafe { RegCloseKey(key) };
+                if let Some(bytes) = bytes {
+                    return startup_approved_enabled(&bytes);
+                }
+                // Key opened but no such value: keep checking fallback keys
+                // (e.g. WOW6432Node Run may store state in Run32).
+            }
+            Err(_) => continue,
+        }
+    }
+    true
 }
 
 /// State byte at offset 0 of a `StartupApproved\Run` value: `0x02` enabled,
@@ -369,6 +694,54 @@ fn read_value_dword(key: HKEY, name: &str) -> Option<u32> {
     }
 }
 
+/// Read a `REG_MULTI_SZ` value as a list of strings (empty when the value
+/// is absent or of another type).
+fn read_value_multi_sz(key: HKEY, name: &str) -> Vec<String> {
+    let name_wide = to_wide(name);
+    let mut len: u32 = 0;
+    let mut ty: u32 = 0;
+    let rc = unsafe {
+        RegQueryValueExW(
+            key,
+            name_wide.as_ptr(),
+            null_mut(),
+            &mut ty,
+            null_mut(),
+            &mut len,
+        )
+    };
+    if rc != 0 || ty != REG_MULTI_SZ || len == 0 {
+        return Vec::new();
+    }
+    let mut buf = vec![0u8; len as usize];
+    let mut size = len;
+    let rc = unsafe {
+        RegQueryValueExW(
+            key,
+            name_wide.as_ptr(),
+            null_mut(),
+            null_mut(),
+            buf.as_mut_ptr(),
+            &mut size,
+        )
+    };
+    if rc != 0 {
+        return Vec::new();
+    }
+    buf.truncate(size as usize);
+    let units: Vec<u16> = buf
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    // The buffer is NUL-separated and double-NUL terminated.
+    units
+        .split(|&u| u == 0)
+        .filter(|segment| !segment.is_empty())
+        .map(wide_to_string)
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 fn read_value_bytes(key: HKEY, name: &str) -> Option<Vec<u8>> {
     let name_wide = to_wide(name);
     let mut len: u32 = 0;
@@ -503,6 +876,56 @@ mod tests {
         assert!(startup_approved_enabled(&[0x00, 0x00]));
         assert!(startup_approved_enabled(&[]));
         assert!(startup_approved_enabled(&[0x01]));
+    }
+
+    #[test]
+    fn winlogon_command_splits_on_commas_and_drops_empties() {
+        assert_eq!(
+            split_winlogon_command("C:\\Windows\\system32\\userinit.exe,"),
+            vec!["C:\\Windows\\system32\\userinit.exe"]
+        );
+        assert_eq!(
+            split_winlogon_command("explorer.exe , progman.exe"),
+            vec!["explorer.exe", "progman.exe"]
+        );
+        assert!(split_winlogon_command("").is_empty());
+    }
+
+    #[test]
+    fn startup_folder_metadata_files_are_skipped() {
+        assert!(is_startup_folder_metadata("desktop.ini"));
+        assert!(is_startup_folder_metadata("DESKTOP.INI"));
+        assert!(is_startup_folder_metadata(".hidden"));
+        // Real autostart items are never metadata.
+        assert!(!is_startup_folder_metadata("clock2.lnk"));
+        assert!(!is_startup_folder_metadata("tool.exe"));
+    }
+
+    #[test]
+    fn run_sources_cover_the_five_run_keys_with_hidden_flags() {
+        let paths: Vec<&str> = RUN_SOURCES.iter().map(|s| s.key_path).collect();
+        assert_eq!(paths.len(), 5);
+        assert!(paths.iter().any(|p| p.contains("WOW6432Node")));
+        // RunOnce entries are hidden from Task Manager; Run entries are not.
+        for src in RUN_SOURCES {
+            assert_eq!(
+                src.hidden,
+                src.entry_type == "run_once",
+                "{} hidden flag wrong",
+                src.key_path
+            );
+            assert!(
+                !src.approved.is_empty(),
+                "{} has no approved key",
+                src.key_path
+            );
+        }
+        // The WOW64 Run entry falls back to the native Run32 approved key.
+        let wow64 = RUN_SOURCES
+            .iter()
+            .find(|s| s.key_path.contains("WOW6432Node"))
+            .unwrap();
+        assert_eq!(wow64.approved.len(), 2);
     }
 
     #[test]

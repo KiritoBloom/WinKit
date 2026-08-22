@@ -202,7 +202,7 @@ Every tool below is **read-only**. Full reference with argument schemas:
 - **"What's eating disk space in D:\dev?"** → `directory_overview`
 - **"Why won't my tool start?"** → `audit_path_env` + `dev_environment`
 - **"Is a reboot pending?"** → `system_update_status`
-- **"What starts with my PC?"** → `startup_programs`
+- **"What starts with my PC, and what slows it down?"** → `startup_programs` (enabled/disabled state, hidden autostarts, impact estimates)
 
 ## Architecture
 

@@ -42,7 +42,8 @@ pub use health::{
 pub use network::{ConnectionInfo, NetworkInterfaceInfo, PortInfo, TcpState};
 pub use process::{CpuTime, ProcessInfo, ProcessMemory, ProcessOnPort, ProcessTreeNode};
 pub use registry::{
-    InstalledSoftware, RegistryCounts, RegistryDiagnostics, StartupProgram, SystemIdentity,
+    assess_startup_impact, extract_executable_path, InstalledSoftware, RegistryCounts,
+    RegistryDiagnostics, StartupProgram, SystemIdentity,
 };
 pub use service::ServiceInfo;
 pub use storage::{DiskUsage, DriveInfo};

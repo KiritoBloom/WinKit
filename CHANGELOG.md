@@ -5,6 +5,40 @@ All notable changes to WinKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Startup tools: full status, impact estimates, hidden autostarts** -
+  `startup_programs` (and `registry_diagnostics`) now return a complete
+  autostart inventory instead of only Run/RunOnce entries:
+  - **Current status per entry**: command line, machine/user scope,
+    source key, entry type (`run`, `run_once`, `startup_folder`,
+    `winlogon`, `boot_execute`, `active_setup`), and enabled/disabled
+    state resolved from the matching `StartupApproved` subkey - including
+    `Run32` for WOW6432Node Run entries and `RunOnce` variants that were
+    previously checked against the wrong key.
+  - **Hidden startups**: Winlogon values (`Userinit`, `Shell`, `AppSetup`,
+    `Taskman`, `UIHost`), Session Manager's `BootExecute`, Active Setup
+    `StubPath` components (with `IsInstalled = 0` reported as disabled),
+    and Startup-folder items are all included; every entry carries a
+    `hidden` flag marking whether Task Manager's Startup apps list shows
+    it (`run_once` and the boot-phase sources are hidden).
+  - **Impact estimates**: each entry gets `impact`
+    (`high`/`medium`/`low`; `none` when disabled) with transparent
+    `impact_reasons`, derived from entry type, executable size, and
+    command location (Temp-directory executables rank high). The response
+    adds `disabled`, `hidden_count`, an `impact_summary`, and honest
+    notes: impact ratings are heuristics - exact boot-phase timing is not
+    proven because WinKit's read-only data does not include boot
+    performance traces. These signals still account for the vast majority
+    of "clunky startup" cases on otherwise-healthy hardware.
+
+### Fixed
+
+- `desktop.ini` (and dotfiles) in Startup folders are no longer reported
+  as autostart entries.
+
 ## [0.3.2] - 2026-08-22
 
 ### Fixed

@@ -72,6 +72,42 @@ async fn find_process_on_port_uses_mock_data() {
 }
 
 #[tokio::test]
+async fn startup_programs_reports_status_impact_and_hidden_entries() {
+    let state = mock_state("read_only");
+    let out = call(&state, "startup_programs", json!({})).await.unwrap();
+    // Fixture: OneDrive (enabled run), OldTool (disabled run),
+    // TelemetrySetup (hidden run_once).
+    assert_eq!(out["count"], 3);
+    assert_eq!(out["enabled"], 2);
+    assert_eq!(out["disabled"], 1);
+    assert_eq!(out["hidden_count"], 1);
+    let summary = out["impact_summary"].as_object().unwrap();
+    let total_by_impact: usize = summary.values().map(|v| v.as_u64().unwrap() as usize).sum();
+    assert_eq!(total_by_impact, 3, "impact summary covers every entry");
+    let programs = out["startup_programs"].as_array().unwrap();
+    for entry in programs {
+        // Every entry carries the enrichment fields.
+        assert!(entry["entry_type"].is_string());
+        assert!(entry["hidden"].is_boolean());
+        assert!(
+            ["high", "medium", "low", "none"]
+                .contains(&entry["impact"].as_str().unwrap_or_default()),
+            "unexpected impact level: {entry}"
+        );
+        assert!(entry["impact_reasons"].is_array());
+    }
+    // Disabled entries never report a measurable impact level.
+    assert!(programs
+        .iter()
+        .all(|e| e["enabled"] == false || e["impact"] != "none"));
+    // The boot-timing limitation note is always included.
+    let notes = out["notes"].as_array().unwrap();
+    assert!(notes
+        .iter()
+        .any(|n| n.as_str().unwrap_or_default().contains("boot-phase timing")));
+}
+
+#[tokio::test]
 async fn get_process_unknown_pid_is_invalid_argument() {
     let state = mock_state("read_only");
     let err = call(&state, "get_process", json!({ "pid": 999999 }))

@@ -93,7 +93,11 @@ temperature alone.
 
 ## 7. "What starts with my PC?" / "Is a reboot pending?"
 
-1. `startup_programs` - Run/RunOnce autostart entries with enabled state.
+1. `startup_programs` - the full autostart inventory: Run/RunOnce keys,
+   Startup folders, and hidden sources (Winlogon, BootExecute, Active
+   Setup), each with enabled/disabled state, a hidden-from-Task-Manager
+   flag, and a heuristic impact rating (exact boot-phase timing is not
+   measured; impact is an estimate).
 2. `registry_diagnostics` - installed software and OS identity from the
    allowlisted registry surface.
 3. `system_update_status` - pending-reboot markers and recent hotfixes.

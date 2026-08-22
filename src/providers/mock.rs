@@ -157,6 +157,10 @@ impl MockWindowsBackend {
                         source_key: "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
                             .into(),
                         enabled: true,
+                        entry_type: "run".into(),
+                        hidden: false,
+                        impact: "medium".into(),
+                        impact_reasons: vec!["executable is sizable (~29 MB)".into()],
                     },
                     StartupProgram {
                         name: "OldTool".into(),
@@ -165,6 +169,27 @@ impl MockWindowsBackend {
                         source_key: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run"
                             .into(),
                         enabled: false,
+                        entry_type: "run".into(),
+                        hidden: false,
+                        impact: "none".into(),
+                        impact_reasons: vec![
+                            "entry is disabled; it does not run at startup until re-enabled"
+                                .to_string(),
+                        ],
+                    },
+                    StartupProgram {
+                        name: "TelemetrySetup".into(),
+                        command: "C:\\Tools\\telemetry_setup.exe /quiet".into(),
+                        scope: "user".into(),
+                        source_key: "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+                            .into(),
+                        enabled: true,
+                        entry_type: "run_once".into(),
+                        hidden: true,
+                        impact: "low".into(),
+                        impact_reasons: vec![
+                            "one-shot entry; Windows deletes it after the next logon".into(),
+                        ],
                     },
                 ],
                 installed_software: vec![
@@ -182,7 +207,7 @@ impl MockWindowsBackend {
                     },
                 ],
                 counts: RegistryCounts {
-                    startup_programs: 2,
+                    startup_programs: 3,
                     installed_software: 2,
                 },
                 warnings: Vec::new(),

@@ -18,7 +18,7 @@ use windows_sys::Win32::System::Environment::ExpandEnvironmentStringsW;
 
 /// Expand `%VAR%` references via Win32. Returns the input unchanged on any
 /// failure. Bounded to a 32 KiB result buffer like every other read here.
-fn expand_env_vars(input: &str) -> String {
+pub(crate) fn expand_env_vars(input: &str) -> String {
     let wide = to_wide(input);
     unsafe {
         // First call with a null buffer returns the required character count.

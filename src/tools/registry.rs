@@ -63,7 +63,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(out["system_identity"]["product_name"], "Windows 11 Pro");
-        assert_eq!(out["counts"]["startup_programs"], 2);
+        assert_eq!(out["counts"]["startup_programs"], 3);
         assert_eq!(out["counts"]["installed_software"], 2);
         let startup = out["startup_programs"].as_array().unwrap();
         assert!(startup
@@ -72,6 +72,10 @@ mod tests {
         assert!(startup
             .iter()
             .any(|s| s["name"] == "OldTool" && s["enabled"] == false));
+        // Enrichment fields flow through registry_diagnostics too.
+        assert!(startup.iter().any(|s| s["hidden"] == true
+            && s["entry_type"] == "run_once"
+            && s["impact"].is_string()));
     }
 
     #[tokio::test]

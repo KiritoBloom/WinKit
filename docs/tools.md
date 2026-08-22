@@ -308,19 +308,38 @@ Arguments: same as `crash_history`.
 
 Read-only registry diagnostics from a fixed allowlist: OS identity
 (`HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`), startup programs
-(`Run`/`RunOnce` under `HKLM` and `HKCU`, with enabled/disabled state from
-`StartupApproved`), and installed software (`Uninstall` keys under `HKLM`
-and `HKLM\WOW6432Node`, plus `HKCU`). Arbitrary keys are never read; reads
-never exceed the configured timeout and each key is closed after use.
+(same sources and enrichment as `startup_programs`: Run/RunOnce keys,
+Startup folders, Winlogon, BootExecute, Active Setup - with
+enabled/disabled state, hidden flags, and heuristic impact), and installed
+software (`Uninstall` keys under `HKLM` and `HKLM\WOW6432Node`, plus
+`HKCU`). Arbitrary keys are never read; reads never exceed the configured
+timeout and each key is closed after use.
 
 Arguments: `include_software` (default `true`), `max_software` (cap on
 installed-software entries, default 200).
 
 ### `startup_programs`
 
-Just the autostart entries from the registry allowlist - `Run`/`RunOnce`
-under HKLM and HKCU with command line and enabled/disabled state - without
-the full `registry_diagnostics` payload.
+The full autostart inventory with current status, from fixed read-only
+sources:
+
+- `Run` / `RunOnce` keys under HKLM, HKCU, and HKLM's WOW6432Node view,
+  each entry's enabled/disabled state resolved from the matching
+  `StartupApproved` subkey (`Run`, `Run32`, `RunOnce`).
+- Startup folders (`shell:startup`, `shell:common startup`) as file
+  entries, with state from `StartupApproved\StartupFolder`.
+- Hidden autostart locations Task Manager does not list: Winlogon values
+  (`Userinit`, `Shell`, `AppSetup`, `Taskman`, `UIHost`), Session
+  Manager's `BootExecute`, and Active Setup `StubPath` components.
+
+Every entry reports its command line, machine/user scope, source key,
+entry type, enabled/disabled state, whether it is hidden from Task
+Manager's Startup apps list, and a heuristic startup-impact rating
+(`high`/`medium`/`low`; `none` for disabled entries) with transparent
+reasons. The response includes per-level counts plus a note that exact
+boot-phase timing is not measured - impact is an estimate from entry
+type, executable size, and command location, not boot performance traces.
+WinKit stays read-only: it cannot enable, disable, or remove anything.
 
 Arguments: none.
 

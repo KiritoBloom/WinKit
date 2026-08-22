@@ -17,6 +17,15 @@ const MAX_HOTFIXES: usize = 50;
 // startup_programs
 // ---------------------------------------------------------------------------
 
+/// Honest scope note returned with every call: WinKit is read-only, so
+/// impact levels are heuristic estimates from entry metadata — not boot
+/// performance measurements.
+const STARTUP_NOTES: [&str; 3] = [
+    "Impact ratings are heuristic estimates derived from entry type, executable size, and command location - not measurements.",
+    "Not proven: exact boot-phase timing - WinKit's read-only data does not include boot performance traces. Impact plus enabled/disabled state still accounts for the vast majority of 'clunky startup' cases on otherwise-healthy hardware.",
+    "WinKit is read-only: it cannot disable or remove startup entries.",
+];
+
 pub async fn startup_programs_handler(
     state: Arc<AppState>,
     _args: Value,
@@ -24,17 +33,33 @@ pub async fn startup_programs_handler(
     let programs = state.windows.startup_programs()?;
     let count = programs.len();
     let enabled = programs.iter().filter(|p| p.enabled).count();
+    let disabled = count - enabled;
+    let hidden = programs.iter().filter(|p| p.hidden).count();
+    // Impact breakdown over entries that actually run at startup.
+    let mut impact_summary = std::collections::BTreeMap::new();
+    for level in ["high", "medium", "low", "none"] {
+        impact_summary.insert(level.to_string(), 0usize);
+    }
+    for program in &programs {
+        *impact_summary
+            .entry(program.impact.clone())
+            .or_insert(0usize) += 1;
+    }
     Ok(json!({
         "startup_programs": programs,
         "count": count,
         "enabled": enabled,
+        "disabled": disabled,
+        "hidden_count": hidden,
+        "impact_summary": impact_summary,
+        "notes": STARTUP_NOTES,
     }))
 }
 
 pub fn startup_programs_definition() -> ToolDefinition {
     ToolDefinition {
         name: "startup_programs",
-        description: "List autostart entries from Run/RunOnce keys under HKLM and HKCU with their command line and enabled/disabled state (from StartupApproved). Answers \"why does X start with my PC?\" without the full registry_diagnostics payload.",
+        description: "Full autostart inventory with current status: Run/RunOnce keys under HKLM/HKCU/WOW6432Node, Startup folders, and hidden autostart locations (Winlogon, Session Manager BootExecute, Active Setup). Each entry reports its command line, machine/user scope, source key, entry type, enabled/disabled state (from StartupApproved), whether it is hidden from Task Manager's Startup apps list, and a heuristic startup-impact rating (high/medium/low/none) with reasons. Answers \"why does X start with my PC?\" and \"what slows my logon?\". Read-only: exact boot-phase timing is not measured; impact is an estimate.",
         input_schema: json!({
             "type": "object",
             "properties": {},
@@ -131,7 +156,7 @@ fn guide_entries() -> Vec<Value> {
         json!({"symptoms": ["process tree", "child processes", "which process spawned"], "tool": "get_process_tree", "example_args": {"pid": 1234}, "notes": "Bounded-depth ancestry/descendants of one PID."}),
         json!({"symptoms": ["workspace", "project scan", "repo info", "package managers"], "tool": "workspace_snapshot", "example_args": {"workspace_path": "<project dir>"}, "notes": "Languages/frameworks/scripts/git state; diagnose_workspace adds live findings."}),
         json!({"symptoms": ["dev tools missing", "node not found", "PATH broken", "command not recognized", "'git' is not recognized"], "tool": "audit_path_env", "example_args": {}, "notes": "Per-entry existence/duplicate checks; also try dev_environment to see which dev tools probe successfully."}),
-        json!({"symptoms": ["startup programs", "autorun", "runs at boot", "disable startup"], "tool": "startup_programs", "example_args": {}, "notes": "Run/RunOnce entries with enabled state. WinKit is read-only: it cannot disable anything."}),
+        json!({"symptoms": ["startup programs", "autorun", "runs at boot", "disable startup", "slow logon", "slow boot", "hidden startup", "startup impact"], "tool": "startup_programs", "example_args": {}, "notes": "Full autostart inventory: Run/RunOnce + Startup folders + hidden sources (Winlogon, BootExecute, Active Setup), each with enabled/disabled state and a heuristic impact rating (exact boot timing is not measured). WinKit is read-only: it cannot disable anything."}),
     ]
 }
 
@@ -183,8 +208,34 @@ mod tests {
     #[tokio::test]
     async fn startup_programs_uses_registry_fixture() {
         let out = startup_programs_handler(state(), json!({})).await.unwrap();
-        assert_eq!(out["count"], 2);
-        assert_eq!(out["enabled"], 1);
+        // Fixture: OneDrive (enabled run), OldTool (disabled run),
+        // TelemetrySetup (hidden run_once).
+        assert_eq!(out["count"], 3);
+        assert_eq!(out["enabled"], 2);
+        assert_eq!(out["disabled"], 1);
+        assert_eq!(out["hidden_count"], 1);
+        assert_eq!(out["impact_summary"]["medium"], 1);
+        assert_eq!(out["impact_summary"]["none"], 1);
+        assert_eq!(out["impact_summary"]["low"], 1);
+        assert_eq!(out["impact_summary"]["high"], 0);
+        let notes = out["notes"].as_array().unwrap();
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.as_str().unwrap().contains("boot-phase timing")),
+            "the boot-timing limitation note must be present"
+        );
+        let programs = out["startup_programs"].as_array().unwrap();
+        let hidden_entry = programs
+            .iter()
+            .find(|p| p["entry_type"] == "run_once")
+            .expect("fixture has a hidden RunOnce entry");
+        assert_eq!(hidden_entry["hidden"], true);
+        assert_eq!(hidden_entry["impact"], "low");
+        assert!(!hidden_entry["impact_reasons"]
+            .as_array()
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
