@@ -1,6 +1,6 @@
 [package]
 name = "winkit"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.75"
 description = "Local Windows observability and diagnostics platform for AI agents, exposed through MCP."

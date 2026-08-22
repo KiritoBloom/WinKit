@@ -1,25 +1,22 @@
-{
-  "name": "@winkit/win32-arm64-msvc",
-  "version": "0.3.1",
-  "description": "WinKit native binary for Windows ARM64 (MSVC).",
-  "license": "MIT",
-  "os": [
-    "win32"
-  ],
-  "cpu": [
-    "arm64"
-  ],
-  "bin": {
-    "winkit": "bin/winkit.exe"
-  },
-  "files": [
-    "bin",
-    "skills"
-  ],
-  "keywords": [
-    "mcp",
-    "windows",
-    "diagnostics",
-    "devtools"
-  ]
+﻿{
+    "name":  "@winkit/win32-arm64-msvc",
+    "version":  "0.3.2",
+    "description":  "WinKit native binary for Windows ARM64 (MSVC).",
+    "license":  "MIT",
+    "os":  [
+               "win32"
+           ],
+    "cpu":  [
+                "arm64"
+            ],
+    "files":  [
+                  "bin",
+                  "skills"
+              ],
+    "keywords":  [
+                     "mcp",
+                     "windows",
+                     "diagnostics",
+                     "devtools"
+                 ]
 }

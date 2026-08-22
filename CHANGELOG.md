@@ -5,6 +5,19 @@ All notable changes to WinKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-08-22
+
+### Fixed
+
+- **
+px @winkit/mcp / MCP clients failing to start (-32000 Connection closed)** -
+  both native packages declared `"bin": { "winkit": ... }`, colliding with
+  the launcher's own bin name. On x64 installs npm planned the arm64
+  optional dependency, failed its cpu check, and the reify rollback deleted
+  every `winkit` shim (including the launcher's), leaving npx with no way
+  to execute the package. Native packages are libraries resolved by path
+  from the launcher and no longer declare bins.
+- Mojibake em-dash in the launcher package description.
 ## [0.3.1] - 2026-08-21
 
 ### Fixed
