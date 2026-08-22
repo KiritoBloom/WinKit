@@ -66,7 +66,7 @@ Check the binary responds:
 
 ```powershell
 .\target\release\winkit --help
-.\target\release\winkit --version   # prints "winkit 0.3.0"
+.\target\release\winkit --version   # prints "winkit <version>"
 ```
 
 `--help` prints usage and the supported flags (`--config`, `--version`,

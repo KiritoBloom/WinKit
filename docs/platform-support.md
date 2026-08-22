@@ -9,7 +9,7 @@ verified by tests, not aspirational.
 | Target | Status | Native package | Notes |
 | --- | --- | --- | --- |
 | Windows 10/11 x64 | Fully supported | `@winkit/win32-x64-msvc` | The primary development and test target; every release is validated here. |
-| Windows 10/11 ARM64 | Supported (since 0.3.0) | `@winkit/win32-arm64-msvc` | Runs natively on Snapdragon/ARM devices. The launcher picks the package by `process.arch`. |
+| Windows 10/11 ARM64 | Supported (since 0.3.1) | `@winkit/win32-arm64-msvc` | Runs natively on Snapdragon/ARM devices. The launcher picks the package by `process.arch`. |
 | Other platforms | Refused at startup | none | The launcher exits non-zero with an actionable message before any binary runs. |
 
 Notes for ARM64:

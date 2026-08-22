@@ -1,4 +1,4 @@
-﻿# Diagnostics
+# Diagnostics
 
 The diagnostics engine (`src/diagnostics/`) converts measured evidence into
 signals, and signal combinations into possible causes with confidence levels.
@@ -185,7 +185,7 @@ Score formulas (all pure functions of measured values):
 | `storage` | free % ≤ 1 → 100; ≤ 5 → 95; ≤ 10 → 80; ≤ 20 → 60; else 0 | C: at 1% free → 100 |
 | `memory_pressure` | sqrt ramp: √((load − threshold) ÷ (100 − threshold)) × 100 (100 when the span ≤ 0), maxed with the available-memory anchor (available % ≤ 5 → 90, ≤ 10 → 80, ≤ 15 → 60, ≤ 20 → 40, else 0) | 92% load (threshold 85) → 68; 12.5% free (2 GB on 16 GB) → 60 |
 | `app_cpu` | the CPU percent itself (of system capacity), clamped | 57% → 57 |
-| `app_memory` | working set ÷ max(¼ RAM, memory threshold), × 100 | 4.6 GB on 16 GB → 100 |
+| `app_memory` | own working set relative to max(quarter of RAM, memory threshold), times 100; a tree-only signal (descendants heavy, executable light) is scored from the own footprint and capped below medium severity | 4.6 GB on 16 GB = 100 |
 | `memory_growth` | rate ÷ (2 × runaway threshold), × 100 | 62 MB/s (threshold 50) → 62 |
 | `cpu_thermal_pressure` | `high` → 90, `elevated` → 60, else 0 | sustained > high-temp threshold → 90 |
 | `cpu_frequency_reduction` | throttling `likely` → 85; measured reduction → 70; else 0 | frequency well below base clock → 85 |

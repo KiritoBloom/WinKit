@@ -211,13 +211,13 @@ evidence-backed findings; the LLM explains them:
 
 ```text
 server (MCP over stdio, JSON-RPC 2.0, session lifecycle)
-  â”œâ”€â”€ tools        (51 tool definitions + argument handling + registry)
-  â”‚     â”œâ”€â”€ providers (WindowsBackend / ApplicationProvider traits)
-  â”‚     â””â”€â”€ platform::windows (real Win32 implementations, windows-sys 0.59)
-  â”œâ”€â”€ permissions  (modes, capabilities, policy, approval surface)
-  â”œâ”€â”€ config       (winkit.toml, strict, deny-unknown-keys)
-  â”œâ”€â”€ models       (unified data models shared by providers/tools/diagnostics)
-  â””â”€â”€ diagnostics  (measurements → signals → ranked findings)
+  +-- tools        (51 tool definitions + argument handling + registry)
+  |    +-- providers (WindowsBackend / ApplicationProvider traits)
+  |         +-- platform::windows (real Win32 implementations, windows-sys 0.59)
+  +-- permissions  (modes, capabilities, policy, approval surface)
+  +-- config       (winkit.toml, strict, deny-unknown-keys)
+  +-- models       (unified data models shared by providers/tools/diagnostics)
+  +-- diagnostics  (measurements -> signals -> ranked findings)
 ```
 
 Layering rules are strict: the MCP surface never touches Win32 directly, and

@@ -61,19 +61,19 @@ Not benchmarked: `get_application_errors`,
   completes in well under 100 ms regardless of machine scale, because results
   are bounded and enumeration uses native snapshots.
 - **Hardware telemetry is honest about what it measures.** `disk_health`
-  (�94 ms) reads the non-elevated OS storage-stack health; `thermal_snapshot`
-  (�0.7 s) surveys ACPI thermal zones and PDH frequency; `hardware_snapshot`
-  (�1.2 s) enumerates CPU/GPU/memory/storage/battery devices. `disk_performance`
+  (~94 ms) reads the non-elevated OS storage-stack health; `thermal_snapshot`
+  (~0.7 s) surveys ACPI thermal zones and PDH frequency; `hardware_snapshot`
+  (~1.2 s) enumerates CPU/GPU/memory/storage/battery devices. `disk_performance`
   samples all disks in one PDH query, so it costs roughly its requested
   window (default 1 s) regardless of how many counters or disks exist, and
-  `network_diagnose` bounds ICMP probing (2 pings � 750 ms) so it completes
+  `network_diagnose` bounds ICMP probing (2 pings x ~375 ms) so it completes
   well inside the probe budget even when the router drops ICMP.
 - **Sampling tools cost their window, not their scope.** `snapshot`
-  (�1.9 s) and `system_diagnose` (�2.1 s) include a 1-second resource-sample
+  (~1.9 s) and `system_diagnose` (~2.1 s) include a 1-second resource-sample
   window; `snapshot` additionally aggregates the hardware summaries, which is
-  why it is heavier than `system_health` (�1.4 s).
+  why it is heavier than `system_health` (~1.4 s).
   default (`observe_ms` is configurable).
-- **`dev_environment`** (�3.5 s median) is the only tool that scans the
+- **`dev_environment`** (~3.5 s median) is the only tool that scans the
   filesystem for installed toolchains; its 4.0 s outlier is a cold
   PATH/mount scan.
 

@@ -1,4 +1,4 @@
-﻿# Tool Reference
+# Tool Reference
 
 WinKit registers 51 MCP tools: read-only Windows diagnostics (system,
 processes, network, storage, hardware, power), bounded filesystem reads
@@ -15,7 +15,11 @@ Argument conventions:
 - Event tools cap message text per event (`max_message_chars`, default 600)
   and mark shortened messages with `message_truncated: true`.
 - `list_processes` supports `sort_by` (`memory`/`cpu_time`/`name`/`pid`) and
-  `top` so agents can request "top N by memory" without paging.
+so agents can request "top N by memory" without paging.
+- Arguments are validated against each tool's declared schema before dispatch:
+  unknown arguments (including typos such as `timeout_seconds` instead of
+  `timeout_ms`) are rejected with the list of valid names, and wrong-typed or
+  out-of-enum values fail up front instead of silently falling back to defaults.
 
 ## System
 
@@ -353,7 +357,11 @@ than decoded into mojibake.
 Bounded read of a text file: logs, configs, manifests. UTF-8/UTF-16 BOMs are
 honored; `head` reads from the start, `tail` returns whole-line-aligned end
 of file, `all` returns small files whole. The response carries `encoding`,
-`total_bytes`, `returned_bytes`, and `truncated`.
+honored; `head` reads from the start, `tail` returns whole-line-aligned end
+of file, `all` returns small files whole. The response carries `encoding`,
+`total_bytes`, `returned_bytes`, `truncated`, and `whole_file` (true when
+the entire file fits inside the byte window, in which case every mode
+returns identical content and the requested `mode` is still echoed).
 
 Arguments: `path` (required, absolute), `mode` (`head`/`tail`/`all`, default
 `head`), `max_bytes` (default 32768, cap 262144).
@@ -462,7 +470,17 @@ and implemented in `src/diagnostics/findings.rs`; the ranking is
 deterministic and never arbitrary. Network failure and service instability
 are not part of this diagnosis.
 
-Arguments: `limit` (optional, same semantics as `system_health`).
+Arguments: `limit` (optional, same semantics as `system_health`) and
+`detail` (`compact` | `normal` | `detailed`, default `compact`). The default
+tier keeps every finding, signal, evidence point, and checked-clean entry
+but drops the raw measurement log and the per-application table (returned
+as an omitted-marker with a group count); `normal` restores the measurement
+log; `detailed` also includes the full application table.
+
+Application-memory findings distinguish the executable's own working set
+from its descendant-tree total: when only the tree crosses the threshold,
+the finding is titled a tree footprint, scored from the own footprint, and
+capped below medium severity instead of ranking the shell as critical.
 
 ### `system_health_trend`
 

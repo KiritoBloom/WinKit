@@ -26,10 +26,12 @@ the release build covers both the server binary and the library that docs and
 tests exercise.
 
 Releases are cut from `main` with a version bump, a changelog entry, and a
-tagged build, per [CONTRIBUTING](../CONTRIBUTING.md). The current version is
-`0.1.4` (`Cargo.toml` and both `npm/*/package.json` files); the examples
-below use `vX.Y.Z` and `YYYY-MM-DD` placeholders wherever the actual value is
-decided at release time.
+`main` with a version bump, a changelog entry, and a tagged build, per
+[CONTRIBUTING](../CONTRIBUTING.md). The current version lives in
+`Cargo.toml` and all three `npm/*/package.json` files (including the
+launcher's `optionalDependencies` pins); the examples below use `vX.Y.Z`
+and `YYYY-MM-DD` placeholders wherever the actual value is decided at
+release time.
 
 ## Pre-release checklist
 
@@ -50,7 +52,9 @@ local run is a good proxy for a green tag build.
   tests. No test touches the real machine. The evaluation suite is
   collision-safe and passes under normal parallel Cargo execution.
 - [ ] **Evaluation suite** - `cargo test --features mocks --test eval`
-  passes: 19 deterministic fixture-backed tests (18 scenarios plus a
+**Evaluation suite** - `cargo test --features mocks --test eval`
+  passes: 17 deterministic fixture-backed tests (16 scenarios plus a
+  fixture-concurrency regression test).
   fixture-concurrency regression test).
 - [ ] **Release build** - `cargo build --release` succeeds and produces
   `.\target\release\winkit.exe`. The release profile builds both the binary
@@ -187,7 +191,9 @@ only builds and validates.
 ### Manual fallback
 
 The package version
-must match the crate version (`0.3.0` today). Requirements:
+must match the crate version (keep `Cargo.toml`, all three
+  `npm/*/package.json` versions, and the launcher's `optionalDependencies`
+  pins identical). Requirements:
 
 1. Both packages have been staged and validated locally (the checklist above
    covers pack dry-runs, package-content validation, and the packed-package
@@ -215,7 +221,7 @@ final `npm pack --dry-run` and the packed-package smoke test right before
 publishing. After publishing, verify from a clean directory:
 
 ```bash
-npx --yes @winkit/mcp@0.3.0 doctor
+npx --yes @winkit/mcp@latest doctor
 ```
 
 ## GitHub release notes

@@ -105,7 +105,11 @@ for (const [dir, name, cpu] of [
     assert.strictEqual(pkg.name, name);
     assert.deepStrictEqual(pkg.os, ['win32']);
     assert.deepStrictEqual(pkg.cpu, [cpu]);
-    assert.strictEqual(pkg.bin.winkit, 'bin/winkit.exe');
+    // Native packages must NOT declare a bin command: a bin named `winkit`
+    // collides with the launcher's own bin, and a failed optional-dependency
+    // install (e.g. the arm64 package on x64) made npm's reify rollback
+    // delete every `winkit` shim - which broke `npx @winkit/mcp` entirely.
+    assert.strictEqual(pkg.bin, undefined, 'launcher owns the winkit bin; native packages are resolved by path');
     assert.deepStrictEqual(pkg.files, ['bin', 'skills']);
     assert.ok(!pkg.scripts || !pkg.scripts.install, 'native package must not have install scripts');
     assert.ok(!pkg.dependencies, 'native package carries no dependencies');
